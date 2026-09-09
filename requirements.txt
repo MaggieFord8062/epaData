@@ -1,0 +1,16 @@
+certifi==2026.7.22
+charset-normalizer==3.5.1
+idna==3.19
+numpy==2.0.2
+pandas==2.3.3
+pandas-stubs==2.2.2.240807
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+pytz==2026.3.post1
+requests==2.32.5
+six==1.17.0
+SQLAlchemy==2.0.52
+types-pytz==2025.2.0.20251108
+typing_extensions==4.16.0
+tzdata==2026.3
+urllib3==2.6.3
