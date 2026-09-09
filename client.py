@@ -6,20 +6,32 @@ class CAMPDClient:
 
     def get_data(self, year, state=None):
         url = "https://api.epa.gov/easey/emissions-mgmt/emissions/apportioned/annual"
+        all_items = []
+        page = 1
 
-        params = {
+        while True:
+            params = {
             "api_key": self.api_key,
             "year": year,
-            "page": 1,
-            "perPage": 100
-        }
+            "page": page,
+            "perPage": 500
+            }
 
-        if state:
-            params["stateCode"] = state
+            if state:
+                params["stateCode"] = state
 
-        response = requests.get(url, params=params)
+            response = requests.get(url, params=params)
+            batch = response.json()
 
-        print("Status:", response.status_code)
+            if not batch.get("items"):
+                break
 
-        return response.json()
+            all_items.extend(batch["items"])
+
+            if len(batch["items"]) < 500:
+                break
+
+            page += 1
+
+        return {"items": all_items}
 
