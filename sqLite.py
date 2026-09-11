@@ -45,8 +45,10 @@ CREATE TABLE unit (
 """)
 
 cursor.execute("""
-CREATE TABLE annual_records (
+CREATE TABLE annual_record (
     annual_record_id INTEGER PRIMARY KEY,
+    internal_unit_key INTEGER,
+    reporting_year INTEGER,
     operating_time REAL,
     gross_load REAL,
     steam_load REAL,
@@ -57,7 +59,9 @@ CREATE TABLE annual_records (
     so2_control_info TEXT,
     nox_control_info TEXT,
     pm_control_info TEXT,
-    program_code TEXT
+    program_code TEXT,
+    FOREIGN KEY (internal_unit_key) REFERENCES unit(internal_unit_key),
+    UNIQUE (internal_unit_key, reporting_year),
 );
 """)
 
