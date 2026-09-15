@@ -1,18 +1,12 @@
 import sqlite3
-import os
-
-print("Database file:", os.path.abspath("sqData.db"))
 
 connection = sqlite3.connect("sqData.db")
 cursor = connection.cursor()
 
-cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+for table in ["dataset", "facility", "unit"]:
+    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+    count = cursor.fetchone()[0]
 
-tables = cursor.fetchall()
-
-print("Tables in this database:")
-
-for table in tables:
-    print(table[0])
+    print(f"{table}: {count} rows")
 
 connection.close()

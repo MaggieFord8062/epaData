@@ -256,7 +256,7 @@ def advance_search (
     connection = sqlite3.connect("sqData.db")
     cursor = connection.cursor()
 
-    if type == "facility":
+    if type == "Facility":
         query = """
             SELECT *
             FROM facility
@@ -264,7 +264,7 @@ def advance_search (
             LIMIT ?
         """
 
-    elif type == "unit":
+    elif type == "Unit":
         query = """
             SELECT *
             FROM unit
@@ -272,7 +272,7 @@ def advance_search (
             LIMIT ?
         """
 
-    elif type == "annual_record":
+    elif type == "Annual Record":
         query = """
             SELECT *
             FROM annual_records
