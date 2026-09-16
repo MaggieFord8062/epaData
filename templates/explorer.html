@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><title>Data Explorer</title></head>
+<body>
+    <h1>Data Explorer</h1>
+    <a href="/">Back to Home</a>
+    <table border="1" cellpadding="5">
+        <tr>
+            <th>Facility</th>
+            <th>State</th>
+            <th>Year</th>
+            <th>CO2 Mass</th>
+            <th>SO2 Mass</th>
+            <th>NOx Mass</th>
+        </tr>
+        {% for r in results %}
+        <tr>
+            <td>{{ r.facility_name }}</td>
+            <td>{{ r.state }}</td>
+            <td>{{ r.year }}</td>
+            <td>{{ r.co2_mass }}</td>
+            <td>{{ r.so2_mass }}</td>
+            <td>{{ r.nox_mass }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>

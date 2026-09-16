@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Basic Search - epaData</title>
+</head>
+
+<body>
+
+    <h1>Basic Search</h1>
+
+    <form method="POST"></form>
+
+        <h2>Facility and Unit Information</h2>
+
+        <label>EPA Facility ID:</label>
+        <input type="text" name="epa_facility_id">
+        <br><br>
+
+        <label>Facility Name:</label>
+        <input type="text" name="facility_name">
+        <br><br>
+
+        <label>EPA Unit ID:</label>
+        <input type="text" name="epa_unit_id">
+        <br><br>
+
+        <label>State:</label>
+        <input type="text" name="state">
+        <br><br>
+
+        <label>County:</label>
+        <input type="text" name="county">
+        <br><br>
+
+        <label>Latitude:</label>
+        <input type="text" name="latitude">
+        <br><br>
+
+        <label>Longitude:</label>
+        <input type="text" name="longitude">
+        <br><br>
+
+        <label>Source Category:</label>
+        <input type="text" name="source_category">
+        <br><br>
+
+        <label>Reporting Year:</label>
+        <input type="text" name="reporting_year">
+        <br><br>
+
+        <label>Primary Fuel:</label>
+        <input type="text" name="primary_fuel">
+        <br><br>
+
+        <label>Secondary Fuel:</label>
+        <input type="text" name="secondary_fuel">
+        <br><br>
+
+        <label>Unit Type:</label>
+        <input type="text" name="unit_type">
+        <br><br>
+
+
+        <h2>Operating and Emissions Filters</h2>
+
+
+        <h3>Operating Time</h3>
+
+        <select name="operating_time_operator"
+                onchange="updateRangeInputs('operating_time')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="operating_time_inputs"></div>
+
+
+        <h3>Gross Load</h3>
+
+        <select name="gross_load_operator"
+                onchange="updateRangeInputs('gross_load')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="gross_load_inputs"></div>
+
+
+        <h3>Steam Load</h3>
+
+        <select name="steam_load_operator"
+                onchange="updateRangeInputs('steam_load')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="steam_load_inputs"></div>
+
+
+        <h3>Heat Input</h3>
+
+        <select name="heat_input_operator"
+                onchange="updateRangeInputs('heat_input')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="heat_input_inputs"></div>
+
+
+        <h3>CO2 Mass</h3>
+
+        <select name="co2_mass_operator"
+                onchange="updateRangeInputs('co2_mass')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="co2_mass_inputs"></div>
+
+
+        <h3>SO2 Mass</h3>
+
+        <select name="so2_mass_operator"
+                onchange="updateRangeInputs('so2_mass')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="so2_mass_inputs"></div>
+
+        <h3>NOx Mass</h3>
+
+        <select name="nox_mass_operator"
+                onchange="updateRangeInputs('nox_mass')">
+
+            <option value="">-- Select Operator --</option>
+            <option value=">">Greater than</option>
+            <option value="<">Less than</option>
+            <option value="=">Equals</option>
+            <option value="between">Between</option>
+
+        </select>
+
+        <div id="nox_mass_inputs"></div>
+
+
+        <h2>Pollution Controls</h2>
+
+        <label>SO2 Control:</label>
+        <input type="text" name="so2_control">
+        <br><br>
+
+        <label>NOx Control:</label>
+        <input type="text" name="nox_control">
+        <br><br>
+
+        <label>PM Control:</label>
+        <input type="text" name="pm_control">
+        <br><br>
+
+        <button type="submit">Search</button>
+
+    </form>
+
+    <p>
+        <a href="/search">Back to Search Data</a>
+    </p>
+
+    <script>
+        function updateRangeInputs(field) {
+            const operator = document.querySelector(
+                `select[name="${field}_operator"]`
+            ).value;
+
+            const container = document.getElementById(
+                `${field}_inputs`
+            );
+
+            if (operator === ">") {
+                container.innerHTML = `
+                    <label>Minimum:</label>
+                    <input type="text" name="${field}_min">
+                `;
+            } else if (operator === "<") {
+                container.innerHTML = `
+                    <label>Maximum:</label>
+                    <input type="text" name="${field}_max">
+                `;
+            } else if (operator === "=") {
+                container.innerHTML = `
+                    <label>Value:</label>
+                    <input type="text" name="${field}_equal">
+                `;
+            } else if (operator === "between") {
+                container.innerHTML = `
+                    <label>Minimum:</label>
+                    <input type="text" name="${field}_min">
+
+                    <br><br>
+
+                    <label>Maximum:</label>
+                    <input type="text" name="${field}_max">
+                `;
+            } else {
+                container.innerHTML = "";
+            }
+        }
+    </script>
+</body>
+</html>

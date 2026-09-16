@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Search - epaData</title>
+</head>
+
+<body>
+
+    <h1>Advanced Search</h1>
+
+    <form method="POST"></form>
+    <h2>Type</h2>
+
+        <select name="type"
+            <option value="">-- Select type --</option>
+            <option value="facility">Facility</option>
+            <option value="unit">Unit</option>
+            <option value="annual_record">Annual Record</option>
+
+        </select>
+
+    <script>
+
+    function updateFields() {
+        const type = document.querySelector('select[name="type"]').value;
+        const container = document.getElementById("type_inputs");
+
+        if (type === "facility") {
+            container.innerHTML = `
+                <h3>Facility Fields</h3>
+
+                <label>Sate:</label>
+                <input type="text" name="state">
+
+                <br><br>
+
+                <label>County:</label>
+                <input type="text" name="county">
+
+                <br><br>
+
+                <label>Source Category:</label>
+                <input type="text" name="S=source_category">
+
+                <br><br>
+
+                <label>Rank By:</label>
+                <select name="rank_by">
+                    <option value="">-- Select field --</option>
+                    <option value="co2_mass"CO2</option>
+                    <option value="so2_mass">SO2</option>
+                    <option value="nox_mass">NOx</option>
+                </select>
+            `;
+        }
+
+        else if (type === "unit") {
+            container.innerHTML = `
+                <h3>Unit Fields</h3>
+
+                <label>Unit Type:</label>
+                <input type="text" name="unit_type">
+
+                <br><br>
+
+                <label>Primary Fuel:</label>
+                <input type="text" name="primary_fuel">
+
+                <br><br>
+
+                <label>Secondary Fuel:</label>
+                <input type="text" name="secondary_fuel">
+
+                <label>Sate:</label>
+                <input type="text" name="state">
+
+                <br><br>
+
+                <label>County:</label>
+                <input type="text" name="county">
+
+                <br><br>
+
+                <label>Source Category:</label>
+                <input type="text" name="S=source_category">
+
+                <br><br>
+
+                <label>Rank By:</label>
+                <select name="rank_by">
+                    <option value="">-- Select field --</option>
+                    <option value="co2_mass"CO2</option>
+                    <option value="so2_mass">SO2</option>
+                    <option value="nox_mass">NOx</option>
+                    <option value="gross_load">Gross Load</option>
+                    <option value="heat_input">Heat Input</option>
+                </select>
+            `;
+        }
+
+        else if (type === "annual_record") {
+            container.innerHTML = `
+                <h3>Annual Record Fields</h3>
+
+                <label>Reporting Year:</label>
+                <input type="text" name="reporting_year">
+
+                <br><br>
+
+                <label>Operating Time:</label>
+                <input type="text" name="operating_time">
+
+                <br><br>
+
+                <label>Gross Load:</label>
+                <input type="text" name="gross_load">
+
+                <br><br>
+
+                <label>Heat Input:</label>
+                <input type="text" name="heat_input">
+
+                <br><br>
+
+                <label>CO2 Mass:</label>
+                <input type="text" name="co2_mass">
+
+                <br><br>
+
+                <label>SO2 Mass:</label>
+                <input type="text" name="so2_mass">
+
+                <br><br>
+
+                <label>NOx Mass:</label>
+                <input type="text" name="nox_mass">
+
+                <br><br>
+
+                <label>Rank By:</label>
+                <select name="rank_by">
+                    <option value="">-- Select field --</option>
+                    <option value="co2_mass"CO2</option>
+                    <option value="so2_mass">SO2</option>
+                    <option value="nox_mass">NOx</option>
+                </select>
+            `;
+        }
+
+        else {
+            container.innerHTML = "";
+        }
+    }
+    </script>
+
+
+</body>
+</html>
