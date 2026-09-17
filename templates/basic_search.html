@@ -8,7 +8,7 @@
 
     <h1>Basic Search</h1>
 
-    <form method="POST"></form>
+    <form method="POST">
 
         <h2>Facility and Unit Information</h2>
 
@@ -66,15 +66,12 @@
 
         <h3>Operating Time</h3>
 
-        <select name="operating_time_operator"
-                onchange="updateRangeInputs('operating_time')">
-
+        <select name="operating_time_operator" onchange="updateRangeInputs('operating_time')">
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
-
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
         </select>
 
         <div id="operating_time_inputs"></div>
@@ -86,10 +83,10 @@
                 onchange="updateRangeInputs('gross_load')">
 
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
 
         </select>
 
@@ -102,10 +99,10 @@
                 onchange="updateRangeInputs('steam_load')">
 
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
 
         </select>
 
@@ -118,10 +115,10 @@
                 onchange="updateRangeInputs('heat_input')">
 
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
 
         </select>
 
@@ -134,10 +131,10 @@
                 onchange="updateRangeInputs('co2_mass')">
 
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
 
         </select>
 
@@ -150,10 +147,10 @@
                 onchange="updateRangeInputs('so2_mass')">
 
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
 
         </select>
 
@@ -165,10 +162,10 @@
                 onchange="updateRangeInputs('nox_mass')">
 
             <option value="">-- Select Operator --</option>
-            <option value=">">Greater than</option>
-            <option value="<">Less than</option>
-            <option value="=">Equals</option>
-            <option value="between">Between</option>
+            <option value="Greater than">Greater than</option>
+            <option value="Less than">Less than</option>
+            <option value="Equals">Equals</option>
+            <option value="Between">Between</option>
 
         </select>
 
@@ -207,22 +204,22 @@
                 `${field}_inputs`
             );
 
-            if (operator === ">") {
+            if (operator === "Greater than") {
                 container.innerHTML = `
                     <label>Minimum:</label>
                     <input type="text" name="${field}_min">
                 `;
-            } else if (operator === "<") {
+            } else if (operator === "Less than") {
                 container.innerHTML = `
                     <label>Maximum:</label>
                     <input type="text" name="${field}_max">
                 `;
-            } else if (operator === "=") {
+            } else if (operator === "Equals") {
                 container.innerHTML = `
                     <label>Value:</label>
-                    <input type="text" name="${field}_equal">
+                    <input type="text" name="${field}_equals">
                 `;
-            } else if (operator === "between") {
+            } else if (operator === "Between") {
                 container.innerHTML = `
                     <label>Minimum:</label>
                     <input type="text" name="${field}_min">
