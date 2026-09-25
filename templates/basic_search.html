@@ -1,280 +1,225 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Basic Search - epaData</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
-
 <body>
 
-    <h1>Basic Search</h1>
+<div class="container mt-5 mb-5">
+
+    <div class="text-center mb-4">
+        <h1 class="display-5">Basic Search</h1>
+        <p class="lead">Fill in any filters you want. Leave the rest blank.</p>
+    </div>
 
     <form method="POST">
 
-        <h2>Facility and Unit Information</h2>
+        <!-- Facility and Unit -->
+        <div class="card mb-4">
+            <div class="card-header"><h2 class="h5 mb-0">Facility and Unit</h2></div>
+            <div class="card-body">
+                <div class="row g-3">
 
-        <label>EPA Facility ID:</label>
-        <input type="text" name="epa_facility_id">
-        <br><br>
+                    <div class="col-md-6">
+                        <label class="form-label" for="facility_name">Facility Name</label>
+                        <input class="form-control" type="text" id="facility_name" name="facility_name"
+                               list="facility_name_list" placeholder="Start typing a name..." autocomplete="off">
+                        <datalist id="facility_name_list">
+                            {% for name in facility_names %}
+                            <option value="{{ name }}">
+                            {% endfor %}
+                        </datalist>
+                    </div>
 
-        <label>Facility Name:</label>
-        <input type="text" name="facility_name" list="facility_name_list">
-        <br><br>
+                    <div class="col-md-3">
+                        <label class="form-label" for="state">State</label>
+                        <select class="form-select" id="state" name="state">
+                            <option value="">Any</option>
+                            {% for s in states %}
+                            <option value="{{ s }}">{{ s }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-        <label>EPA Unit ID:</label>
-        <input type="text" name="epa_unit_id">
-        <br><br>
+                    <div class="col-md-3">
+                        <label class="form-label" for="reporting_year">Reporting Year</label>
+                        <select class="form-select" id="reporting_year" name="reporting_year">
+                            <option value="">Any</option>
+                            {% for y in years %}
+                            <option value="{{ y }}">{{ y }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-        <label>State:</label>
-        <input type="text" name="state" list="state_list">
-        <br><br>
+                    {% if counties %}
+                    <div class="col-md-6">
+                        <label class="form-label" for="county">County</label>
+                        <select class="form-select" id="county" name="county">
+                            <option value="">Any</option>
+                            {% for c in counties %}
+                            <option value="{{ c }}">{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
 
-        <label>County:</label>
-        <input type="text" name="county" list="county_list">
-        <br><br>
+                    {% if source_categories %}
+                    <div class="col-md-6">
+                        <label class="form-label" for="source_category">Source Category</label>
+                        <select class="form-select" id="source_category" name="source_category">
+                            <option value="">Any</option>
+                            {% for sc in source_categories %}
+                            <option value="{{ sc }}">{{ sc }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
 
-        <label>Latitude:</label>
-        <input type="text" name="latitude">
-        <br><br>
+                    <div class="col-md-4">
+                        <label class="form-label" for="unit_type">Unit Type</label>
+                        <select class="form-select" id="unit_type" name="unit_type">
+                            <option value="">Any</option>
+                            {% for ut in unit_types %}
+                            <option value="{{ ut }}">{{ ut }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-        <label>Longitude:</label>
-        <input type="text" name="longitude">
-        <br><br>
+                    <div class="col-md-4">
+                        <label class="form-label" for="primary_fuel">Primary Fuel</label>
+                        <select class="form-select" id="primary_fuel" name="primary_fuel">
+                            <option value="">Any</option>
+                            {% for pf in primary_fuels %}
+                            <option value="{{ pf }}">{{ pf }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-        <label>Source Category:</label>
-        <input type="text" name="source_category" list="source_category_list">
-        <br><br>
+                    <div class="col-md-4">
+                        <label class="form-label" for="secondary_fuel">Secondary Fuel</label>
+                        <select class="form-select" id="secondary_fuel" name="secondary_fuel">
+                            <option value="">Any</option>
+                            {% for sf in secondary_fuels %}
+                            <option value="{{ sf }}">{{ sf }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
 
-        <label>Reporting Year:</label>
-        <input type="text" name="reporting_year">
-        <br><br>
+                </div>
+            </div>
+        </div>
 
-        <label>Primary Fuel:</label>
-        <input type="text" name="primary_fuel" list="primary_fuel_list">
-        <br><br>
+        <!-- Operating and Emissions -->
+        <div class="card mb-4">
+            <div class="card-header"><h2 class="h5 mb-0">Operating and Emissions Filters</h2></div>
+            <div class="card-body">
 
-        <label>Secondary Fuel:</label>
-        <input type="text" name="secondary_fuel" list="secondary_fuel_list">
-        <br><br>
+                {% set numeric_fields = [
+                    ("operating_time", "Operating Time", "hours"),
+                    ("gross_load", "Gross Load", "MWh"),
+                    ("steam_load", "Steam Load", "1000 lb"),
+                    ("heat_input", "Heat Input", "mmBtu"),
+                    ("co2_mass", "CO2", "tons"),
+                    ("so2_mass", "SO2", "tons"),
+                    ("nox_mass", "NOx", "tons"),
+                ] %}
 
-        <label>Unit Type:</label>
-        <input type="text" name="unit_type" list="unit_type_list">
-        <br><br>
+                {% for field, label, units in numeric_fields %}
+                <div class="row g-2 align-items-center mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label mb-0" for="{{ field }}_operator">
+                            {{ label }} <span class="text-muted small">({{ units }})</span>
+                        </label>
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" id="{{ field }}_operator" name="{{ field }}_operator"
+                                onchange="updateRangeInputs('{{ field }}')">
+                            <option value="">Any</option>
+                            <option value="Greater than">Greater than</option>
+                            <option value="Less than">Less than</option>
+                            <option value="Equals">Equals</option>
+                            <option value="Between">Between</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="row g-2" id="{{ field }}_inputs"></div>
+                    </div>
+                </div>
+                {% endfor %}
 
+            </div>
+        </div>
 
-        <h2>Operating and Emissions Filters</h2>
+        <!-- Pollution Controls -->
+        <div class="card mb-4">
+            <div class="card-header"><h2 class="h5 mb-0">Pollution Controls</h2></div>
+            <div class="card-body">
+                <p class="text-muted small">Partial matches work. For example, "limestone" finds "Wet Limestone".</p>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label" for="so2_control">SO2 Control</label>
+                        <input class="form-control" type="text" id="so2_control" name="so2_control">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="nox_control">NOx Control</label>
+                        <input class="form-control" type="text" id="nox_control" name="nox_control">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="pm_control">PM Control</label>
+                        <input class="form-control" type="text" id="pm_control" name="pm_control">
+                    </div>
+                </div>
+            </div>
+        </div>
 
-
-        <h3>Operating Time</h3>
-
-        <select name="operating_time_operator" onchange="updateRangeInputs('operating_time')">
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-        </select>
-
-        <div id="operating_time_inputs"></div>
-
-
-        <h3>Gross Load</h3>
-
-        <select name="gross_load_operator"
-                onchange="updateRangeInputs('gross_load')">
-
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-
-        </select>
-
-        <div id="gross_load_inputs"></div>
-
-
-        <h3>Steam Load</h3>
-
-        <select name="steam_load_operator"
-                onchange="updateRangeInputs('steam_load')">
-
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-
-        </select>
-
-        <div id="steam_load_inputs"></div>
-
-
-        <h3>Heat Input</h3>
-
-        <select name="heat_input_operator"
-                onchange="updateRangeInputs('heat_input')">
-
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-
-        </select>
-
-        <div id="heat_input_inputs"></div>
-
-
-        <h3>CO2 Mass</h3>
-
-        <select name="co2_mass_operator"
-                onchange="updateRangeInputs('co2_mass')">
-
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-
-        </select>
-
-        <div id="co2_mass_inputs"></div>
-
-
-        <h3>SO2 Mass</h3>
-
-        <select name="so2_mass_operator"
-                onchange="updateRangeInputs('so2_mass')">
-
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-
-        </select>
-
-        <div id="so2_mass_inputs"></div>
-
-        <h3>NOx Mass</h3>
-
-        <select name="nox_mass_operator"
-                onchange="updateRangeInputs('nox_mass')">
-
-            <option value="">-- Select Operator --</option>
-            <option value="Greater than">Greater than</option>
-            <option value="Less than">Less than</option>
-            <option value="Equals">Equals</option>
-            <option value="Between">Between</option>
-
-        </select>
-
-        <div id="nox_mass_inputs"></div>
-
-
-        <h2>Pollution Controls</h2>
-
-        <label>SO2 Control:</label>
-        <input type="text" name="so2_control">
-        <br><br>
-
-        <label>NOx Control:</label>
-        <input type="text" name="nox_control">
-        <br><br>
-
-        <label>PM Control:</label>
-        <input type="text" name="pm_control">
-        <br><br>
-
-        <button type="submit">Search</button>
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary btn-lg">Search</button>
+            <button type="reset" class="btn btn-outline-secondary btn-lg" onclick="clearRangeInputs()">Clear</button>
+            <a href="/search" class="btn btn-link btn-lg">Back to Search Data</a>
+        </div>
 
     </form>
 
-    <datalist id="facility_name_list">
-        {% for name in facility_names %}
-        <option value="{{ name }}">
-        {% endfor %}
-    </datalist>
+</div>
 
-    <datalist id="state_list">
-        {% for s in states %}
-        <option value="{{ s }}">
-        {% endfor %}
-    </datalist>
+<script>
+    const numericFields = ["operating_time", "gross_load", "steam_load", "heat_input",
+                           "co2_mass", "so2_mass", "nox_mass"];
 
-    <datalist id="county_list">
-        {% for c in counties %}
-        <option value="{{ c }}">
-        {% endfor %}
-    </datalist>
+    function numberBox(name, placeholder) {
+        return `<div class="col">
+                    <input class="form-control" type="text" inputmode="decimal"
+                           name="${name}" placeholder="${placeholder}">
+                </div>`;
+    }
 
-    <datalist id="source_category_list">
-        {% for sc in source_categories %}
-        <option value="{{ sc }}">
-        {% endfor %}
-    </datalist>
+    function updateRangeInputs(field) {
+        const operator = document.getElementById(`${field}_operator`).value;
+        const container = document.getElementById(`${field}_inputs`);
 
-    <datalist id="primary_fuel_list">
-        {% for pf in primary_fuels %}
-        <option value="{{ pf }}">
-        {% endfor %}
-    </datalist>
-
-    <datalist id="secondary_fuel_list">
-        {% for sf in secondary_fuels %}
-        <option value="{{ sf }}">
-        {% endfor %}
-    </datalist>
-
-    <datalist id="unit_type_list">
-        {% for ut in unit_types %}
-        <option value="{{ ut }}">
-        {% endfor %}
-    </datalist>
-
-    <p>
-        <a href="/search">Back to Search Data</a>
-    </p>
-
-    <script>
-        function updateRangeInputs(field) {
-            const operator = document.querySelector(
-                `select[name="${field}_operator"]`
-            ).value;
-
-            const container = document.getElementById(
-                `${field}_inputs`
-            );
-
-            if (operator === "Greater than") {
-                container.innerHTML = `
-                    <label>Minimum:</label>
-                    <input type="text" name="${field}_min">
-                `;
-            } else if (operator === "Less than") {
-                container.innerHTML = `
-                    <label>Maximum:</label>
-                    <input type="text" name="${field}_max">
-                `;
-            } else if (operator === "Equals") {
-                container.innerHTML = `
-                    <label>Value:</label>
-                    <input type="text" name="${field}_equals">
-                `;
-            } else if (operator === "Between") {
-                container.innerHTML = `
-                    <label>Minimum:</label>
-                    <input type="text" name="${field}_min">
-
-                    <br><br>
-
-                    <label>Maximum:</label>
-                    <input type="text" name="${field}_max">
-                `;
-            } else {
-                container.innerHTML = "";
-            }
+        if (operator === "Greater than") {
+            container.innerHTML = numberBox(`${field}_min`, "Minimum");
+        } else if (operator === "Less than") {
+            container.innerHTML = numberBox(`${field}_max`, "Maximum");
+        } else if (operator === "Equals") {
+            container.innerHTML = numberBox(`${field}_equals`, "Value");
+        } else if (operator === "Between") {
+            container.innerHTML = numberBox(`${field}_min`, "Minimum") +
+                                  numberBox(`${field}_max`, "Maximum");
+        } else {
+            container.innerHTML = "";
         }
-    </script>
+    }
+
+    function clearRangeInputs() {
+        numericFields.forEach(field => {
+            document.getElementById(`${field}_inputs`).innerHTML = "";
+        });
+    }
+</script>
+
 </body>
 </html>

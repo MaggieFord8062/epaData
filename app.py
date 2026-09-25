@@ -66,26 +66,24 @@ def basic_search():
 
     session = SessionLocal()
 
-    states = sorted({s[0] for s in session.query(Facility.state).distinct().all() if s[0]})
-    counties = sorted({c[0] for c in session.query(Facility.county).distinct().all() if c[0]})
-    facility_names = sorted({f[0] for f in session.query(Facility.facility_name).distinct().all() if f[0]})
-    source_categories = sorted({c[0] for c in session.query(Facility.source_category).distinct().all() if c[0]})
-    unit_types = sorted({u[0] for u in session.query(Unit.unit_type).distinct().all() if u[0]})
-    primary_fuels = sorted({p[0] for p in session.query(Unit.primary_fuel).distinct().all() if p[0]})
-    secondary_fuels = sorted({s[0] for s in session.query(Unit.secondary_fuel).distinct().all() if s[0]})
+    def distinct_values(column):
+        """Every non-empty value stored in a column, sorted."""
+        return sorted({v[0] for v in session.query(column).distinct().all() if v[0] not in (None, "")})
+
+    options = {
+        "facility_names": distinct_values(Facility.facility_name),
+        "states": distinct_values(Facility.state),
+        "counties": distinct_values(Facility.county),
+        "source_categories": distinct_values(Facility.source_category),
+        "years": sorted(distinct_values(AnnualRecord.year), reverse=True),
+        "unit_types": distinct_values(Unit.unit_type),
+        "primary_fuels": distinct_values(Unit.primary_fuel),
+        "secondary_fuels": distinct_values(Unit.secondary_fuel),
+    }
 
     session.close()
 
-    return render_template(
-        "basic_search.html",
-        states=states,
-        counties=counties,
-        facility_names=facility_names,
-        source_categories=source_categories,
-        unit_types=unit_types,
-        primary_fuels=primary_fuels,
-        secondary_fuels=secondary_fuels,
-    )
+    return render_template("basic_search.html", **options)
 
 
 @app.route("/advanced-search", methods=["GET", "POST"])
