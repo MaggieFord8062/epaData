@@ -1,376 +1,221 @@
 import sqlite3
 
-def search_data (
-    epa_facility_id=None,
-    facility_name=None,
-    epa_unit_id=None,
-    state=None,
-    county=None,
-    latitude=None,
-    longitude=None,
-    source_category=None,
-    reporting_year=None,
-    primary_fuel=None,
-    secondary_fuel=None,
-    unit_type=None,
-    operating_time_operator=None,
-    operating_time_equals=None,
-    operating_time_min=None,
-    operating_time_max=None,
-    gross_load_operator=None,
-    gross_load_equals=None,
-    gross_load_min=None,
-    gross_load_max=None,
-    steam_load_operator=None,
-    steam_load_equals=None,
-    steam_load_min=None,
-    steam_load_max=None,
-    heat_input_operator=None,
-    heat_input_equals=None,
-    heat_input_min=None,
-    heat_input_max=None,
-    co2_mass_operator=None,
-    co2_mass_equals=None,
-    co2_mass_min=None,
-    co2_mass_max=None,
-    so2_mass_operator=None,
-    so2_mass_equals=None,
-    so2_mass_min=None,
-    so2_mass_max=None,
-    nox_mass_operator=None,
-    nox_mass_equals=None,
-    nox_mass_min=None,
-    nox_mass_max=None,
-    so2_control=None,
-    nox_control=None,
-    pm_control=None
-):
+DB_PATH = "epaData.db"
 
-    connection = sqlite3.connect("epaData.db")
+# Columns shown on the results page, with readable header names
+RESULT_COLUMNS = """
+    facility.facility_name          AS "Facility",
+    facility.epa_facility_id        AS "Facility ID",
+    facility.state                  AS "State",
+    facility.county                 AS "County",
+    unit.epa_unit_id                AS "Unit",
+    unit.unit_type                  AS "Unit Type",
+    unit.primary_fuel               AS "Primary Fuel",
+    unit.secondary_fuel             AS "Secondary Fuel",
+    annual_records.year             AS "Year",
+    annual_records.operating_time   AS "Operating Time (hrs)",
+    annual_records.gross_load       AS "Gross Load (MWh)",
+    annual_records.steam_load       AS "Steam Load (1000 lb)",
+    annual_records.heat_input       AS "Heat Input (mmBtu)",
+    annual_records.co2_mass         AS "CO2 (tons)",
+    annual_records.so2_mass         AS "SO2 (tons)",
+    annual_records.nox_mass         AS "NOx (tons)",
+    annual_records.so2_control_info AS "SO2 Controls",
+    annual_records.nox_control_info AS "NOx Controls",
+    annual_records.pm_control_info  AS "PM Controls",
+    annual_records.program_code     AS "Programs"
+"""
+
+BASE_JOIN = """
+    FROM facility
+    JOIN unit
+        ON facility.epa_facility_id = unit.epa_facility_id
+    JOIN annual_records
+        ON unit.internal_unit_key = annual_records.internal_unit_key
+"""
+
+# Text filters: form field name -> database column (exact match)
+TEXT_FILTERS = {
+    "epa_facility_id": "facility.epa_facility_id",
+    "facility_name": "facility.facility_name",
+    "epa_unit_id": "unit.epa_unit_id",
+    "state": "facility.state",
+    "county": "facility.county",
+    "source_category": "facility.source_category",
+    "reporting_year": "annual_records.year",
+    "primary_fuel": "unit.primary_fuel",
+    "secondary_fuel": "unit.secondary_fuel",
+    "unit_type": "unit.unit_type",
+}
+
+# Control filters use a partial match, since one unit can list several controls
+CONTROL_FILTERS = {
+    "so2_control": "annual_records.so2_control_info",
+    "nox_control": "annual_records.nox_control_info",
+    "pm_control": "annual_records.pm_control_info",
+}
+
+# Numeric filters: form field prefix -> database column
+NUMERIC_FILTERS = {
+    "operating_time": "annual_records.operating_time",
+    "gross_load": "annual_records.gross_load",
+    "steam_load": "annual_records.steam_load",
+    "heat_input": "annual_records.heat_input",
+    "co2_mass": "annual_records.co2_mass",
+    "so2_mass": "annual_records.so2_mass",
+    "nox_mass": "annual_records.nox_mass",
+}
+
+
+def to_number(value):
+    """Turn a form value into a float, or None if it's empty or not a number."""
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def run_query(query, parameters):
+    """Run a query and return a list of dicts like {"Facility": "...", "State": "KY", ...}."""
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
+    cursor.execute(query, parameters)
+    results = [dict(row) for row in cursor.fetchall()]
+    connection.close()
+    return results
 
-    query = """
-        SELECT *
-        FROM facility 
-        JOIN unit 
-            ON facility.epa_facility_id = unit.epa_facility_id
-        JOIN annual_records 
-            ON unit.internal_unit_key = annual_records.internal_unit_key
-        WHERE 1=1
-    """
+
+def build_basic_query(**filters):
+    """Build the basic search SQL and its parameters from the form fields."""
+    query = f"SELECT {RESULT_COLUMNS} {BASE_JOIN} WHERE 1=1"
     parameters = []
 
-    if epa_facility_id:
-        query += " AND facility.epa_facility_id = ?"
-        parameters.append(epa_facility_id)
+    for field, column in TEXT_FILTERS.items():
+        value = (filters.get(field) or "").strip()
+        if value:
+            query += f" AND {column} = ?"
+            parameters.append(value)
 
-    if facility_name:
-        query += " AND facility.facility_name = ?"
-        parameters.append(facility_name)
+    for field, column in CONTROL_FILTERS.items():
+        value = (filters.get(field) or "").strip()
+        if value:
+            query += f" AND {column} LIKE ?"
+            parameters.append(f"%{value}%")
 
-    if epa_unit_id:
-        query += " AND unit.epa_unit_id = ?"
-        parameters.append(epa_unit_id)
+    for field, column in NUMERIC_FILTERS.items():
+        operator = filters.get(f"{field}_operator")
+        low = to_number(filters.get(f"{field}_min"))
+        high = to_number(filters.get(f"{field}_max"))
+        equal = to_number(filters.get(f"{field}_equals"))
 
-    if state:
-        query += " AND facility.state = ?"
-        parameters.append(state)
+        if operator == "Equals" and equal is not None:
+            query += f" AND {column} = ?"
+            parameters.append(equal)
 
-    if county:
-        query += " AND facility.county = ?"
-        parameters.append(county)
+        elif operator == "Greater than" and low is not None:
+            query += f" AND {column} > ?"
+            parameters.append(low)
 
-    if latitude:
-        query += " AND facility.latitude = ?"
-        parameters.append(latitude)
+        elif operator == "Less than" and high is not None:
+            query += f" AND {column} < ?"
+            parameters.append(high)
 
-    if longitude:
-        query += " AND facility.longitude = ?"
-        parameters.append(longitude)
+        elif operator == "Between" and low is not None and high is not None:
+            if low > high:
+                low, high = high, low
+            query += f" AND {column} BETWEEN ? AND ?"
+            parameters.extend([low, high])
 
-    if source_category:
-        query += " AND facility.source_category = ?"
-        parameters.append(source_category)
-
-    if reporting_year:
-        query += " AND annual_records.year = ?"
-        parameters.append(reporting_year)
-
-    if primary_fuel:
-        query += " AND unit.primary_fuel = ?"
-        parameters.append(primary_fuel)
-
-    if secondary_fuel:
-        query += " AND unit.secondary_fuel = ?"
-        parameters.append(secondary_fuel)
-
-    if unit_type:
-        query += " AND unit.unit_type = ?"
-        parameters.append(unit_type)
-
-    if operating_time_operator == "Equals":
-        query += " AND annual_records.operating_time = ?"
-        parameters.append(operating_time_equals)
-
-    elif operating_time_operator == "Less than":
-        query += " AND annual_records.operating_time < ?"
-        parameters.append(operating_time_max)
-
-    elif operating_time_operator == "Greater than":
-        query += " AND annual_records.operating_time > ?"
-        parameters.append(operating_time_min)
-
-    elif operating_time_operator == "Between":
-        query += " AND annual_records.operating_time BETWEEN ? AND ?"
-        parameters.append(operating_time_max)
-        parameters.append(operating_time_min)
-
-    if gross_load_operator == "Equals":
-        query += " AND annual_records.gross_load = ?"
-        parameters.append(gross_load_equals)
-
-    elif gross_load_operator == "Less than":
-        query += " AND annual_records.gross_load < ?"
-        parameters.append(gross_load_max)
-
-    elif gross_load_operator == "Greater than":
-        query += " AND annual_records.gross_load > ?"
-        parameters.append(gross_load_min)
-
-    elif gross_load_operator == "Between":
-        query += " AND annual_records.gross_load BETWEEN ? AND ?"
-        parameters.append(gross_load_max)
-        parameters.append(gross_load_min)
-
-    if steam_load_operator == "Equals":
-        query += " AND annual_records.steam_load = ?"
-        parameters.append(steam_load_equals)
-
-    elif steam_load_operator == "Less than":
-        query += " AND annual_records.steam_load < ?"
-        parameters.append(steam_load_max)
-
-    elif steam_load_operator == "Greater than":
-        query += " AND annual_records.steam_load > ?"
-        parameters.append(steam_load_min)
-
-    elif steam_load_operator == "Between":
-        query += " AND annual_records.steam_load BETWEEN ? AND ?"
-        parameters.append(steam_load_max)
-        parameters.append(steam_load_min)
-
-    if heat_input_operator == "Equals":
-        query += " AND annual_records.heat_input = ?"
-        parameters.append(heat_input_equals)
-
-    elif heat_input_operator == "Less than":
-        query += " AND annual_records.heat_input < ?"
-        parameters.append(heat_input_max)
-
-    elif heat_input_operator == "Greater than":
-        query += " AND annual_records.heat_input > ?"
-        parameters.append(heat_input_min)
-
-    elif heat_input_operator == "Between":
-        query += " AND annual_records.heat_input BETWEEN ? AND ?"
-        parameters.append(heat_input_max)
-        parameters.append(heat_input_min)
-
-    if co2_mass_operator == "Equals":
-        query += " AND annual_records.co2_mass = ?"
-        parameters.append(co2_mass_equals)
-
-    elif co2_mass_operator == "Less than":
-        query += " AND annual_records.co2_mass < ?"
-        parameters.append(co2_mass_max)
-
-    elif co2_mass_operator == "Greater than":
-        query += " AND annual_records.co2_mass > ?"
-        parameters.append(co2_mass_min)
-
-    elif co2_mass_operator == "Between":
-        query += " AND annual_records.co2_mass BETWEEN ? AND ?"
-        parameters.append(co2_mass_max)
-        parameters.append(co2_mass_min)
-
-    if so2_mass_operator == "Equals":
-        query += " AND annual_records.so2_mass = ?"
-        parameters.append(so2_mass_equals)
-
-    elif so2_mass_operator == "Less than":
-        query += " AND annual_records.so2_mass < ?"
-        parameters.append(so2_mass_max)
-
-    elif so2_mass_operator == "Greater than":
-        query += " AND annual_records.so2_mass > ?"
-        parameters.append(so2_mass_min)
-
-    elif so2_mass_operator == "Between":
-        query += " AND annual_records.so2_mass BETWEEN ? AND ?"
-        parameters.append(so2_mass_max)
-        parameters.append(so2_mass_min)
-
-    if nox_mass_operator == "Equals":
-        query += " AND annual_records.nox_mass = ?"
-        parameters.append(nox_mass_equals)
-
-    elif nox_mass_operator == "Less than":
-        query += " AND annual_records.nox_mass < ?"
-        parameters.append(nox_mass_max)
-
-    elif nox_mass_operator == "Greater than":
-        query += " AND annual_records.nox_mass > ?"
-        parameters.append(nox_mass_min)
-
-    elif nox_mass_operator == "Between":
-        query += " AND annual_records.nox_mass BETWEEN ? AND ?"
-        parameters.append(nox_mass_max)
-        parameters.append(nox_mass_min)
-
-    if so2_control:
-        query += " AND annual_records.so2_control_info = ?"
-        parameters.append(so2_control)
-
-    if nox_control:
-        query += " AND annual_records.nox_control_info = ?"
-        parameters.append(nox_control)
-
-    if pm_control:
-        query += " AND annual_records.pm_control_info = ?"
-        parameters.append(pm_control)
+    query += " ORDER BY facility.facility_name, unit.epa_unit_id, annual_records.year"
+    return query, parameters
 
 
-    cursor.execute(query, parameters)
-    results = cursor.fetchall()
+def search_data(**filters):
+    query, parameters = build_basic_query(**filters)
+    return run_query(query, parameters)
 
-    connection.close()
 
-    return results
-def advance_search (
-    type=None,
-    limit=None,
-    order="DESC",
-    field=None,
-    state=None,
-    county=None,
-    source_category=None,
-    unit_type=None,
-    primary_fuel=None,
-    secondary_fuel=None,
-    reporting_year=None,
-    operating_time=None,
-    gross_load=None,
-    heat_input=None,
-    co2_mass=None,
-    so2_mass=None,
-    nox_mass=None,
-):
-    connection = sqlite3.connect("epaData.db")
-    cursor = connection.cursor()
+# Fields the advanced search can rank by: form value -> column header
+RANK_FIELDS = {
+    "co2_mass": "CO2 (tons)",
+    "so2_mass": "SO2 (tons)",
+    "nox_mass": "NOx (tons)",
+    "gross_load": "Gross Load (MWh)",
+    "heat_input": "Heat Input (mmBtu)",
+    "operating_time": "Operating Time (hrs)",
+}
 
-    allowed_fields = {"co2_mass", "so2_mass", "nox_mass", "gross_load", "heat_input", "operating_time"}
-    allowed_orders = {"ASC", "DESC"}
 
-    if order not in allowed_orders:
-        order = "DESC"
-
+def build_advanced_query(type=None, limit=None, order="DESC", field=None, **filters):
+    """Build the advanced search SQL and its parameters."""
+    order = "ASC" if order == "ASC" else "DESC"
     parameters = []
 
     if type == "Facility":
-        query = "SELECT * FROM facility WHERE 1=1"
-
-        if state:
-            query += " AND state = ?"
-            parameters.append(state)
-
-        if county:
-            query += " AND county = ?"
-            parameters.append(county)
-
-        if source_category:
-            query += " AND source_category = ?"
-            parameters.append(source_category)
+        # One row per facility, with emissions totaled across all its units
+        query = """
+            SELECT
+                facility.facility_name             AS "Facility",
+                facility.epa_facility_id           AS "Facility ID",
+                facility.state                     AS "State",
+                facility.county                    AS "County",
+                COUNT(DISTINCT unit.internal_unit_key) AS "Units",
+                SUM(annual_records.operating_time) AS "Operating Time (hrs)",
+                SUM(annual_records.gross_load)     AS "Gross Load (MWh)",
+                SUM(annual_records.heat_input)     AS "Heat Input (mmBtu)",
+                SUM(annual_records.co2_mass)       AS "CO2 (tons)",
+                SUM(annual_records.so2_mass)       AS "SO2 (tons)",
+                SUM(annual_records.nox_mass)       AS "NOx (tons)"
+        """ + BASE_JOIN + " WHERE 1=1"
+        allowed = ["state", "county", "source_category", "reporting_year"]
+        group_by = " GROUP BY facility.epa_facility_id"
 
     elif type == "Unit":
-        query = """
-            SELECT *
-            FROM unit
-            JOIN facility ON unit.epa_facility_id = facility.epa_facility_id
-            WHERE 1=1
-        """
-
-        if unit_type:
-            query += " AND unit.unit_type = ?"
-            parameters.append(unit_type)
-
-        if primary_fuel:
-            query += " AND unit.primary_fuel = ?"
-            parameters.append(primary_fuel)
-
-        if secondary_fuel:
-            query += " AND unit.secondary_fuel = ?"
-            parameters.append(secondary_fuel)
-
-        if state:
-            query += " AND facility.state = ?"
-            parameters.append(state)
-
-        if county:
-            query += " AND facility.county = ?"
-            parameters.append(county)
-
-        if source_category:
-            query += " AND facility.source_category = ?"
-            parameters.append(source_category)
+        query = f"SELECT {RESULT_COLUMNS} {BASE_JOIN} WHERE 1=1"
+        allowed = ["unit_type", "primary_fuel", "secondary_fuel", "state",
+                   "county", "source_category", "reporting_year"]
+        group_by = ""
 
     elif type == "Annual Record":
-        query = "SELECT * FROM annual_records WHERE 1=1"
-
-        if reporting_year:
-            query += " AND year = ?"
-            parameters.append(reporting_year)
-
-        if operating_time:
-            query += " AND operating_time = ?"
-            parameters.append(operating_time)
-
-        if gross_load:
-            query += " AND gross_load = ?"
-            parameters.append(gross_load)
-
-        if heat_input:
-            query += " AND heat_input = ?"
-            parameters.append(heat_input)
-
-        if co2_mass:
-            query += " AND co2_mass = ?"
-            parameters.append(co2_mass)
-
-        if so2_mass:
-            query += " AND so2_mass = ?"
-            parameters.append(so2_mass)
-
-        if nox_mass:
-            query += " AND nox_mass = ?"
-            parameters.append(nox_mass)
+        query = f"SELECT {RESULT_COLUMNS} {BASE_JOIN} WHERE 1=1"
+        allowed = ["reporting_year"]
+        group_by = ""
 
     else:
+        return None, []
+
+    for name in allowed:
+        value = (filters.get(name) or "").strip()
+        if value:
+            query += f" AND {TEXT_FILTERS[name]} = ?"
+            parameters.append(value)
+
+    # Exact-value numeric fields on the Annual Record form
+    if type == "Annual Record":
+        for name, column in NUMERIC_FILTERS.items():
+            number = to_number(filters.get(name))
+            if number is not None:
+                query += f" AND {column} = ?"
+                parameters.append(number)
+
+    query += group_by
+
+    if field in RANK_FIELDS:
+        header = RANK_FIELDS[field]
+        # Rows with no value always go last
+        query += f' ORDER BY "{header}" IS NULL, "{header}" {order}'
+
+    number = to_number(limit)
+    if number is not None and number > 0:
+        query += " LIMIT ?"
+        parameters.append(int(number))
+
+    return query, parameters
+
+
+def advance_search(**options):
+    query, parameters = build_advanced_query(**options)
+    if query is None:
         return []
-
-    if field in allowed_fields and type == "Annual Record":
-        query += f" ORDER BY {field} {order}"
-
-    if limit:
-        try:
-            limit = int(limit)
-            query += " LIMIT ?"
-            parameters.append(limit)
-        except ValueError:
-            pass
-
-    cursor.execute(query, parameters)
-    results = cursor.fetchall()
-
-    connection.close()
-
-    return results
+    return run_query(query, parameters)

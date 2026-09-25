@@ -1,9 +1,9 @@
 """
-get_all_data.py
+ingest.py
 Pulls EPA CAMPD annual emissions data for ALL states and saves it to epaData.db.
 
 Run from the project folder:
-    python get_all_data.py
+    python ingest.py
 
 Safe to run more than once: records already in the database are skipped.
 """
