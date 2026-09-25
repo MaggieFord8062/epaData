@@ -28,6 +28,9 @@ def home():
         states=states,
     )
 
+@app.route("/index")
+def index():
+    return render_template("index.html")
 
 @app.route("/explorer")
 def explorer():
