@@ -17,7 +17,7 @@
         <br><br>
 
         <label>Facility Name:</label>
-        <input type="text" name="facility_name">
+        <input type="text" name="facility_name" list="facility_name_list">
         <br><br>
 
         <label>EPA Unit ID:</label>
@@ -25,11 +25,11 @@
         <br><br>
 
         <label>State:</label>
-        <input type="text" name="state">
+        <input type="text" name="state" list="state_list">
         <br><br>
 
         <label>County:</label>
-        <input type="text" name="county">
+        <input type="text" name="county" list="county_list">
         <br><br>
 
         <label>Latitude:</label>
@@ -41,7 +41,7 @@
         <br><br>
 
         <label>Source Category:</label>
-        <input type="text" name="source_category">
+        <input type="text" name="source_category" list="source_category_list">
         <br><br>
 
         <label>Reporting Year:</label>
@@ -49,15 +49,15 @@
         <br><br>
 
         <label>Primary Fuel:</label>
-        <input type="text" name="primary_fuel">
+        <input type="text" name="primary_fuel" list="primary_fuel_list">
         <br><br>
 
         <label>Secondary Fuel:</label>
-        <input type="text" name="secondary_fuel">
+        <input type="text" name="secondary_fuel" list="secondary_fuel_list">
         <br><br>
 
         <label>Unit Type:</label>
-        <input type="text" name="unit_type">
+        <input type="text" name="unit_type" list="unit_type_list">
         <br><br>
 
 
@@ -189,6 +189,48 @@
         <button type="submit">Search</button>
 
     </form>
+
+    <datalist id="facility_name_list">
+        {% for name in facility_names %}
+        <option value="{{ name }}">
+        {% endfor %}
+    </datalist>
+
+    <datalist id="state_list">
+        {% for s in states %}
+        <option value="{{ s }}">
+        {% endfor %}
+    </datalist>
+
+    <datalist id="county_list">
+        {% for c in counties %}
+        <option value="{{ c }}">
+        {% endfor %}
+    </datalist>
+
+    <datalist id="source_category_list">
+        {% for sc in source_categories %}
+        <option value="{{ sc }}">
+        {% endfor %}
+    </datalist>
+
+    <datalist id="primary_fuel_list">
+        {% for pf in primary_fuels %}
+        <option value="{{ pf }}">
+        {% endfor %}
+    </datalist>
+
+    <datalist id="secondary_fuel_list">
+        {% for sf in secondary_fuels %}
+        <option value="{{ sf }}">
+        {% endfor %}
+    </datalist>
+
+    <datalist id="unit_type_list">
+        {% for ut in unit_types %}
+        <option value="{{ ut }}">
+        {% endfor %}
+    </datalist>
 
     <p>
         <a href="/search">Back to Search Data</a>

@@ -246,45 +246,127 @@ def search_data (
     connection.close()
 
     return results
-
 def advance_search (
     type=None,
     limit=None,
     order="DESC",
-    field=None
+    field=None,
+    state=None,
+    county=None,
+    source_category=None,
+    unit_type=None,
+    primary_fuel=None,
+    secondary_fuel=None,
+    reporting_year=None,
+    operating_time=None,
+    gross_load=None,
+    heat_input=None,
+    co2_mass=None,
+    so2_mass=None,
+    nox_mass=None,
 ):
     connection = sqlite3.connect("epaData.db")
     cursor = connection.cursor()
 
+    allowed_fields = {"co2_mass", "so2_mass", "nox_mass", "gross_load", "heat_input", "operating_time"}
+    allowed_orders = {"ASC", "DESC"}
+
+    if order not in allowed_orders:
+        order = "DESC"
+
+    parameters = []
+
     if type == "Facility":
-        query = f"""
-            SELECT *
-            FROM facility
-            ORDER BY {field} {order}
-        """
+        query = "SELECT * FROM facility WHERE 1=1"
+
+        if state:
+            query += " AND state = ?"
+            parameters.append(state)
+
+        if county:
+            query += " AND county = ?"
+            parameters.append(county)
+
+        if source_category:
+            query += " AND source_category = ?"
+            parameters.append(source_category)
 
     elif type == "Unit":
-        query = f"""
+        query = """
             SELECT *
             FROM unit
-            ORDER BY {field} {order}
+            JOIN facility ON unit.epa_facility_id = facility.epa_facility_id
+            WHERE 1=1
         """
 
+        if unit_type:
+            query += " AND unit.unit_type = ?"
+            parameters.append(unit_type)
+
+        if primary_fuel:
+            query += " AND unit.primary_fuel = ?"
+            parameters.append(primary_fuel)
+
+        if secondary_fuel:
+            query += " AND unit.secondary_fuel = ?"
+            parameters.append(secondary_fuel)
+
+        if state:
+            query += " AND facility.state = ?"
+            parameters.append(state)
+
+        if county:
+            query += " AND facility.county = ?"
+            parameters.append(county)
+
+        if source_category:
+            query += " AND facility.source_category = ?"
+            parameters.append(source_category)
+
     elif type == "Annual Record":
-        query = f"""
-            SELECT *
-            FROM annual_records
-            ORDER BY {field} {order}
-        """
+        query = "SELECT * FROM annual_records WHERE 1=1"
+
+        if reporting_year:
+            query += " AND year = ?"
+            parameters.append(reporting_year)
+
+        if operating_time:
+            query += " AND operating_time = ?"
+            parameters.append(operating_time)
+
+        if gross_load:
+            query += " AND gross_load = ?"
+            parameters.append(gross_load)
+
+        if heat_input:
+            query += " AND heat_input = ?"
+            parameters.append(heat_input)
+
+        if co2_mass:
+            query += " AND co2_mass = ?"
+            parameters.append(co2_mass)
+
+        if so2_mass:
+            query += " AND so2_mass = ?"
+            parameters.append(so2_mass)
+
+        if nox_mass:
+            query += " AND nox_mass = ?"
+            parameters.append(nox_mass)
 
     else:
         return []
 
+    if field in allowed_fields and type == "Annual Record":
+        query += f" ORDER BY {field} {order}"
+
     if limit:
-        query += " LIMIT ?"
-        parameters = [limit]
-    else:
-        parameters = []
+        try:
+            limit = int(limit)
+            query += " LIMIT ?"
+            parameters.append(limit)
+        except ValueError:
+            pass
 
     cursor.execute(query, parameters)
     results = cursor.fetchall()

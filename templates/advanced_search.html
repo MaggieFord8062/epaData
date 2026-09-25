@@ -8,16 +8,41 @@
 
     <h1>Advanced Search</h1>
 
-    <form method="POST"></form>
-    <h2>Type</h2>
+    <form method="POST">
 
-        <select name="type"
+        <h2>Type</h2>
+
+        <select name="type" onchange="updateFields()">
             <option value="">-- Select type --</option>
-            <option value="facility">Facility</option>
-            <option value="unit">Unit</option>
-            <option value="annual_record">Annual Record</option>
-
+            <option value="Facility">Facility</option>
+            <option value="Unit">Unit</option>
+            <option value="Annual Record">Annual Record</option>
         </select>
+
+        <div id="type_inputs"></div>
+
+        <br><br>
+
+        <label>Order:</label>
+        <select name="order">
+            <option value="DESC">Descending</option>
+            <option value="ASC">Ascending</option>
+        </select>
+
+        <br><br>
+
+        <label>Limit:</label>
+        <input type="text" name="limit">
+
+        <br><br>
+
+        <button type="submit">Search</button>
+
+    </form>
+
+    <p>
+        <a href="/search">Back to Search Data</a>
+    </p>
 
     <script>
 
@@ -25,11 +50,11 @@
         const type = document.querySelector('select[name="type"]').value;
         const container = document.getElementById("type_inputs");
 
-        if (type === "facility") {
+        if (type === "Facility") {
             container.innerHTML = `
                 <h3>Facility Fields</h3>
 
-                <label>Sate:</label>
+                <label>State:</label>
                 <input type="text" name="state">
 
                 <br><br>
@@ -40,21 +65,21 @@
                 <br><br>
 
                 <label>Source Category:</label>
-                <input type="text" name="S=source_category">
+                <input type="text" name="source_category">
 
                 <br><br>
 
                 <label>Rank By:</label>
-                <select name="rank_by">
+                <select name="field">
                     <option value="">-- Select field --</option>
-                    <option value="co2_mass"CO2</option>
+                    <option value="co2_mass">CO2</option>
                     <option value="so2_mass">SO2</option>
                     <option value="nox_mass">NOx</option>
                 </select>
             `;
         }
 
-        else if (type === "unit") {
+        else if (type === "Unit") {
             container.innerHTML = `
                 <h3>Unit Fields</h3>
 
@@ -71,7 +96,9 @@
                 <label>Secondary Fuel:</label>
                 <input type="text" name="secondary_fuel">
 
-                <label>Sate:</label>
+                <br><br>
+
+                <label>State:</label>
                 <input type="text" name="state">
 
                 <br><br>
@@ -82,14 +109,14 @@
                 <br><br>
 
                 <label>Source Category:</label>
-                <input type="text" name="S=source_category">
+                <input type="text" name="source_category">
 
                 <br><br>
 
                 <label>Rank By:</label>
-                <select name="rank_by">
+                <select name="field">
                     <option value="">-- Select field --</option>
-                    <option value="co2_mass"CO2</option>
+                    <option value="co2_mass">CO2</option>
                     <option value="so2_mass">SO2</option>
                     <option value="nox_mass">NOx</option>
                     <option value="gross_load">Gross Load</option>
@@ -98,7 +125,7 @@
             `;
         }
 
-        else if (type === "annual_record") {
+        else if (type === "Annual Record") {
             container.innerHTML = `
                 <h3>Annual Record Fields</h3>
 
@@ -138,9 +165,9 @@
                 <br><br>
 
                 <label>Rank By:</label>
-                <select name="rank_by">
+                <select name="field">
                     <option value="">-- Select field --</option>
-                    <option value="co2_mass"CO2</option>
+                    <option value="co2_mass">CO2</option>
                     <option value="so2_mass">SO2</option>
                     <option value="nox_mass">NOx</option>
                 </select>

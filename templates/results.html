@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Search Results - epaData</title>
+</head>
+<body>
+
+    <h1>Search Results</h1>
+
+    <p>{{ results|length }} record(s) found</p>
+
+    {% if results %}
+    <table border="1" cellpadding="4">
+        <tr>
+            {% for i in range(results[0]|length) %}
+                <th>Col {{ i }}</th>
+            {% endfor %}
+        </tr>
+        {% for row in results %}
+        <tr>
+            {% for value in row %}
+                <td>{{ value }}</td>
+            {% endfor %}
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+        <p>No matching records.</p>
+    {% endif %}
+
+    <p><a href="/basic-search">New Search</a></p>
+
+</body>
+</html>

@@ -1,120 +1,116 @@
+"""
+get_all_data.py
+Pulls EPA CAMPD annual emissions data for ALL states and saves it to epaData.db.
+
+Run from the project folder:
+    python get_all_data.py
+
+Safe to run more than once: records already in the database are skipped.
+"""
 import os
-from datetime import datetime
-import pandas as pd
 from dotenv import load_dotenv
 from client import CAMPDClient
 from database import SessionLocal
-from models import Facility, Unit, AnnualRecord, Dataset
+from models import Facility, Unit, AnnualRecord
+
+# Add more years here if you want them, e.g. [2022, 2023, 2024]
+YEARS = [2024]
 
 load_dotenv()
 api_key = os.getenv("CAMPD_API_KEY")
-client = CAMPDClient(api_key)
+if not api_key:
+    print("No CAMPD_API_KEY found in .env")
+    raise SystemExit(1)
 
+client = CAMPDClient(api_key)
 session = SessionLocal()
 
-STATES = [
-    "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
-    "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
-    "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
-    "VA","WA","WV","WI","WY"
-]
-YEAR = 2024
+# Load what's already in the database so we don't query it once per row
+facilities = {f.epa_facility_id for f in session.query(Facility).all()}
+units = {(u.epa_facility_id, u.epa_unit_id): u.internal_unit_key for u in session.query(Unit).all()}
+existing = {
+    (r.epa_facility_id, r.internal_unit_key, r.year)
+    for r in session.query(AnnualRecord).all()
+}
 
-all_items = []
+total_inserted = 0
+total_skipped = 0
 
-for state in STATES:
-    data = client.get_data(YEAR, state)
-    items = data["items"]
-    all_items.extend(items)
+for year in YEARS:
+    print(f"\nFetching {year} data for all states (this can take a minute)...")
+    items = client.get_data(year)  # no state = every state
+    items = items["items"]
+    print(f"  Fetched {len(items)} records from the API")
 
-    dataset = Dataset(
-        dataset_name=f"CAMPD Annual Emissions - {state} {YEAR}",
-        data_source="EPA CAMPD API (emissions-mgmt/emissions/apportioned/annual)",
-        reporting_year=str(YEAR),
-        retrieval_date=datetime.now().isoformat(),
-        og_filename=None,
-        num_raw_records=len(items),
-        num_accepted_records=None,
-        notes=f"Retrieved via CAM API, state filter {state}"
-    )
-    session.add(dataset)
-    session.flush()
-    print(f"Logged dataset: {state} {YEAR} — {len(items)} raw records (dataset_id={dataset.dataset_id})")
-
-df = pd.DataFrame(all_items)
-print(f"\nTotal records to ingest: {len(df)}")
-
-skipped = []
-inserted = 0
-
-for _, row in df.iterrows():
-    facility_id = row["facilityId"]
-    unit_id = row["unitId"]
-    year = row["year"]
-
-    facility = session.get(Facility, facility_id)
-    if facility is None:
-        facility = Facility(
-            epa_facility_id=facility_id,
-            facility_name=row["facilityName"],
-            state=row["stateCode"],
-            county=None,
-            latitude=None,
-            longitude=None,
-            source_category=None,
-        )
-        session.add(facility)
-        session.flush()
-
-    unit = session.query(Unit).filter_by(
-        epa_facility_id=facility_id, epa_unit_id=unit_id
-    ).first()
-    if unit is None:
-        unit = Unit(
-            epa_facility_id=facility_id,
-            epa_unit_id=unit_id,
-            unit_type=row["unitType"],
-            primary_fuel=row["primaryFuelInfo"],
-            secondary_fuel=row["secondaryFuelInfo"],
-            operating_date=None,
-            retirement_date=None,
-        )
-        session.add(unit)
-        session.flush()
-
-    existing = session.query(AnnualRecord).filter_by(
-        epa_facility_id=facility_id,
-        internal_unit_key=unit.internal_unit_key,
-        year=year
-    ).first()
-
-    if existing:
-        skipped.append((facility_id, unit_id, year))
+    if not items:
+        print("  Nothing came back. Check your API key or try again later.")
         continue
 
-    record = AnnualRecord(
-        epa_facility_id=facility_id,
-        internal_unit_key=unit.internal_unit_key,
-        year=year,
-        operating_time=row["sumOpTime"],
-        gross_load=row["grossLoad"],
-        steam_load=row["steamLoad"],
-        heat_input=row["heatInput"],
-        co2_mass=row["co2Mass"],
-        so2_mass=row["so2Mass"],
-        nox_mass=row["noxMass"],
-        so2_control_info=row["so2ControlInfo"],
-        nox_control_info=row["noxControlInfo"],
-        pm_control_info=row["pmControlInfo"],
-        program_code=row["programCodeInfo"],
-    )
-    session.add(record)
-    inserted += 1
+    inserted = 0
+    skipped = 0
 
-session.commit()
+    for row in items:
+        facility_id = row["facilityId"]
+        unit_id = str(row["unitId"])
+
+        # Facility
+        if facility_id not in facilities:
+            session.add(Facility(
+                epa_facility_id=facility_id,
+                facility_name=row.get("facilityName"),
+                state=row.get("stateCode"),
+            ))
+            session.flush()
+            facilities.add(facility_id)
+
+        # Unit
+        unit_key = units.get((facility_id, unit_id))
+        if unit_key is None:
+            unit = Unit(
+                epa_facility_id=facility_id,
+                epa_unit_id=unit_id,
+                unit_type=row.get("unitType"),
+                primary_fuel=row.get("primaryFuelInfo"),
+                secondary_fuel=row.get("secondaryFuelInfo"),
+            )
+            session.add(unit)
+            session.flush()
+            unit_key = unit.internal_unit_key
+            units[(facility_id, unit_id)] = unit_key
+
+        # Annual record
+        record_key = (facility_id, unit_key, row["year"])
+        if record_key in existing:
+            skipped += 1
+            continue
+
+        session.add(AnnualRecord(
+            epa_facility_id=facility_id,
+            internal_unit_key=unit_key,
+            year=row["year"],
+            operating_time=row.get("sumOpTime"),
+            gross_load=row.get("grossLoad"),
+            steam_load=row.get("steamLoad"),
+            heat_input=row.get("heatInput"),
+            co2_mass=row.get("co2Mass"),
+            so2_mass=row.get("so2Mass"),
+            nox_mass=row.get("noxMass"),
+            so2_control_info=row.get("so2ControlInfo"),
+            nox_control_info=row.get("noxControlInfo"),
+            pm_control_info=row.get("pmControlInfo"),
+            program_code=row.get("programCodeInfo"),
+        ))
+        existing.add(record_key)
+        inserted += 1
+
+    session.commit()
+    print(f"  Inserted: {inserted}   Skipped (already in DB): {skipped}")
+    total_inserted += inserted
+    total_skipped += skipped
+
 session.close()
 
-print(f"\nInserted: {inserted}")
-print(f"Skipped (duplicates): {len(skipped)}")
-if skipped:
-    print("Duplicate keys skipped:", skipped[:5], "..." if len(skipped) > 5 else "")
+print("\nDone.")
+print(f"Total inserted: {total_inserted}")
+print(f"Total skipped:  {total_skipped}")
+print(f"Data saved in:  {os.path.abspath('epaData.db')}")
