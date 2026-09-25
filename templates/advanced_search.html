@@ -1,185 +1,76 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Advanced Search - epaData</title>
-</head>
+{% extends "base.html" %}
 
-<body>
+{% block title %}Rankings - epaData{% endblock %}
 
-    <h1>Advanced Search</h1>
+{% block content %}
 
-    <form method="POST">
+<div class="page-head">
+    <h1>Rankings</h1>
+    <p>Find the biggest or smallest emitters. Facility rankings add up every unit at the plant.</p>
+</div>
 
-        <h2>Type</h2>
+<form class="panel" method="POST">
 
-        <select name="type" onchange="updateFields()">
-            <option value="">-- Select type --</option>
-            <option value="Facility">Facility</option>
-            <option value="Unit">Unit</option>
-            <option value="Annual Record">Annual Record</option>
+    <div class="segmented" role="radiogroup" aria-label="Rank">
+        <input type="radio" id="type-facility" name="type" value="Facility" checked>
+        <label for="type-facility">Facilities</label>
+        <input type="radio" id="type-unit" name="type" value="Unit">
+        <label for="type-unit">Units</label>
+    </div>
+
+    <div class="rank-sentence" style="margin-top: 26px;">
+        <span>Show the</span>
+        <select class="control" name="order" aria-label="Order">
+            <option value="DESC">top</option>
+            <option value="ASC">bottom</option>
         </select>
-
-        <div id="type_inputs"></div>
-
-        <br><br>
-
-        <label>Order:</label>
-        <select name="order">
-            <option value="DESC">Descending</option>
-            <option value="ASC">Ascending</option>
+        <select class="control" name="limit" aria-label="How many">
+            {% for n in [10, 25, 50, 100] %}
+            <option value="{{ n }}">{{ n }}</option>
+            {% endfor %}
         </select>
+        <span>by</span>
+        <select class="control" name="field" aria-label="Rank by">
+            {% for value, header in rank_fields.items() %}
+            <option value="{{ value }}">{{ header }}</option>
+            {% endfor %}
+        </select>
+    </div>
 
-        <br><br>
+    <div class="filter-grid" style="margin-top: 28px;">
+        <div class="field">
+            <label for="state">State</label>
+            <select class="control" id="state" name="state">
+                <option value="">All states</option>
+                {% for s in states %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="reporting_year">Reporting year</label>
+            <select class="control" id="reporting_year" name="reporting_year">
+                <option value="">All years</option>
+                {% for y in years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="unit_type">Unit type</label>
+            <select class="control" id="unit_type" name="unit_type">
+                <option value="">All unit types</option>
+                {% for u in unit_types %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="primary_fuel">Primary fuel</label>
+            <select class="control" id="primary_fuel" name="primary_fuel">
+                <option value="">All fuels</option>
+                {% for f in primary_fuels %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+            </select>
+        </div>
+    </div>
 
-        <label>Limit:</label>
-        <input type="text" name="limit">
-
-        <br><br>
-
-        <button type="submit">Search</button>
-
-    </form>
-
-    <p>
-        <a href="/search">Back to Search Data</a>
+    <p style="margin: 28px 0 0;">
+        <button class="btn btn-primary" type="submit">Show ranking</button>
     </p>
+</form>
 
-    <script>
-
-    function updateFields() {
-        const type = document.querySelector('select[name="type"]').value;
-        const container = document.getElementById("type_inputs");
-
-        if (type === "Facility") {
-            container.innerHTML = `
-                <h3>Facility Fields</h3>
-
-                <label>State:</label>
-                <input type="text" name="state">
-
-                <br><br>
-
-                <label>County:</label>
-                <input type="text" name="county">
-
-                <br><br>
-
-                <label>Source Category:</label>
-                <input type="text" name="source_category">
-
-                <br><br>
-
-                <label>Rank By:</label>
-                <select name="field">
-                    <option value="">-- Select field --</option>
-                    <option value="co2_mass">CO2</option>
-                    <option value="so2_mass">SO2</option>
-                    <option value="nox_mass">NOx</option>
-                </select>
-            `;
-        }
-
-        else if (type === "Unit") {
-            container.innerHTML = `
-                <h3>Unit Fields</h3>
-
-                <label>Unit Type:</label>
-                <input type="text" name="unit_type">
-
-                <br><br>
-
-                <label>Primary Fuel:</label>
-                <input type="text" name="primary_fuel">
-
-                <br><br>
-
-                <label>Secondary Fuel:</label>
-                <input type="text" name="secondary_fuel">
-
-                <br><br>
-
-                <label>State:</label>
-                <input type="text" name="state">
-
-                <br><br>
-
-                <label>County:</label>
-                <input type="text" name="county">
-
-                <br><br>
-
-                <label>Source Category:</label>
-                <input type="text" name="source_category">
-
-                <br><br>
-
-                <label>Rank By:</label>
-                <select name="field">
-                    <option value="">-- Select field --</option>
-                    <option value="co2_mass">CO2</option>
-                    <option value="so2_mass">SO2</option>
-                    <option value="nox_mass">NOx</option>
-                    <option value="gross_load">Gross Load</option>
-                    <option value="heat_input">Heat Input</option>
-                </select>
-            `;
-        }
-
-        else if (type === "Annual Record") {
-            container.innerHTML = `
-                <h3>Annual Record Fields</h3>
-
-                <label>Reporting Year:</label>
-                <input type="text" name="reporting_year">
-
-                <br><br>
-
-                <label>Operating Time:</label>
-                <input type="text" name="operating_time">
-
-                <br><br>
-
-                <label>Gross Load:</label>
-                <input type="text" name="gross_load">
-
-                <br><br>
-
-                <label>Heat Input:</label>
-                <input type="text" name="heat_input">
-
-                <br><br>
-
-                <label>CO2 Mass:</label>
-                <input type="text" name="co2_mass">
-
-                <br><br>
-
-                <label>SO2 Mass:</label>
-                <input type="text" name="so2_mass">
-
-                <br><br>
-
-                <label>NOx Mass:</label>
-                <input type="text" name="nox_mass">
-
-                <br><br>
-
-                <label>Rank By:</label>
-                <select name="field">
-                    <option value="">-- Select field --</option>
-                    <option value="co2_mass">CO2</option>
-                    <option value="so2_mass">SO2</option>
-                    <option value="nox_mass">NOx</option>
-                </select>
-            `;
-        }
-
-        else {
-            container.innerHTML = "";
-        }
-    }
-    </script>
-
-
-</body>
-</html>
+{% endblock %}

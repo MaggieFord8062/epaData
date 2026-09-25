@@ -1,28 +1,35 @@
-<!DOCTYPE html>
-<html>
-<head><title>Data Explorer</title></head>
-<body>
-    <h1>Data Explorer</h1>
-    <a href="/">Back to Home</a>
-    <table border="1" cellpadding="5">
-        <tr>
-            <th>Facility</th>
-            <th>State</th>
-            <th>Year</th>
-            <th>CO2 Mass</th>
-            <th>SO2 Mass</th>
-            <th>NOx Mass</th>
-        </tr>
-        {% for r in results %}
-        <tr>
-            <td>{{ r.facility_name }}</td>
-            <td>{{ r.state }}</td>
-            <td>{{ r.year }}</td>
-            <td>{{ r.co2_mass }}</td>
-            <td>{{ r.so2_mass }}</td>
-            <td>{{ r.nox_mass }}</td>
-        </tr>
-        {% endfor %}
+{% extends "base.html" %}
+
+{% block title %}Explorer - epaData{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Explorer</h1>
+    <p>The first 100 records, alphabetical by facility. Use Search to filter them.</p>
+</div>
+
+<div class="table-wrap">
+    <table class="data">
+        <thead>
+            <tr>
+                <th>Facility</th><th>State</th><th>Year</th>
+                <th class="num">CO2 (tons)</th><th class="num">SO2 (tons)</th><th class="num">NOx (tons)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in results %}
+            <tr>
+                <td class="name"><a href="/basic-search?facility_name={{ r.facility_name|urlencode }}">{{ r.facility_name }}</a></td>
+                <td>{{ r.state }}</td>
+                <td>{{ r.year }}</td>
+                {% for v in [r.co2_mass, r.so2_mass, r.nox_mass] %}
+                <td class="num">{% if v is none %}<span class="dim">—</span>{% else %}{{ "{:,.1f}".format(v) }}{% endif %}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
     </table>
-</body>
-</html>
+</div>
+
+{% endblock %}

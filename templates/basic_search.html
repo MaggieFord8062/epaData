@@ -1,225 +1,352 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Basic Search - epaData</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body>
+{% extends "base.html" %}
 
-<div class="container mt-5 mb-5">
+{% block title %}Search records - epaData{% endblock %}
 
-    <div class="text-center mb-4">
-        <h1 class="display-5">Basic Search</h1>
-        <p class="lead">Fill in any filters you want. Leave the rest blank.</p>
-    </div>
+{% set dropdowns = [
+    ("state", "State", "state"),
+    ("reporting_year", "Reporting year", "reporting_year"),
+    ("unit_type", "Unit type", "unit_type"),
+    ("primary_fuel", "Primary fuel", "primary_fuel"),
+    ("secondary_fuel", "Secondary fuel", "secondary_fuel"),
+    ("county", "County", "county"),
+    ("source_category", "Source category", "source_category"),
+] %}
 
-    <form method="POST">
+{% set numeric_fields = [
+    ("co2_mass", "CO2", "tons"),
+    ("so2_mass", "SO2", "tons"),
+    ("nox_mass", "NOx", "tons"),
+    ("gross_load", "Gross load", "MWh"),
+    ("heat_input", "Heat input", "mmBtu"),
+    ("steam_load", "Steam load", "1000 lb"),
+    ("operating_time", "Operating time", "hours"),
+] %}
 
-        <!-- Facility and Unit -->
-        <div class="card mb-4">
-            <div class="card-header"><h2 class="h5 mb-0">Facility and Unit</h2></div>
-            <div class="card-body">
-                <div class="row g-3">
+{% block content %}
 
-                    <div class="col-md-6">
-                        <label class="form-label" for="facility_name">Facility Name</label>
-                        <input class="form-control" type="text" id="facility_name" name="facility_name"
-                               list="facility_name_list" placeholder="Start typing a name..." autocomplete="off">
-                        <datalist id="facility_name_list">
-                            {% for name in facility_names %}
-                            <option value="{{ name }}">
-                            {% endfor %}
-                        </datalist>
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label" for="state">State</label>
-                        <select class="form-select" id="state" name="state">
-                            <option value="">Any</option>
-                            {% for s in states %}
-                            <option value="{{ s }}">{{ s }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="col-md-3">
-                        <label class="form-label" for="reporting_year">Reporting Year</label>
-                        <select class="form-select" id="reporting_year" name="reporting_year">
-                            <option value="">Any</option>
-                            {% for y in years %}
-                            <option value="{{ y }}">{{ y }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    {% if counties %}
-                    <div class="col-md-6">
-                        <label class="form-label" for="county">County</label>
-                        <select class="form-select" id="county" name="county">
-                            <option value="">Any</option>
-                            {% for c in counties %}
-                            <option value="{{ c }}">{{ c }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    {% endif %}
-
-                    {% if source_categories %}
-                    <div class="col-md-6">
-                        <label class="form-label" for="source_category">Source Category</label>
-                        <select class="form-select" id="source_category" name="source_category">
-                            <option value="">Any</option>
-                            {% for sc in source_categories %}
-                            <option value="{{ sc }}">{{ sc }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    {% endif %}
-
-                    <div class="col-md-4">
-                        <label class="form-label" for="unit_type">Unit Type</label>
-                        <select class="form-select" id="unit_type" name="unit_type">
-                            <option value="">Any</option>
-                            {% for ut in unit_types %}
-                            <option value="{{ ut }}">{{ ut }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="col-md-4">
-                        <label class="form-label" for="primary_fuel">Primary Fuel</label>
-                        <select class="form-select" id="primary_fuel" name="primary_fuel">
-                            <option value="">Any</option>
-                            {% for pf in primary_fuels %}
-                            <option value="{{ pf }}">{{ pf }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="col-md-4">
-                        <label class="form-label" for="secondary_fuel">Secondary Fuel</label>
-                        <select class="form-select" id="secondary_fuel" name="secondary_fuel">
-                            <option value="">Any</option>
-                            {% for sf in secondary_fuels %}
-                            <option value="{{ sf }}">{{ sf }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                </div>
-            </div>
-        </div>
-
-        <!-- Operating and Emissions -->
-        <div class="card mb-4">
-            <div class="card-header"><h2 class="h5 mb-0">Operating and Emissions Filters</h2></div>
-            <div class="card-body">
-
-                {% set numeric_fields = [
-                    ("operating_time", "Operating Time", "hours"),
-                    ("gross_load", "Gross Load", "MWh"),
-                    ("steam_load", "Steam Load", "1000 lb"),
-                    ("heat_input", "Heat Input", "mmBtu"),
-                    ("co2_mass", "CO2", "tons"),
-                    ("so2_mass", "SO2", "tons"),
-                    ("nox_mass", "NOx", "tons"),
-                ] %}
-
-                {% for field, label, units in numeric_fields %}
-                <div class="row g-2 align-items-center mb-3">
-                    <div class="col-md-3">
-                        <label class="form-label mb-0" for="{{ field }}_operator">
-                            {{ label }} <span class="text-muted small">({{ units }})</span>
-                        </label>
-                    </div>
-                    <div class="col-md-3">
-                        <select class="form-select" id="{{ field }}_operator" name="{{ field }}_operator"
-                                onchange="updateRangeInputs('{{ field }}')">
-                            <option value="">Any</option>
-                            <option value="Greater than">Greater than</option>
-                            <option value="Less than">Less than</option>
-                            <option value="Equals">Equals</option>
-                            <option value="Between">Between</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="row g-2" id="{{ field }}_inputs"></div>
-                    </div>
-                </div>
-                {% endfor %}
-
-            </div>
-        </div>
-
-        <!-- Pollution Controls -->
-        <div class="card mb-4">
-            <div class="card-header"><h2 class="h5 mb-0">Pollution Controls</h2></div>
-            <div class="card-body">
-                <p class="text-muted small">Partial matches work. For example, "limestone" finds "Wet Limestone".</p>
-                <div class="row g-3">
-                    <div class="col-md-4">
-                        <label class="form-label" for="so2_control">SO2 Control</label>
-                        <input class="form-control" type="text" id="so2_control" name="so2_control">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label" for="nox_control">NOx Control</label>
-                        <input class="form-control" type="text" id="nox_control" name="nox_control">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label" for="pm_control">PM Control</label>
-                        <input class="form-control" type="text" id="pm_control" name="pm_control">
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-primary btn-lg">Search</button>
-            <button type="reset" class="btn btn-outline-secondary btn-lg" onclick="clearRangeInputs()">Clear</button>
-            <a href="/search" class="btn btn-link btn-lg">Back to Search Data</a>
-        </div>
-
-    </form>
-
+<div class="page-head">
+    <h1>Search records</h1>
+    <p>Every list only offers values that exist for the filters you've already picked, so a search always has something to show.</p>
 </div>
 
+<form class="panel" id="search-form" method="POST" action="/basic-search">
+
+    <div class="filter-grid">
+
+        <div class="field wide">
+            <label for="facility_name">Facility</label>
+            <input class="control" type="text" id="facility_name" name="facility_name"
+                   list="facility_name_list" placeholder="Start typing a name"
+                   value="{{ selected.get('facility_name', '') }}" autocomplete="off">
+            <datalist id="facility_name_list">
+                {% for name in options.facility_name %}
+                <option value="{{ name }}">
+                {% endfor %}
+            </datalist>
+        </div>
+
+        {% for name, label, facet in dropdowns %}
+        <div class="field" data-facet="{{ facet }}" {% if not options[facet] %}hidden{% endif %}>
+            <label for="{{ name }}">{{ label }}</label>
+            <select class="control" id="{{ name }}" name="{{ name }}">
+                <option value="">Any</option>
+                {% for value in options[facet] %}
+                <option value="{{ value }}" {% if selected.get(name) == value|string %}selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endfor %}
+
+    </div>
+
+    <details class="more" id="more-filters"
+             {% if selected.keys()|select('in', ['co2_mass_operator','so2_mass_operator','nox_mass_operator','gross_load_operator','heat_input_operator','steam_load_operator','operating_time_operator','so2_control','nox_control','pm_control'])|list %}open{% endif %}>
+        <summary>
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M3 1.5 6.5 5 3 8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Emissions, operating and control filters
+        </summary>
+
+        <div class="number-rows">
+            {% for field, label, units in numeric_fields %}
+            {% set op = selected.get(field ~ '_operator', '') %}
+            <div class="number-row" data-number="{{ field }}">
+                <div class="label-cell">
+                    <span class="name">{{ label }} <span class="muted">({{ units }})</span></span>
+                    <span class="hint" data-range="{{ field }}"></span>
+                </div>
+                <select class="control" name="{{ field }}_operator" aria-label="{{ label }} comparison">
+                    {% for value, text in [("", "Any amount"), ("Greater than", "More than"), ("Less than", "Less than"), ("Between", "Between"), ("Equals", "Exactly")] %}
+                    <option value="{{ value }}" {% if op == value %}selected{% endif %}>{{ text }}</option>
+                    {% endfor %}
+                </select>
+                <input class="control" type="text" inputmode="decimal" name="{{ field }}_min"
+                       placeholder="Minimum" value="{{ selected.get(field ~ '_min', '') }}" aria-label="{{ label }} minimum">
+                <input class="control" type="text" inputmode="decimal" name="{{ field }}_max"
+                       placeholder="Maximum" value="{{ selected.get(field ~ '_max', '') }}" aria-label="{{ label }} maximum">
+                <input class="control" type="text" inputmode="decimal" name="{{ field }}_equals"
+                       placeholder="Value" value="{{ selected.get(field ~ '_equals', '') }}" aria-label="{{ label }} value">
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="control-grid">
+            {% for name, label in [("so2_control", "SO2 control"), ("nox_control", "NOx control"), ("pm_control", "PM control")] %}
+            <div class="field">
+                <label for="{{ name }}">{{ label }}</label>
+                <input class="control" type="text" id="{{ name }}" name="{{ name }}"
+                       placeholder="e.g. limestone" value="{{ selected.get(name, '') }}">
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+
+    <noscript>
+        <p><button class="btn btn-primary" type="submit">Search</button></p>
+    </noscript>
+</form>
+
+<div id="results-area">
+    <div class="summary">
+        <h2 class="count" id="count" aria-live="polite">{{ "{:,}".format(count) }} <small>records</small></h2>
+        <div class="summary-actions">
+            <button class="btn-link btn" type="button" id="clear-all">Clear all filters</button>
+        </div>
+    </div>
+
+    <div class="chips" id="chips"></div>
+
+    <div class="table-wrap" id="table-wrap"></div>
+    <p class="table-note" id="table-note"></p>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
 <script>
-    const numericFields = ["operating_time", "gross_load", "steam_load", "heat_input",
-                           "co2_mass", "so2_mass", "nox_mass"];
+(function () {
+    const form = document.getElementById("search-form");
+    const area = document.getElementById("results-area");
+    const facets = ["state", "reporting_year", "unit_type", "primary_fuel",
+                    "secondary_fuel", "county", "source_category"];
 
-    function numberBox(name, placeholder) {
-        return `<div class="col">
-                    <input class="form-control" type="text" inputmode="decimal"
-                           name="${name}" placeholder="${placeholder}">
-                </div>`;
+    const labels = {
+        facility_name: "Facility", state: "State", reporting_year: "Year",
+        unit_type: "Unit type", primary_fuel: "Primary fuel", secondary_fuel: "Secondary fuel",
+        county: "County", source_category: "Source category",
+        so2_control: "SO2 control", nox_control: "NOx control", pm_control: "PM control",
+        co2_mass: "CO2", so2_mass: "SO2", nox_mass: "NOx", gross_load: "Gross load",
+        heat_input: "Heat input", steam_load: "Steam load", operating_time: "Operating time",
+    };
+
+    const columns = [
+        ["Facility", "name"], ["State"], ["Unit"], ["Year"], ["Unit Type"], ["Primary Fuel"],
+        ["Gross Load (MWh)", "num"], ["Heat Input (mmBtu)", "num"],
+        ["CO2 (tons)", "num"], ["SO2 (tons)", "num"], ["NOx (tons)", "num"],
+    ];
+
+    const numberFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+    const wholeFormat = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+    const niceNumber = text => {
+        const n = Number(String(text).replace(/,/g, ""));
+        return Number.isFinite(n) ? wholeFormat.format(n) : text;
+    };
+    let requestId = 0;
+    let timer = null;
+
+    function escapeHtml(text) {
+        return String(text).replace(/[&<>"']/g, c => (
+            {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]
+        ));
     }
 
-    function updateRangeInputs(field) {
-        const operator = document.getElementById(`${field}_operator`).value;
-        const container = document.getElementById(`${field}_inputs`);
+    function formatValue(value, kind) {
+        if (value === null || value === undefined || value === "") return '<span class="dim">—</span>';
+        if (kind === "num") return numberFormat.format(value);
+        return escapeHtml(value);
+    }
 
-        if (operator === "Greater than") {
-            container.innerHTML = numberBox(`${field}_min`, "Minimum");
-        } else if (operator === "Less than") {
-            container.innerHTML = numberBox(`${field}_max`, "Maximum");
-        } else if (operator === "Equals") {
-            container.innerHTML = numberBox(`${field}_equals`, "Value");
-        } else if (operator === "Between") {
-            container.innerHTML = numberBox(`${field}_min`, "Minimum") +
-                                  numberBox(`${field}_max`, "Maximum");
-        } else {
-            container.innerHTML = "";
+    // Only send the fields that are filled in, and only the number boxes the operator uses
+    function currentFilters() {
+        const params = new URLSearchParams();
+        for (const [key, value] of new FormData(form)) {
+            if (String(value).trim() === "") continue;
+            const match = key.match(/^(.*)_(min|max|equals)$/);
+            if (match) {
+                const op = form.elements[`${match[1]}_operator`].value;
+                const needed = { "Greater than": ["min"], "Less than": ["max"],
+                                 "Between": ["min", "max"], "Equals": ["equals"] }[op] || [];
+                if (!needed.includes(match[2])) continue;
+            }
+            params.append(key, value.trim());
         }
+        return params;
     }
 
-    function clearRangeInputs() {
-        numericFields.forEach(field => {
-            document.getElementById(`${field}_inputs`).innerHTML = "";
+    function showNumberBoxes(row) {
+        const field = row.dataset.number;
+        const op = form.elements[`${field}_operator`].value;
+        const show = { "Greater than": ["min"], "Less than": ["max"],
+                       "Between": ["min", "max"], "Equals": ["equals"] }[op] || [];
+        ["min", "max", "equals"].forEach(part => {
+            form.elements[`${field}_${part}`].hidden = !show.includes(part);
         });
     }
-</script>
 
-</body>
-</html>
+    function markSetControls() {
+        form.querySelectorAll("select.control, input.control").forEach(el => {
+            el.classList.toggle("is-set", el.tagName === "SELECT" && el.value !== "");
+        });
+    }
+
+    function updateDropdowns(options) {
+        facets.forEach(facet => {
+            const select = form.elements[facet];
+            const current = select.value;
+            const values = options[facet] || [];
+            select.innerHTML = '<option value="">Any</option>' + values.map(v =>
+                `<option value="${escapeHtml(v)}"${String(v) === current ? " selected" : ""}>${escapeHtml(v)}</option>`
+            ).join("");
+            select.closest(".field").hidden = values.length === 0 && !current;
+        });
+
+        document.getElementById("facility_name_list").innerHTML =
+            (options.facility_name || []).map(n => `<option value="${escapeHtml(n)}">`).join("");
+    }
+
+    function updateRanges(ranges) {
+        Object.entries(ranges).forEach(([field, [low, high]]) => {
+            const hint = form.querySelector(`[data-range="${field}"]`);
+            hint.textContent = low === null
+                ? "No values for this selection"
+                : `Ranges from ${wholeFormat.format(low)} to ${wholeFormat.format(high)}`;
+        });
+    }
+
+    function updateChips(params) {
+        const chips = [];
+        const seen = new Set();
+        for (const [key] of params) {
+            const base = key.replace(/_(operator|min|max|equals)$/, "");
+            if (seen.has(base)) continue;
+            seen.add(base);
+
+            let text;
+            if (params.has(`${base}_operator`)) {
+                const op = params.get(`${base}_operator`);
+                const min = params.get(`${base}_min`), max = params.get(`${base}_max`);
+                if (op === "Between" && min && max) text = `${labels[base]} ${niceNumber(min)} to ${niceNumber(max)}`;
+                else if (op === "Greater than" && min) text = `${labels[base]} over ${niceNumber(min)}`;
+                else if (op === "Less than" && max) text = `${labels[base]} under ${niceNumber(max)}`;
+                else if (op === "Equals" && params.get(`${base}_equals`)) text = `${labels[base]} = ${niceNumber(params.get(`${base}_equals`))}`;
+                else continue;
+            } else {
+                text = `${labels[base] || base}: ${params.get(key)}`;
+            }
+            chips.push(`<button type="button" class="chip" data-remove="${escapeHtml(base)}"
+                aria-label="Remove ${escapeHtml(text)}">${escapeHtml(text)}
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>`);
+        }
+        document.getElementById("chips").innerHTML = chips.join("");
+    }
+
+    function updateTable(rows, count) {
+        const wrap = document.getElementById("table-wrap");
+        const note = document.getElementById("table-note");
+
+        if (count === 0) {
+            wrap.innerHTML = `<div class="empty">
+                <h3>No records match these number filters</h3>
+                <p>The dropdowns can't produce an empty search, but the amounts you typed are outside the ranges shown. Widen them or remove one.</p>
+                <button type="button" class="btn btn-quiet" id="empty-clear">Clear all filters</button>
+            </div>`;
+            note.textContent = "";
+            document.getElementById("empty-clear").addEventListener("click", clearAll);
+            return;
+        }
+
+        wrap.innerHTML = `<table class="data">
+            <thead><tr>${columns.map(([h, kind]) => `<th class="${kind || ""}">${h}</th>`).join("")}</tr></thead>
+            <tbody>${rows.map(row => `<tr>${columns.map(([h, kind]) =>
+                `<td class="${kind || ""}">${formatValue(row[h], kind)}</td>`).join("")}</tr>`).join("")}
+            </tbody>
+        </table>`;
+
+        note.textContent = count > rows.length
+            ? `Showing the first ${rows.length} of ${numberFormat.format(count)} records. Add filters to narrow it down.`
+            : "";
+    }
+
+    async function refresh() {
+        const params = currentFilters();
+        const id = ++requestId;
+        area.classList.add("is-loading");
+        history.replaceState(null, "", params.toString() ? `?${params}` : location.pathname);
+
+        const response = await fetch(`/api/filter-options?${params}`);
+        const data = await response.json();
+        if (id !== requestId) return;  // a newer request already started
+
+        updateDropdowns(data.options);
+        updateRanges(data.ranges);
+        updateChips(params);
+        updateTable(data.rows, data.count);
+        document.getElementById("count").innerHTML =
+            `${numberFormat.format(data.count)} <small>record${data.count === 1 ? "" : "s"}</small>`;
+        markSetControls();
+        area.classList.remove("is-loading");
+    }
+
+    function refreshSoon() {
+        clearTimeout(timer);
+        timer = setTimeout(refresh, 300);
+    }
+
+    function clearAll() {
+        form.querySelectorAll("input.control").forEach(el => el.value = "");
+        form.querySelectorAll("select.control").forEach(el => el.value = "");
+        form.querySelectorAll(".number-row").forEach(showNumberBoxes);
+        refresh();
+    }
+
+    form.addEventListener("change", e => {
+        if (e.target.name && e.target.name.endsWith("_operator")) {
+            showNumberBoxes(e.target.closest(".number-row"));
+        }
+        if (e.target.tagName === "SELECT") refresh();
+    });
+
+    form.addEventListener("input", e => {
+        if (e.target.tagName !== "INPUT") return;
+        if (e.target.name === "facility_name") {
+            // Only search once the name matches a real facility (or is cleared)
+            const names = [...document.querySelectorAll("#facility_name_list option")].map(o => o.value);
+            if (e.target.value === "" || names.includes(e.target.value)) refresh();
+            return;
+        }
+        refreshSoon();
+    });
+
+    form.addEventListener("submit", e => { e.preventDefault(); refresh(); });
+
+    document.getElementById("chips").addEventListener("click", e => {
+        const chip = e.target.closest("[data-remove]");
+        if (!chip) return;
+        const base = chip.dataset.remove;
+        ["", "_operator", "_min", "_max", "_equals"].forEach(suffix => {
+            const el = form.elements[base + suffix];
+            if (el) el.value = "";
+        });
+        form.querySelectorAll(".number-row").forEach(showNumberBoxes);
+        refresh();
+    });
+
+    document.getElementById("clear-all").addEventListener("click", clearAll);
+
+    form.querySelectorAll(".number-row").forEach(showNumberBoxes);
+    refresh();
+})();
+</script>
+{% endblock %}
