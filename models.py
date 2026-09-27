@@ -3,7 +3,12 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+
 class Dataset(Base):
+    """
+    Provenance: one row for every time data comes into the database,
+    whether it's pulled from the CAMPD API or uploaded as a file.
+    """
     __tablename__ = "dataset"
     dataset_id = Column(Integer, primary_key=True)
     dataset_name = Column(String)
@@ -14,6 +19,8 @@ class Dataset(Base):
     num_raw_records = Column(Integer)
     num_accepted_records = Column(Integer)
     notes = Column(String)
+
+    annual_records = relationship("AnnualRecord", back_populates="dataset")
 
 
 class Facility(Base):
@@ -33,7 +40,7 @@ class Unit(Base):
     __tablename__ = "unit"
     internal_unit_key = Column(Integer, primary_key=True)
     epa_facility_id = Column(Integer, ForeignKey("facility.epa_facility_id"))
-    epa_unit_id = Column(String)  # fixed: was INTEGER, but values like "SCT1" are strings
+    epa_unit_id = Column(String)  # string, since values look like "SCT1"
     unit_type = Column(String)
     primary_fuel = Column(String)
     secondary_fuel = Column(String)
@@ -50,7 +57,10 @@ class AnnualRecord(Base):
 
     epa_facility_id = Column(Integer, ForeignKey("facility.epa_facility_id"), nullable=False)
     internal_unit_key = Column(Integer, ForeignKey("unit.internal_unit_key"), nullable=False)
-    year = Column(Integer, nullable=False)  # was missing entirely
+    year = Column(Integer, nullable=False)
+
+    # Provenance: which API pull or upload this record came from
+    dataset_id = Column(Integer, ForeignKey("dataset.dataset_id"))
 
     operating_time = Column(Float)
     gross_load = Column(Float)
@@ -65,6 +75,7 @@ class AnnualRecord(Base):
     program_code = Column(String)
 
     unit = relationship("Unit", back_populates="annual_records")
+    dataset = relationship("Dataset", back_populates="annual_records")
 
     __table_args__ = (
         UniqueConstraint("epa_facility_id", "internal_unit_key", "year", name="uq_facility_unit_year"),

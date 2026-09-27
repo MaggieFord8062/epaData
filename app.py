@@ -104,6 +104,25 @@ def explorer():
     return render_template("explorer.html", results=results)
 
 
+@app.route("/datasets")
+def datasets():
+    """Provenance: every API pull and upload, newest first."""
+    session = SessionLocal()
+
+    rows = (
+        session.query(Dataset, func.count(AnnualRecord.annual_record_id).label("records"))
+        .outerjoin(AnnualRecord, AnnualRecord.dataset_id == Dataset.dataset_id)
+        .group_by(Dataset.dataset_id)
+        .order_by(Dataset.dataset_id.desc())
+        .all()
+    )
+    unlinked = session.query(AnnualRecord).filter(AnnualRecord.dataset_id.is_(None)).count()
+
+    session.close()
+
+    return render_template("datasets.html", rows=rows, unlinked=unlinked)
+
+
 @app.route("/search")
 def search():
     return render_template("search.html")
