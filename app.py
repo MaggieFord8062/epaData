@@ -4,7 +4,7 @@ import json
 from datetime import date
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, abort
 from sqlalchemy import func
 from database import SessionLocal
 from models import Facility, Unit, AnnualRecord, Dataset
@@ -36,6 +36,8 @@ def csv_response(results, name_parts):
     """Turn a list of result dicts into a CSV file download."""
     output = io.StringIO()
     if results:
+        # Columns starting with "_" are only used for links on the site
+        results = [{key: value for key, value in row.items() if not key.startswith("_")} for row in results]
         writer = csv.DictWriter(output, fieldnames=list(results[0].keys()))
         writer.writeheader()
         for row in results:
@@ -72,13 +74,18 @@ def home():
         "years": sorted(distinct_values(session, AnnualRecord.year)),
     }
 
+    # Rank by the most recent year only, so 2015-2025 totals aren't mixed together
+    stats["latest_year"] = stats["years"][-1] if stats["years"] else None
+
     top_emitters = (
         session.query(
+            Facility.epa_facility_id,
             Facility.facility_name,
             Facility.state,
             func.sum(AnnualRecord.co2_mass).label("co2"),
         )
         .join(AnnualRecord, Facility.epa_facility_id == AnnualRecord.epa_facility_id)
+        .filter(AnnualRecord.year == stats["latest_year"])
         .group_by(Facility.epa_facility_id)
         .order_by(func.sum(AnnualRecord.co2_mass).desc())
         .limit(5)
@@ -96,15 +103,19 @@ def explorer():
 
     results = (
         session.query(
+            Facility.epa_facility_id,
             Facility.facility_name,
             Facility.state,
+            Unit.epa_unit_id,
+            AnnualRecord.internal_unit_key,
             AnnualRecord.year,
             AnnualRecord.co2_mass,
             AnnualRecord.so2_mass,
             AnnualRecord.nox_mass,
         )
         .join(AnnualRecord, Facility.epa_facility_id == AnnualRecord.epa_facility_id)
-        .order_by(Facility.facility_name)
+        .join(Unit, Unit.internal_unit_key == AnnualRecord.internal_unit_key)
+        .order_by(Facility.facility_name, Unit.epa_unit_id, AnnualRecord.year.desc())
         .limit(100)
         .all()
     )
@@ -133,6 +144,122 @@ def datasets():
     return render_template("datasets.html", rows=rows, unlinked=unlinked)
 
 
+@app.route("/facility/<int:facility_id>")
+def facility_detail(facility_id):
+    """One facility: where it is, its units, and its emissions totaled by year."""
+    session = SessionLocal()
+
+    facility = session.get(Facility, facility_id)
+    if facility is None:
+        session.close()
+        abort(404)
+
+    # Each unit with the years it reported
+    units = (
+        session.query(
+            Unit,
+            func.min(AnnualRecord.year).label("first_year"),
+            func.max(AnnualRecord.year).label("last_year"),
+            func.count(AnnualRecord.annual_record_id).label("records"),
+        )
+        .outerjoin(AnnualRecord, AnnualRecord.internal_unit_key == Unit.internal_unit_key)
+        .filter(Unit.epa_facility_id == facility_id)
+        .group_by(Unit.internal_unit_key)
+        .order_by(Unit.epa_unit_id)
+        .all()
+    )
+
+    # Facility totals for each reporting year
+    yearly = (
+        session.query(
+            AnnualRecord.year,
+            func.count(AnnualRecord.annual_record_id).label("units"),
+            func.sum(AnnualRecord.operating_time).label("operating_time"),
+            func.sum(AnnualRecord.gross_load).label("gross_load"),
+            func.sum(AnnualRecord.heat_input).label("heat_input"),
+            func.sum(AnnualRecord.co2_mass).label("co2"),
+            func.sum(AnnualRecord.so2_mass).label("so2"),
+            func.sum(AnnualRecord.nox_mass).label("nox"),
+        )
+        .filter(AnnualRecord.epa_facility_id == facility_id)
+        .group_by(AnnualRecord.year)
+        .order_by(AnnualRecord.year.desc())
+        .all()
+    )
+
+    # Where this facility's data came from
+    sources = (
+        session.query(Dataset)
+        .join(AnnualRecord, AnnualRecord.dataset_id == Dataset.dataset_id)
+        .filter(AnnualRecord.epa_facility_id == facility_id)
+        .distinct()
+        .order_by(Dataset.reporting_year.desc(), Dataset.dataset_id.desc())
+        .all()
+    )
+
+    session.close()
+
+    max_co2 = max([row.co2 or 0 for row in yearly] or [0])
+
+    return render_template(
+        "facility.html",
+        facility=facility,
+        units=units,
+        yearly=yearly,
+        sources=sources,
+        max_co2=max_co2,
+    )
+
+
+@app.route("/unit/<int:unit_key>")
+def unit_detail(unit_key):
+    """One generating unit: identification, fuel and controls, and every year it reported."""
+    session = SessionLocal()
+
+    unit = session.get(Unit, unit_key)
+    if unit is None:
+        session.close()
+        abort(404)
+
+    facility = session.get(Facility, unit.epa_facility_id)
+
+    history = (
+        session.query(AnnualRecord, Dataset)
+        .outerjoin(Dataset, Dataset.dataset_id == AnnualRecord.dataset_id)
+        .filter(AnnualRecord.internal_unit_key == unit_key)
+        .order_by(AnnualRecord.year.desc())
+        .all()
+    )
+
+    # Other units at the same facility, for quick switching
+    siblings = (
+        session.query(Unit)
+        .filter(Unit.epa_facility_id == unit.epa_facility_id, Unit.internal_unit_key != unit_key)
+        .order_by(Unit.epa_unit_id)
+        .all()
+    )
+
+    session.close()
+
+    latest = history[0][0] if history else None
+    max_co2 = max([record.co2_mass or 0 for record, _ in history] or [0])
+
+    return render_template(
+        "unit.html",
+        unit=unit,
+        facility=facility,
+        history=history,
+        latest=latest,
+        siblings=siblings,
+        max_co2=max_co2,
+    )
+
+
+@app.errorhandler(404)
+def not_found(error):
+    return render_template("not_found.html"), 404
+
+
 @app.route("/search")
 def search():
     return render_template("search.html")
@@ -149,7 +276,7 @@ def basic_search():
             download_url="/download?" + urlencode({k: v for k, v in search_parameters.items() if v}),
         )
 
-    # Filters can come in the URL, e.g. /basic-search?state=KY (from the top-right search)
+    # Filters can come in the URL, e.g. /basic-search?state=KY
     selected = request.args.to_dict()
     data = get_filter_options(**selected)
 
@@ -179,7 +306,8 @@ def download():
     """CSV of every record matching the search filters in the URL (all columns, no row limit)."""
     filters = request.args.to_dict()
     results = search_data(**filters)
-    name_parts = [filters.get(key) for key in ("facility_name", "state", "reporting_year", "primary_fuel")]
+    name_parts = [filters.get(key) for key in ("facility_name", "epa_facility_id", "epa_unit_id",
+                                               "state", "reporting_year", "primary_fuel")]
     return csv_response(results, name_parts)
 
 
@@ -188,7 +316,8 @@ def download_ranking():
     """CSV of a ranking, using the same options as the Rankings form."""
     options = request.args.to_dict()
     results = advance_search(**options)
-    name_parts = ["ranking", options.get("type"), options.get("field"), options.get("state")]
+    name_parts = ["ranking", options.get("type"), options.get("field"), options.get("state"),
+                  options.get("reporting_year")]
     return csv_response(results, name_parts)
 
 

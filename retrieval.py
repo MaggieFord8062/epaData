@@ -212,6 +212,7 @@ def retrieve_attributes(session, client, index, year, filters=None):
     units_updated = 0
     not_in_database = 0
     rejected = Counter()
+    categories = {}  # facility_id -> Counter of its units' source categories this year
 
     for row in items:
         try:
@@ -228,13 +229,14 @@ def retrieve_attributes(session, client, index, year, filters=None):
 
         if year >= index.attribute_year.get(facility_id, 0):
             facility.county = row.get("county") or facility.county
-            facility.source_category = row.get("sourceCategory") or facility.source_category
             latitude = to_float(row.get("latitude"))
             longitude = to_float(row.get("longitude"))
             if latitude is not None and -90 <= latitude <= 90:
                 facility.latitude = latitude
             if longitude is not None and -180 <= longitude <= 180:
                 facility.longitude = longitude
+            if row.get("sourceCategory"):
+                categories.setdefault(facility_id, Counter())[row["sourceCategory"]] += 1
             index.attribute_year[facility_id] = year
             facilities_updated.add(facility_id)
 
@@ -246,6 +248,13 @@ def retrieve_attributes(session, client, index, year, filters=None):
             if retirement:
                 unit.retirement_date = retirement
             units_updated += 1
+
+    # Source category is reported per unit. A power plant with small auxiliary boilers
+    # can list "Industrial Boiler" on those units, so use the category most of its units have,
+    # preferring "Electric Utility" when it's a tie.
+    for facility_id, counts in categories.items():
+        best = max(counts.items(), key=lambda item: (item[1], item[0] == "Electric Utility"))
+        index.facilities[facility_id].source_category = best[0]
 
     accepted = len(items) - not_in_database - sum(rejected.values())
     dataset.num_accepted_records = accepted

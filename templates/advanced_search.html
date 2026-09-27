@@ -48,8 +48,10 @@
         <div class="field">
             <label for="reporting_year">Reporting year</label>
             <select class="control" id="reporting_year" name="reporting_year">
-                <option value="">All years</option>
-                {% for y in years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+                {% for y in years %}
+                <option value="{{ y }}" {% if loop.first %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+                <option value="">All years combined</option>
             </select>
         </div>
         <div class="field">

@@ -9,7 +9,7 @@
     {% if ranking and rank_label %}
     <p>
         {{ "Facilities" if ranking.get('type') == "Facility" else "Units" }} ranked by {{ rank_label }},
-        {{ "lowest" if ranking.get('order') == "ASC" else "highest" }} first{% if ranking.get('state') %}, in {{ ranking.get('state') }}{% endif %}.
+        {{ "lowest" if ranking.get('order') == "ASC" else "highest" }} first{% if ranking.get('state') %}, in {{ ranking.get('state') }}{% endif %}{% if ranking.get('reporting_year') %}, {{ ranking.get('reporting_year') }}{% else %}, all years combined{% endif %}.
     </p>
     {% endif %}
 </div>
@@ -30,7 +30,7 @@
         <thead>
             <tr>
                 {% if ranking %}<th class="rank"></th>{% endif %}
-                {% for header in results[0].keys() %}
+                {% for header in results[0].keys() if not header.startswith("_") %}
                 <th class="{{ 'num' if results[0][header] is number and header not in ('Facility ID', 'Year') else '' }} {{ 'ranked' if header == rank_label else '' }}">{{ header }}</th>
                 {% endfor %}
             </tr>
@@ -39,11 +39,13 @@
             {% for row in results %}
             <tr>
                 {% if ranking %}<td class="rank">{{ loop.index }}</td>{% endif %}
-                {% for header, value in row.items() %}
+                {% for header, value in row.items() if not header.startswith("_") %}
                 {% if value is none %}
                     <td><span class="dim">—</span></td>
-                {% elif header == "Facility" %}
-                    <td class="name"><a href="/basic-search?facility_name={{ value|urlencode }}">{{ value }}</a></td>
+                {% elif header == "Facility" and row.get("Facility ID") %}
+                    <td class="name"><a href="/facility/{{ row['Facility ID'] }}">{{ value }}</a></td>
+                {% elif header == "Unit" and row.get("_unit_key") %}
+                    <td><a href="/unit/{{ row['_unit_key'] }}">{{ value }}</a></td>
                 {% elif value is number and header not in ('Facility ID', 'Year') %}
                     <td class="num {{ 'ranked' if header == rank_label else '' }}">{{ "{:,.1f}".format(value) if value is not integer else "{:,}".format(value) }}</td>
                 {% else %}

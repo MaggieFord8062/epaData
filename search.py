@@ -23,8 +23,11 @@ RESULT_COLUMNS = """
     annual_records.so2_control_info AS "SO2 Controls",
     annual_records.nox_control_info AS "NOx Controls",
     annual_records.pm_control_info  AS "PM Controls",
-    annual_records.program_code     AS "Programs"
+    annual_records.program_code     AS "Programs",
+    unit.internal_unit_key          AS "_unit_key"
 """
+# Columns starting with "_" are used for links (like the unit detail page)
+# and are never shown in tables or written to CSV files.
 
 BASE_JOIN = """
     FROM facility
@@ -211,7 +214,7 @@ def find_facilities(text, limit=8):
     connection = connect()
     rows = connection.execute(
         """
-        SELECT facility_name, state, COUNT(unit.internal_unit_key) AS units
+        SELECT facility.epa_facility_id, facility_name, state, COUNT(unit.internal_unit_key) AS units
         FROM facility
         LEFT JOIN unit ON unit.epa_facility_id = facility.epa_facility_id
         WHERE facility_name LIKE ?

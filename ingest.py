@@ -8,9 +8,10 @@ For each reporting year it:
 Each pull is recorded on the Datasets page with its query, counts and any rejected rows.
 
 Run from the project folder:
-    python ingest.py              every year from 2015 to 2025
-    python ingest.py 2024         just 2024
-    python ingest.py 2020 2024    2020 through 2024
+    python ingest.py                     every year from 2015 to 2025
+    python ingest.py 2024                just 2024
+    python ingest.py 2020 2024           2020 through 2024
+    python ingest.py --attributes-only   refresh county, location, source category and dates only
 
 Safe to run more than once: records already in the database are skipped.
 """
@@ -52,7 +53,11 @@ def main():
         print("No CAMPD_API_KEY found in .env")
         raise SystemExit(1)
 
-    years = years_from_arguments(sys.argv[1:])
+    arguments = sys.argv[1:]
+    attributes_only = "--attributes-only" in arguments
+    arguments = [argument for argument in arguments if argument != "--attributes-only"]
+    years = years_from_arguments(arguments)
+
     client = CAMPDClient(api_key)
     # expire_on_commit=False keeps loaded rows in memory after each year is saved,
     # instead of re-reading thousands of them one at a time
@@ -63,9 +68,10 @@ def main():
 
     # Oldest year first, so newer years overwrite older facility and unit details
     for year in sorted(years):
-        print(f"\n{year}: annual emissions (all states)")
         try:
-            print_dataset(retrieve_emissions(session, client, index, year))
+            if not attributes_only:
+                print(f"\n{year}: annual emissions (all states)")
+                print_dataset(retrieve_emissions(session, client, index, year))
             print(f"{year}: facility attributes")
             print_dataset(retrieve_attributes(session, client, index, year))
         except CAMPDError as error:
