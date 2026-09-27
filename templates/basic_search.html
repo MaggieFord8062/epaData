@@ -2,6 +2,10 @@
 
 {% block title %}Search records - epaData{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='search.css') }}">
+{% endblock %}
+
 {% set dropdowns = [
     ("state", "State", "state"),
     ("reporting_year", "Reporting year", "reporting_year"),
@@ -114,6 +118,11 @@
         </div>
     </details>
 
+    <!-- Sorting and page number live in the form too, so they end up in the URL -->
+    <input type="hidden" name="sort" value="{{ selected.get('sort', '') }}">
+    <input type="hidden" name="dir" value="{{ selected.get('dir', '') }}">
+    <input type="hidden" name="page" value="{{ selected.get('page', '1') }}">
+
     <noscript>
         <p><button class="btn btn-primary" type="submit">Search</button></p>
     </noscript>
@@ -134,7 +143,19 @@
     <div class="chips" id="chips"></div>
 
     <div class="table-wrap" id="table-wrap"></div>
-    <p class="table-note" id="table-note"></p>
+
+    <div class="pager" id="pager">
+        <span id="pager-status"></span>
+        <div class="pager-controls">
+            <select class="control" name="per_page" form="search-form" aria-label="Rows per page">
+                {% for n in per_page_choices %}
+                <option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }} per page</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-quiet" type="button" id="page-previous">Previous</button>
+            <button class="btn btn-quiet" type="button" id="page-next">Next</button>
+        </div>
+    </div>
 </div>
 
 {% endblock %}
@@ -147,6 +168,10 @@
     const facets = ["state", "reporting_year", "unit_type", "primary_fuel",
                     "secondary_fuel", "county", "source_category"];
 
+    // Fields that control how results are shown, not which results match
+    const viewFields = ["sort", "dir", "page", "per_page"];
+    const defaultPerPage = "50";
+
     const labels = {
         facility_name: "Facility", epa_facility_id: "Facility ID", epa_unit_id: "Unit ID",
         state: "State", reporting_year: "Year",
@@ -157,10 +182,19 @@
         heat_input: "Heat input", steam_load: "Steam load", operating_time: "Operating time",
     };
 
+    // [column header, how to show it, sort key]
     const columns = [
-        ["Facility", "name"], ["State"], ["Unit", "unit"], ["Year"], ["Unit Type"], ["Primary Fuel"],
-        ["Gross Load (MWh)", "num"], ["Heat Input (mmBtu)", "num"],
-        ["CO2 (tons)", "num"], ["SO2 (tons)", "num"], ["NOx (tons)", "num"],
+        ["Facility", "name", "facility"],
+        ["State", "", "state"],
+        ["Unit", "unit", "unit"],
+        ["Year", "", "year"],
+        ["Unit Type", "", "unit_type"],
+        ["Primary Fuel", "", "primary_fuel"],
+        ["Gross Load (MWh)", "num", "gross_load"],
+        ["Heat Input (mmBtu)", "num", "heat_input"],
+        ["CO2 (tons)", "num", "co2_mass"],
+        ["SO2 (tons)", "num", "so2_mass"],
+        ["NOx (tons)", "num", "nox_mass"],
     ];
 
     // Which number boxes each comparison uses
@@ -205,11 +239,22 @@
         return escapeHtml(value);
     }
 
-    // Only send the fields that are filled in, and only the number boxes the chosen comparison uses
+    // Only send the fields that are filled in, and only the number boxes the chosen comparison uses.
+    // Page 1 and the default page size are left out to keep the URL short.
     function currentFilters() {
         const params = new URLSearchParams();
         for (const [key, value] of new FormData(form)) {
-            if (String(value).trim() === "") {
+            const text = String(value).trim();
+            if (text === "") {
+                continue;
+            }
+            if (key === "page" && text === "1") {
+                continue;
+            }
+            if (key === "per_page" && text === defaultPerPage) {
+                continue;
+            }
+            if ((key === "dir") && !form.elements.sort.value) {
                 continue;
             }
             const match = key.match(/^(.*)_(min|max|equals)$/);
@@ -220,7 +265,7 @@
                     continue;
                 }
             }
-            params.append(key, value.trim());
+            params.append(key, text);
         }
         return params;
     }
@@ -301,6 +346,9 @@
         const chips = [];
         const seen = new Set();
         for (const [key] of params) {
+            if (viewFields.includes(key)) {
+                continue;
+            }
             const base = key.replace(/_(operator|min|max|equals)$/, "");
             if (seen.has(base)) {
                 continue;
@@ -319,41 +367,72 @@
         document.getElementById("chips").innerHTML = chips.join("");
     }
 
-    function updateTable(rows, count) {
-        const wrap = document.getElementById("table-wrap");
-        const note = document.getElementById("table-note");
+    function headerCell(name, kind, sortKey) {
+        const sortedBy = form.elements.sort.value;
+        const direction = form.elements.dir.value === "desc" ? "desc" : "asc";
+        const isSorted = sortedBy === sortKey;
+        let arrow = "";
+        let ariaSort = "none";
+        if (isSorted) {
+            arrow = direction === "desc" ? "↓" : "↑";
+            ariaSort = direction === "desc" ? "descending" : "ascending";
+        }
+        const classes = ["sortable"];
+        if (kind === "num") {
+            classes.push("num");
+        }
+        if (isSorted) {
+            classes.push("is-sorted");
+        }
+        return `<th class="${classes.join(" ")}" aria-sort="${ariaSort}">
+            <button type="button" class="sort" data-sort="${sortKey}">${name}<span class="sort-arrow">${arrow}</span></button>
+        </th>`;
+    }
 
-        if (count === 0) {
+    function updateTable(data) {
+        const wrap = document.getElementById("table-wrap");
+
+        if (data.count === 0) {
             wrap.innerHTML = `<div class="empty">
                 <h3>No records match</h3>
                 <p>The dropdowns can't produce an empty search, but an ID or amount you typed doesn't match anything. Check the ranges shown, or remove a filter.</p>
                 <button type="button" class="btn btn-quiet" id="empty-clear">Clear all filters</button>
             </div>`;
-            note.textContent = "";
             document.getElementById("empty-clear").addEventListener("click", clearAll);
             return;
         }
 
-        const header = columns.map(([name, kind]) => `<th class="${kind === "num" ? "num" : ""}">${name}</th>`).join("");
-        const body = rows.map(row => {
+        const header = columns.map(([name, kind, sortKey]) => headerCell(name, kind, sortKey)).join("");
+        const body = data.rows.map(row => {
             const cells = columns.map(([name, kind]) => {
                 return `<td class="${kind === "unit" ? "" : (kind || "")}">${formatValue(row[name], kind, row)}</td>`;
             });
             return `<tr>${cells.join("")}</tr>`;
         });
         wrap.innerHTML = `<table class="data"><thead><tr>${header}</tr></thead><tbody>${body.join("")}</tbody></table>`;
+    }
 
-        if (count > rows.length) {
-            note.textContent = `Showing the first ${rows.length} of ${numberFormat.format(count)} records. Add filters to narrow it down.`;
-        } else {
-            note.textContent = "";
-        }
+    function updatePager(data) {
+        const pager = document.getElementById("pager");
+        pager.hidden = data.count === 0;
+        form.elements.page.value = String(data.page);
+
+        const first = (data.page - 1) * data.per_page + 1;
+        const last = Math.min(data.page * data.per_page, data.count);
+        document.getElementById("pager-status").textContent =
+            `Showing ${numberFormat.format(first)}–${numberFormat.format(last)} of ${numberFormat.format(data.count)}, page ${data.page} of ${data.pages}`;
+
+        document.getElementById("page-previous").disabled = data.page <= 1;
+        document.getElementById("page-next").disabled = data.page >= data.pages;
     }
 
     function updateDownload(params, count) {
-        // The download always matches exactly what's on screen, with every row and column
+        // The download matches the filters and sort on screen, with every matching row and column
+        const downloadParams = new URLSearchParams(params);
+        downloadParams.delete("page");
+        downloadParams.delete("per_page");
         const download = document.getElementById("download");
-        download.href = params.toString() ? `/download?${params}` : "/download";
+        download.href = downloadParams.toString() ? `/download?${downloadParams}` : "/download";
         download.hidden = count === 0;
         download.lastChild.textContent = ` Download ${numberFormat.format(count)} as CSV`;
     }
@@ -377,7 +456,8 @@
         updateDropdowns(data.options);
         updateRanges(data.ranges);
         updateChips(params);
-        updateTable(data.rows, data.count);
+        updateTable(data);
+        updatePager(data);
         updateDownload(params, data.count);
         document.getElementById("count").innerHTML =
             `${numberFormat.format(data.count)} <small>record${data.count === 1 ? "" : "s"}</small>`;
@@ -385,9 +465,22 @@
         area.classList.remove("is-loading");
     }
 
+    // Any change to the filters starts again from page 1
+    function refreshFromFirstPage() {
+        form.elements.page.value = "1";
+        refresh();
+    }
+
     function refreshSoon() {
         clearTimeout(timer);
-        timer = setTimeout(refresh, 300);
+        timer = setTimeout(refreshFromFirstPage, 300);
+    }
+
+    function goToPage(page) {
+        form.elements.page.value = String(page);
+        refresh().then(() => {
+            document.getElementById("results-area").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
     }
 
     function clearAll() {
@@ -395,10 +488,14 @@
             element.value = "";
         });
         form.querySelectorAll("select.control").forEach(element => {
-            element.value = "";
+            if (element.name !== "per_page") {
+                element.value = "";
+            }
         });
+        form.elements.sort.value = "";
+        form.elements.dir.value = "";
         showAllNumberBoxes();
-        refresh();
+        refreshFromFirstPage();
     }
 
     form.addEventListener("change", event => {
@@ -407,7 +504,7 @@
             showNumberBoxes(event.target.closest(".number-row"));
         }
         if (event.target.tagName === "SELECT") {
-            refresh();
+            refreshFromFirstPage();
         }
     });
 
@@ -420,7 +517,7 @@
             const options = document.querySelectorAll("#facility_name_list option");
             const names = Array.from(options).map(option => option.value);
             if (event.target.value === "" || names.includes(event.target.value)) {
-                refresh();
+                refreshFromFirstPage();
             }
             return;
         }
@@ -429,7 +526,35 @@
 
     form.addEventListener("submit", event => {
         event.preventDefault();
-        refresh();
+        refreshFromFirstPage();
+    });
+
+    // The rows-per-page menu sits under the table but belongs to the form
+    form.elements.per_page.addEventListener("change", refreshFromFirstPage);
+
+    // Click a column header to sort by it; click again to reverse
+    document.getElementById("table-wrap").addEventListener("click", event => {
+        const button = event.target.closest("[data-sort]");
+        if (!button) {
+            return;
+        }
+        const key = button.dataset.sort;
+        if (form.elements.sort.value === key) {
+            form.elements.dir.value = form.elements.dir.value === "desc" ? "asc" : "desc";
+        } else {
+            const isNumber = columns.some(([, kind, sortKey]) => sortKey === key && kind === "num");
+            form.elements.sort.value = key;
+            form.elements.dir.value = isNumber ? "desc" : "asc";
+        }
+        refreshFromFirstPage();
+    });
+
+    document.getElementById("page-previous").addEventListener("click", () => {
+        goToPage(Number(form.elements.page.value) - 1);
+    });
+
+    document.getElementById("page-next").addEventListener("click", () => {
+        goToPage(Number(form.elements.page.value) + 1);
     });
 
     document.getElementById("chips").addEventListener("click", event => {
@@ -445,7 +570,7 @@
             }
         });
         showAllNumberBoxes();
-        refresh();
+        refreshFromFirstPage();
     });
 
     document.getElementById("clear-all").addEventListener("click", clearAll);

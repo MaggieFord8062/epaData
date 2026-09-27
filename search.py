@@ -75,6 +75,30 @@ NUMERIC_FILTERS = {
     "nox_mass": "annual_records.nox_mass",
 }
 
+# Columns the search results can be sorted by: URL value -> database column
+SORT_COLUMNS = {
+    "facility": "facility.facility_name",
+    "state": "facility.state",
+    "county": "facility.county",
+    "unit": "unit.epa_unit_id",
+    "year": "annual_records.year",
+    "unit_type": "unit.unit_type",
+    "primary_fuel": "unit.primary_fuel",
+    "secondary_fuel": "unit.secondary_fuel",
+    "operating_time": "annual_records.operating_time",
+    "gross_load": "annual_records.gross_load",
+    "steam_load": "annual_records.steam_load",
+    "heat_input": "annual_records.heat_input",
+    "co2_mass": "annual_records.co2_mass",
+    "so2_mass": "annual_records.so2_mass",
+    "nox_mass": "annual_records.nox_mass",
+}
+
+DEFAULT_ORDER = "facility.facility_name, unit.epa_unit_id, annual_records.year"
+
+PER_PAGE_CHOICES = [25, 50, 100, 250]
+DEFAULT_PER_PAGE = 50
+
 
 def to_number(value):
     """Turn a form value into a float, or None if it's empty or not a number."""
@@ -82,6 +106,27 @@ def to_number(value):
         return float(str(value).replace(",", "").strip())
     except (TypeError, ValueError):
         return None
+
+
+def to_positive_int(value, default):
+    """Turn a form value into a whole number of at least 1, or use the default."""
+    number = to_number(value)
+    if number is None or number < 1:
+        return default
+    return int(number)
+
+
+def order_clause(sort, direction):
+    """
+    ORDER BY for the chosen column. Only names in SORT_COLUMNS are allowed,
+    so nothing typed into the URL can end up in the SQL.
+    Rows with no value always go last, whichever direction is chosen.
+    """
+    column = SORT_COLUMNS.get(sort)
+    if column is None:
+        return f" ORDER BY {DEFAULT_ORDER}"
+    direction = "DESC" if str(direction).lower() == "desc" else "ASC"
+    return f" ORDER BY {column} IS NULL, {column} {direction}, {DEFAULT_ORDER}"
 
 
 def connect():
@@ -150,12 +195,10 @@ def build_where(filters, exclude=()):
 
 
 def build_basic_query(**filters):
-    """Build the basic search SQL and its parameters from the form fields."""
+    """Build the basic search SQL and its parameters from the form fields, sorted as requested."""
     where, parameters = build_where(filters)
-    query = (
-        f"SELECT {RESULT_COLUMNS} {BASE_JOIN} {where}"
-        " ORDER BY facility.facility_name, unit.epa_unit_id, annual_records.year"
-    )
+    query = f"SELECT {RESULT_COLUMNS} {BASE_JOIN} {where}"
+    query += order_clause(filters.get("sort"), filters.get("dir"))
     return query, parameters
 
 
@@ -164,13 +207,14 @@ def search_data(**filters):
     return run_query(query, parameters)
 
 
-def get_filter_options(limit=100, **filters):
+def get_filter_options(**filters):
     """
     Everything the search page needs to stay in sync with the data:
       - options: the values still available for each dropdown
       - ranges:  the smallest and largest value for each number filter
       - count:   how many records match right now
-      - rows:    the first `limit` matching records
+      - rows:    one page of matching records, sorted as requested
+      - page, pages, per_page: where that page sits in the full results
     """
     connection = connect()
 
@@ -200,10 +244,24 @@ def get_filter_options(limit=100, **filters):
     count = connection.execute(f"SELECT COUNT(*) {BASE_JOIN} {where}", parameters).fetchone()[0]
     connection.close()
 
-    query, parameters = build_basic_query(**filters)
-    rows = run_query(query + " LIMIT ?", parameters + [int(limit)])
+    per_page = to_positive_int(filters.get("per_page"), DEFAULT_PER_PAGE)
+    if per_page not in PER_PAGE_CHOICES:
+        per_page = DEFAULT_PER_PAGE
+    pages = max(1, -(-count // per_page))  # round up
+    page = min(to_positive_int(filters.get("page"), 1), pages)
 
-    return {"count": count, "options": options, "ranges": ranges, "rows": rows}
+    query, parameters = build_basic_query(**filters)
+    rows = run_query(query + " LIMIT ? OFFSET ?", parameters + [per_page, (page - 1) * per_page])
+
+    return {
+        "count": count,
+        "options": options,
+        "ranges": ranges,
+        "rows": rows,
+        "page": page,
+        "pages": pages,
+        "per_page": per_page,
+    }
 
 
 def find_facilities(text, limit=8):

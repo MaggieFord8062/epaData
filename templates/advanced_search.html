@@ -2,37 +2,39 @@
 
 {% block title %}Rankings - epaData{% endblock %}
 
+{% set chosen_type = selected.get('type', 'Facility') %}
+
 {% block content %}
 
 <div class="page-head">
     <h1>Rankings</h1>
-    <p>Find the biggest or smallest emitters. Facility rankings add up every unit at the plant.</p>
+    <p>Find the biggest or smallest emitters. Facility rankings add up every unit at the plant. Every ranking gets its own link you can bookmark or share.</p>
 </div>
 
-<form class="panel" method="POST">
+<form class="panel" method="GET" action="/advanced-search">
 
     <div class="segmented" role="radiogroup" aria-label="Rank">
-        <input type="radio" id="type-facility" name="type" value="Facility" checked>
+        <input type="radio" id="type-facility" name="type" value="Facility" {% if chosen_type != "Unit" %}checked{% endif %}>
         <label for="type-facility">Facilities</label>
-        <input type="radio" id="type-unit" name="type" value="Unit">
+        <input type="radio" id="type-unit" name="type" value="Unit" {% if chosen_type == "Unit" %}checked{% endif %}>
         <label for="type-unit">Units</label>
     </div>
 
     <div class="rank-sentence" style="margin-top: 26px;">
         <span>Show the</span>
         <select class="control" name="order" aria-label="Order">
-            <option value="DESC">top</option>
-            <option value="ASC">bottom</option>
+            <option value="DESC" {% if selected.get('order') != "ASC" %}selected{% endif %}>top</option>
+            <option value="ASC" {% if selected.get('order') == "ASC" %}selected{% endif %}>bottom</option>
         </select>
         <select class="control" name="limit" aria-label="How many">
             {% for n in [10, 25, 50, 100] %}
-            <option value="{{ n }}">{{ n }}</option>
+            <option value="{{ n }}" {% if selected.get('limit') == n|string %}selected{% endif %}>{{ n }}</option>
             {% endfor %}
         </select>
         <span>by</span>
         <select class="control" name="field" aria-label="Rank by">
             {% for value, header in rank_fields.items() %}
-            <option value="{{ value }}">{{ header }}</option>
+            <option value="{{ value }}" {% if selected.get('field') == value %}selected{% endif %}>{{ header }}</option>
             {% endfor %}
         </select>
     </div>
@@ -42,30 +44,37 @@
             <label for="state">State</label>
             <select class="control" id="state" name="state">
                 <option value="">All states</option>
-                {% for s in states %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+                {% for s in states %}
+                <option value="{{ s }}" {% if selected.get('state') == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
             </select>
         </div>
         <div class="field">
             <label for="reporting_year">Reporting year</label>
             <select class="control" id="reporting_year" name="reporting_year">
+                {% set chosen_year = selected.get('reporting_year') %}
                 {% for y in years %}
-                <option value="{{ y }}" {% if loop.first %}selected{% endif %}>{{ y }}</option>
+                <option value="{{ y }}" {% if chosen_year == y|string or (not chosen_year and loop.first) %}selected{% endif %}>{{ y }}</option>
                 {% endfor %}
-                <option value="">All years combined</option>
+                <option value="all" {% if chosen_year == "all" %}selected{% endif %}>All years combined</option>
             </select>
         </div>
         <div class="field">
             <label for="unit_type">Unit type</label>
             <select class="control" id="unit_type" name="unit_type">
                 <option value="">All unit types</option>
-                {% for u in unit_types %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+                {% for u in unit_types %}
+                <option value="{{ u }}" {% if selected.get('unit_type') == u %}selected{% endif %}>{{ u }}</option>
+                {% endfor %}
             </select>
         </div>
         <div class="field">
             <label for="primary_fuel">Primary fuel</label>
             <select class="control" id="primary_fuel" name="primary_fuel">
                 <option value="">All fuels</option>
-                {% for f in primary_fuels %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
+                {% for f in primary_fuels %}
+                <option value="{{ f }}" {% if selected.get('primary_fuel') == f %}selected{% endif %}>{{ f }}</option>
+                {% endfor %}
             </select>
         </div>
     </div>
@@ -75,4 +84,27 @@
     </p>
 </form>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    // Leave "All states", "All fuels" and other empty choices out of the link, so it stays short
+    const form = document.querySelector("form[action='/advanced-search']");
+    form.addEventListener("submit", () => {
+        form.querySelectorAll("select").forEach(select => {
+            if (select.value === "") {
+                select.disabled = true;
+            }
+        });
+    });
+
+    // If the user comes back with the browser's back button, turn the empty choices back on
+    window.addEventListener("pageshow", () => {
+        form.querySelectorAll("select").forEach(select => {
+            select.disabled = false;
+        });
+    });
+})();
+</script>
 {% endblock %}

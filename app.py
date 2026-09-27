@@ -9,7 +9,7 @@ from sqlalchemy import func
 from database import SessionLocal
 from models import Facility, Unit, AnnualRecord, Dataset
 from search import (search_data, advance_search, get_filter_options,
-                    find_facilities, RANK_FIELDS)
+                    find_facilities, RANK_FIELDS, PER_PAGE_CHOICES)
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep result columns in the order search.py lists them
@@ -22,6 +22,14 @@ def fromjson(text):
         return json.loads(text) if text else {}
     except ValueError:
         return {}
+
+
+@app.template_filter("controls")
+def controls(text):
+    """CAMPD separates multiple controls with "<br>" or "|"; show them as a readable list."""
+    if not text:
+        return text
+    return ", ".join(part.strip() for part in str(text).replace("<br>", "|").split("|") if part.strip())
 
 
 def drop_empty_columns(results):
@@ -41,8 +49,8 @@ def csv_response(results, name_parts):
         writer = csv.DictWriter(output, fieldnames=list(results[0].keys()))
         writer.writeheader()
         for row in results:
-            # CAMPD lists multiple controls as "A<br>B"; make that readable in a spreadsheet
-            writer.writerow({key: str(value).replace("<br>", "; ") if isinstance(value, str) else value
+            # CAMPD lists multiple controls as "A<br>B" or "A|B"; make that readable in a spreadsheet
+            writer.writerow({key: str(value).replace("<br>", "; ").replace("|", "; ") if isinstance(value, str) else value
                              for key, value in row.items()})
 
     # e.g. epaData_KY_Coal_2026-09-25.csv
@@ -276,7 +284,7 @@ def basic_search():
             download_url="/download?" + urlencode({k: v for k, v in search_parameters.items() if v}),
         )
 
-    # Filters can come in the URL, e.g. /basic-search?state=KY
+    # Filters, sorting and page can all come in the URL, e.g. /basic-search?state=KY&sort=co2_mass&dir=desc
     selected = request.args.to_dict()
     data = get_filter_options(**selected)
 
@@ -286,6 +294,8 @@ def basic_search():
         options=data["options"],
         ranges=data["ranges"],
         count=data["count"],
+        per_page=data["per_page"],
+        per_page_choices=PER_PAGE_CHOICES,
     )
 
 
@@ -305,6 +315,8 @@ def api_facilities():
 def download():
     """CSV of every record matching the search filters in the URL (all columns, no row limit)."""
     filters = request.args.to_dict()
+    filters.pop("page", None)       # a download always includes every matching row,
+    filters.pop("per_page", None)   # not just the page on screen
     results = search_data(**filters)
     name_parts = [filters.get(key) for key in ("facility_name", "epa_facility_id", "epa_unit_id",
                                                "state", "reporting_year", "primary_fuel")]
@@ -315,23 +327,36 @@ def download():
 def download_ranking():
     """CSV of a ranking, using the same options as the Rankings form."""
     options = request.args.to_dict()
+    if options.get("reporting_year") == "all":
+        options.pop("reporting_year")
     results = advance_search(**options)
     name_parts = ["ranking", options.get("type"), options.get("field"), options.get("state"),
                   options.get("reporting_year")]
     return csv_response(results, name_parts)
 
 
-@app.route("/advanced-search", methods=["GET", "POST"])
+@app.route("/advanced-search")
 def advanced_search():
-    if request.method == "POST":
-        search_parameters = request.form.to_dict()
-        results = drop_empty_columns(advance_search(**search_parameters))
+    """
+    Rankings. The options live in the URL (the form uses GET), so any ranking
+    can be bookmarked or shared, e.g. /advanced-search?type=Facility&field=co2_mass&limit=10
+    """
+    params = {key: value for key, value in request.args.to_dict().items() if value != ""}
+    editing = "edit" in params
+    params.pop("edit", None)
+
+    if params.get("type") and not editing:
+        query = dict(params)
+        if query.get("reporting_year") == "all":
+            query.pop("reporting_year")  # "All years combined" means no year filter
+        results = drop_empty_columns(advance_search(**query))
         return render_template(
             "results.html",
             results=results,
-            ranking=search_parameters,
-            rank_label=RANK_FIELDS.get(search_parameters.get("field")),
-            download_url="/download-ranking?" + urlencode(search_parameters),
+            ranking=params,
+            rank_label=RANK_FIELDS.get(params.get("field")),
+            download_url="/download-ranking?" + urlencode(params),
+            edit_url="/advanced-search?" + urlencode(dict(params, edit=1)),
         )
 
     session = SessionLocal()
@@ -343,7 +368,12 @@ def advanced_search():
     }
     session.close()
 
-    return render_template("advanced_search.html", rank_fields=RANK_FIELDS, **options)
+    return render_template(
+        "advanced_search.html",
+        rank_fields=RANK_FIELDS,
+        selected=params,
+        **options,
+    )
 
 
 if __name__ == "__main__":

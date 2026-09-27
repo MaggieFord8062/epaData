@@ -1,0 +1,77 @@
+/* Search page: sortable column headers and pagination */
+
+table.data th.sortable {
+    padding: 0;
+}
+
+table.data th .sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 14px 16px;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+table.data th.num .sort {
+    justify-content: flex-end;
+}
+
+table.data th .sort:hover {
+    color: var(--ink);
+}
+
+table.data th .sort-arrow {
+    display: inline-block;
+    width: 10px;
+    color: var(--ink-3);
+}
+
+table.data th.is-sorted .sort {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+table.data th.is-sorted .sort-arrow {
+    color: var(--blue);
+}
+
+.pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    margin: 16px 4px 0;
+    font-size: 14px;
+    color: var(--ink-2);
+}
+
+.pager-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pager .btn {
+    min-height: 34px;
+    padding: 0 16px;
+    font-size: 14px;
+}
+
+.pager .btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.pager select.control {
+    width: auto;
+    height: 34px;
+    font-size: 14px;
+}
