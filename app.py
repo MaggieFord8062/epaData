@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from datetime import date
 from urllib.parse import urlencode
 
@@ -12,6 +13,15 @@ from search import (search_data, advance_search, get_filter_options,
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep result columns in the order search.py lists them
+
+
+@app.template_filter("fromjson")
+def fromjson(text):
+    """Lets templates read JSON text stored in the database, like a dataset's query parameters."""
+    try:
+        return json.loads(text) if text else {}
+    except ValueError:
+        return {}
 
 
 def drop_empty_columns(results):

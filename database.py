@@ -10,18 +10,30 @@ Base.metadata.create_all(engine)
 
 def add_missing_columns():
     """
-    create_all() won't add a new column to a table that already exists,
-    so add dataset_id to annual_records here if an older database doesn't have it.
+    create_all() won't add new columns to tables that already exist.
+    Compare every model with the real database and add any column that's missing,
+    so an older epaData.db keeps its data and still gets the new columns.
     """
-    columns = [column["name"] for column in inspect(engine).get_columns("annual_records")]
-    if "dataset_id" not in columns:
-        with engine.begin() as connection:
-            connection.execute(text(
-                "ALTER TABLE annual_records ADD COLUMN dataset_id INTEGER REFERENCES dataset(dataset_id)"
-            ))
-        print("Database updated: added dataset_id to annual_records")
+    inspector = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        existing = {column["name"] for column in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            column_type = column.type.compile(dialect=engine.dialect)
+            with engine.begin() as connection:
+                connection.execute(text(f'ALTER TABLE {table.name} ADD COLUMN "{column.name}" {column_type}'))
+            print(f"Database updated: added {table.name}.{column.name}")
+
+
+def add_missing_indexes():
+    """Create the indexes defined in models.py (on commonly searched fields) if they don't exist yet."""
+    for table in Base.metadata.sorted_tables:
+        for index in table.indexes:
+            index.create(engine, checkfirst=True)
 
 
 add_missing_columns()
+add_missing_indexes()
 
 SessionLocal = sessionmaker(bind=engine)

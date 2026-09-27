@@ -1,171 +1,82 @@
 """
 ingest.py
-Pulls EPA CAMPD annual emissions data for ALL states, validates every record,
-and saves it to epaData.db along with a provenance record in the dataset table.
+Pulls EPA CAMPD data into epaData.db from the command line.
+
+For each reporting year it:
+  1. pulls annual emissions for every state, validates every record and stores the new ones
+  2. pulls facility attributes (county, location, source category, operating/retirement dates)
+Each pull is recorded on the Datasets page with its query, counts and any rejected rows.
 
 Run from the project folder:
-    python ingest.py
+    python ingest.py              every year from 2015 to 2025
+    python ingest.py 2024         just 2024
+    python ingest.py 2020 2024    2020 through 2024
 
 Safe to run more than once: records already in the database are skipped.
 """
 import os
-from collections import Counter
-from datetime import datetime
+import sys
 
 from dotenv import load_dotenv
-from client import CAMPDClient
+from client import CAMPDClient, CAMPDError
 from database import SessionLocal
-from models import Dataset, Facility, Unit, AnnualRecord
-from validation import from_campd, validate_record
+from retrieval import DatabaseIndex, retrieve_emissions, retrieve_attributes
 
-# Add more years here if you want them, e.g. [2022, 2023, 2024]
-YEARS = [2024]
+DEFAULT_FIRST_YEAR = 2015
+DEFAULT_LAST_YEAR = 2025
 
-SOURCE = "EPA CAMPD API"
 
-load_dotenv()
-api_key = os.getenv("CAMPD_API_KEY")
-if not api_key:
-    print("No CAMPD_API_KEY found in .env")
-    raise SystemExit(1)
+def years_from_arguments(arguments):
+    if not arguments:
+        return list(range(DEFAULT_FIRST_YEAR, DEFAULT_LAST_YEAR + 1))
+    try:
+        numbers = [int(argument) for argument in arguments]
+    except ValueError:
+        print("Years must be numbers, like: python ingest.py 2020 2024")
+        raise SystemExit(1)
+    if len(numbers) == 1:
+        return numbers
+    return list(range(min(numbers), max(numbers) + 1))
 
-client = CAMPDClient(api_key)
-session = SessionLocal()
 
-# Load what's already in the database so we don't query it once per row
-facilities = {f.epa_facility_id for f in session.query(Facility).all()}
-units = {(u.epa_facility_id, u.epa_unit_id): u.internal_unit_key for u in session.query(Unit).all()}
-existing = {
-    (r.epa_facility_id, r.internal_unit_key, r.year): r
-    for r in session.query(AnnualRecord).all()
-}
+def print_dataset(dataset):
+    print(f"  Dataset #{dataset.dataset_id}: received {dataset.num_raw_records}, accepted {dataset.num_accepted_records}")
+    for note in (dataset.notes or "").split("; "):
+        print(f"    {note}")
 
-for year in YEARS:
-    print(f"\nFetching {year} data for all states (this can take a minute)...")
-    items = client.get_data(year)["items"]
-    print(f"  Fetched {len(items)} records from the API")
 
-    # Provenance: record this pull before saving anything from it
-    dataset = Dataset(
-        dataset_name=f"CAMPD annual emissions {year}",
-        data_source=SOURCE,
-        reporting_year=str(year),
-        retrieval_date=datetime.now().isoformat(timespec="seconds"),
-        og_filename=None,
-        num_raw_records=len(items),
-    )
-    session.add(dataset)
-    session.flush()  # gives dataset a dataset_id
+def main():
+    load_dotenv()
+    api_key = os.getenv("CAMPD_API_KEY")
+    if not api_key:
+        print("No CAMPD_API_KEY found in .env")
+        raise SystemExit(1)
 
-    inserted = 0
-    already_stored = 0
-    linked = 0
-    duplicates_in_pull = 0
-    rejected = Counter()
-    seen_this_pull = set()
+    years = years_from_arguments(sys.argv[1:])
+    client = CAMPDClient(api_key)
+    # expire_on_commit=False keeps loaded rows in memory after each year is saved,
+    # instead of re-reading thousands of them one at a time
+    session = SessionLocal(expire_on_commit=False)
 
-    for row in items:
-        record, problem = validate_record(from_campd(row))
-        if problem:
-            rejected[problem] += 1
-            continue
+    print("Loading what's already in the database...")
+    index = DatabaseIndex(session)
 
-        facility_id = record["facility_id"]
-        unit_id = record["unit_id"]
+    # Oldest year first, so newer years overwrite older facility and unit details
+    for year in sorted(years):
+        print(f"\n{year}: annual emissions (all states)")
+        try:
+            print_dataset(retrieve_emissions(session, client, index, year))
+            print(f"{year}: facility attributes")
+            print_dataset(retrieve_attributes(session, client, index, year))
+        except CAMPDError as error:
+            session.rollback()
+            print(f"  Skipped {year}: {error}")
 
-        # Facility
-        if facility_id not in facilities:
-            session.add(Facility(
-                epa_facility_id=facility_id,
-                facility_name=record["facility_name"],
-                state=record["state"],
-            ))
-            session.flush()
-            facilities.add(facility_id)
+    session.close()
 
-        # Unit
-        unit_key = units.get((facility_id, unit_id))
-        if unit_key is None:
-            unit = Unit(
-                epa_facility_id=facility_id,
-                epa_unit_id=unit_id,
-                unit_type=record["unit_type"],
-                primary_fuel=record["primary_fuel"],
-                secondary_fuel=record["secondary_fuel"],
-            )
-            session.add(unit)
-            session.flush()
-            unit_key = unit.internal_unit_key
-            units[(facility_id, unit_id)] = unit_key
+    print("\nDone.")
+    print(f"Data saved in: {os.path.abspath('epaData.db')}")
 
-        record_key = (facility_id, unit_key, record["year"])
 
-        # The API listed the same unit and year twice in this pull
-        if record_key in seen_this_pull:
-            duplicates_in_pull += 1
-            continue
-        seen_this_pull.add(record_key)
-
-        # Already stored from an earlier run
-        if record_key in existing:
-            already_stored += 1
-            old = existing[record_key]
-            if old.dataset_id is None:
-                # Saved before provenance existed: attach it to this pull
-                old.dataset_id = dataset.dataset_id
-                linked += 1
-            continue
-
-        new_record = AnnualRecord(
-            epa_facility_id=facility_id,
-            internal_unit_key=unit_key,
-            year=record["year"],
-            dataset_id=dataset.dataset_id,
-            operating_time=record["operating_time"],
-            gross_load=record["gross_load"],
-            steam_load=record["steam_load"],
-            heat_input=record["heat_input"],
-            co2_mass=record["co2_mass"],
-            so2_mass=record["so2_mass"],
-            nox_mass=record["nox_mass"],
-            so2_control_info=record["so2_control_info"],
-            nox_control_info=record["nox_control_info"],
-            pm_control_info=record["pm_control_info"],
-            program_code=record["program_code"],
-        )
-        session.add(new_record)
-        existing[record_key] = new_record
-        inserted += 1
-
-    # Finish the provenance record
-    accepted = inserted + already_stored
-    dataset.num_accepted_records = accepted
-
-    notes = [f"{inserted} new", f"{already_stored} already stored"]
-    if linked:
-        notes.append(f"{linked} older records linked to this dataset")
-    if duplicates_in_pull:
-        notes.append(f"{duplicates_in_pull} duplicate rows in the API response")
-    for reason, count in rejected.most_common():
-        notes.append(f"Rejected ({count}): {reason}")
-    if not items:
-        notes.append("the API returned no records; check the API key or try again later")
-    dataset.notes = "; ".join(notes)
-
-    session.commit()
-
-    print(f"  Accepted: {accepted}   New: {inserted}   Already stored: {already_stored}")
-    if linked:
-        print(f"  Linked {linked} older records to this dataset")
-    if duplicates_in_pull:
-        print(f"  Duplicates in the API response: {duplicates_in_pull}")
-    if rejected:
-        print(f"  Rejected: {sum(rejected.values())}")
-        for reason, count in rejected.most_common():
-            print(f"    {reason}: {count}")
-    print(f"  Saved as dataset #{dataset.dataset_id}")
-
-session.close()
-
-print("\nDone.")
-print(f"Data saved in: {os.path.abspath('epaData.db')}")
+if __name__ == "__main__":
+    main()

@@ -19,6 +19,7 @@ class Dataset(Base):
     num_raw_records = Column(Integer)
     num_accepted_records = Column(Integer)
     notes = Column(String)
+    query_parameters = Column(String)  # e.g. {"year": 2024, "stateCode": "KY"}, stored as JSON text
 
     annual_records = relationship("AnnualRecord", back_populates="dataset")
 
@@ -26,12 +27,12 @@ class Dataset(Base):
 class Facility(Base):
     __tablename__ = "facility"
     epa_facility_id = Column(Integer, primary_key=True)
-    facility_name = Column(String)
-    state = Column(String)
-    county = Column(String)
+    facility_name = Column(String, index=True)
+    state = Column(String, index=True)
+    county = Column(String, index=True)
     latitude = Column(Float)
     longitude = Column(Float)
-    source_category = Column(String)
+    source_category = Column(String, index=True)
 
     units = relationship("Unit", back_populates="facility")
 
@@ -39,11 +40,11 @@ class Facility(Base):
 class Unit(Base):
     __tablename__ = "unit"
     internal_unit_key = Column(Integer, primary_key=True)
-    epa_facility_id = Column(Integer, ForeignKey("facility.epa_facility_id"))
-    epa_unit_id = Column(String)  # string, since values look like "SCT1"
-    unit_type = Column(String)
-    primary_fuel = Column(String)
-    secondary_fuel = Column(String)
+    epa_facility_id = Column(Integer, ForeignKey("facility.epa_facility_id"), index=True)
+    epa_unit_id = Column(String, index=True)  # string, since values look like "SCT1"
+    unit_type = Column(String, index=True)
+    primary_fuel = Column(String, index=True)
+    secondary_fuel = Column(String, index=True)
     operating_date = Column(String)
     retirement_date = Column(String)
 
@@ -55,20 +56,21 @@ class AnnualRecord(Base):
     __tablename__ = "annual_records"
     annual_record_id = Column(Integer, primary_key=True)
 
-    epa_facility_id = Column(Integer, ForeignKey("facility.epa_facility_id"), nullable=False)
-    internal_unit_key = Column(Integer, ForeignKey("unit.internal_unit_key"), nullable=False)
-    year = Column(Integer, nullable=False)
+    epa_facility_id = Column(Integer, ForeignKey("facility.epa_facility_id"), nullable=False, index=True)
+    internal_unit_key = Column(Integer, ForeignKey("unit.internal_unit_key"), nullable=False, index=True)
+    year = Column(Integer, nullable=False, index=True)
 
     # Provenance: which API pull or upload this record came from
-    dataset_id = Column(Integer, ForeignKey("dataset.dataset_id"))
+    dataset_id = Column(Integer, ForeignKey("dataset.dataset_id"), index=True)
 
-    operating_time = Column(Float)
-    gross_load = Column(Float)
+    # Indexed because they're used for range searches and rankings
+    operating_time = Column(Float, index=True)
+    gross_load = Column(Float, index=True)
     steam_load = Column(Float)
-    heat_input = Column(Float)
-    co2_mass = Column(Float)
-    so2_mass = Column(Float)
-    nox_mass = Column(Float)
+    heat_input = Column(Float, index=True)
+    co2_mass = Column(Float, index=True)
+    so2_mass = Column(Float, index=True)
+    nox_mass = Column(Float, index=True)
     so2_control_info = Column(String)
     nox_control_info = Column(String)
     pm_control_info = Column(String)

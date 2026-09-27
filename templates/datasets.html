@@ -46,6 +46,10 @@
             <tr class="notes-row">
                 <td></td>
                 <td colspan="7" class="muted">
+                    {% if dataset.query_parameters %}
+                    {% set query = dataset.query_parameters|fromjson %}
+                    Query: {% for key, value in query.items() %}{{ key }}={{ value }}{% if not loop.last %}, {% endif %}{% endfor %}<br>
+                    {% endif %}
                     {% for note in dataset.notes.split("; ") %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}
                 </td>
             </tr>

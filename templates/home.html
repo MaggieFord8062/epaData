@@ -6,8 +6,9 @@
     <h1>Power-plant emissions, searchable.</h1>
     <p>
         {{ "{:,}".format(stats.records) }} unit records from {{ "{:,}".format(stats.facilities) }} facilities
-        across {{ stats.states }} states and territories{% if stats.years %},
-        reporting year{{ "s" if stats.years|length > 1 }} {{ stats.years|join(", ") }}{% endif %}.
+        across {{ stats.states }} states and territories{% if stats.years|length == 1 %},
+        reporting year {{ stats.years[0] }}{% elif stats.years %},
+        reporting years {{ stats.years[0] }}–{{ stats.years[-1] }}{% endif %}.
         Straight from the EPA's Clean Air Markets Program Data.
     </p>
     <div class="hero-actions">
