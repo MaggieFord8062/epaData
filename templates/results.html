@@ -16,6 +16,12 @@
 
 <p class="summary-actions" style="margin: 0 0 20px;">
     <a class="btn btn-quiet" href="{{ '/advanced-search' if ranking else '/basic-search' }}">New search</a>
+    {% if results and download_url %}
+    <a class="btn btn-primary" href="{{ download_url }}" download>
+        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Download CSV
+    </a>
+    {% endif %}
 </p>
 
 {% if results %}

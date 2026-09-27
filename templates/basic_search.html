@@ -112,6 +112,10 @@
         <h2 class="count" id="count" aria-live="polite">{{ "{:,}".format(count) }} <small>records</small></h2>
         <div class="summary-actions">
             <button class="btn-link btn" type="button" id="clear-all">Clear all filters</button>
+            <a class="btn btn-primary" id="download" href="/download" download>
+                <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Download CSV
+            </a>
         </div>
     </div>
 
@@ -295,6 +299,12 @@
         updateTable(data.rows, data.count);
         document.getElementById("count").innerHTML =
             `${numberFormat.format(data.count)} <small>record${data.count === 1 ? "" : "s"}</small>`;
+
+        // The download always matches exactly what's on screen, with every row and column
+        const download = document.getElementById("download");
+        download.href = params.toString() ? `/download?${params}` : "/download";
+        download.hidden = data.count === 0;
+        download.lastChild.textContent = ` Download ${numberFormat.format(data.count)} as CSV`;
         markSetControls();
         area.classList.remove("is-loading");
     }

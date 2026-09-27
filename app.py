@@ -1,4 +1,9 @@
-from flask import Flask, render_template, request, jsonify
+import csv
+import io
+from datetime import date
+from urllib.parse import urlencode
+
+from flask import Flask, render_template, request, jsonify, Response
 from sqlalchemy import func
 from database import SessionLocal
 from models import Facility, Unit, AnnualRecord, Dataset
@@ -15,6 +20,28 @@ def drop_empty_columns(results):
         return results
     keep = [key for key in results[0] if any(row[key] not in (None, "") for row in results)]
     return [{key: row[key] for key in keep} for row in results]
+
+
+def csv_response(results, name_parts):
+    """Turn a list of result dicts into a CSV file download."""
+    output = io.StringIO()
+    if results:
+        writer = csv.DictWriter(output, fieldnames=list(results[0].keys()))
+        writer.writeheader()
+        for row in results:
+            # CAMPD lists multiple controls as "A<br>B"; make that readable in a spreadsheet
+            writer.writerow({key: str(value).replace("<br>", "; ") if isinstance(value, str) else value
+                             for key, value in row.items()})
+
+    # e.g. epaData_KY_Coal_2026-09-25.csv
+    safe_parts = ["".join(ch for ch in str(part) if ch.isalnum() or ch in "-_") for part in name_parts if part]
+    filename = "_".join(["epaData"] + safe_parts + [date.today().isoformat()]) + ".csv"
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def distinct_values(session, column):
@@ -87,7 +114,11 @@ def basic_search():
     if request.method == "POST":
         search_parameters = request.form.to_dict()
         results = drop_empty_columns(search_data(**search_parameters))
-        return render_template("results.html", results=results)
+        return render_template(
+            "results.html",
+            results=results,
+            download_url="/download?" + urlencode({k: v for k, v in search_parameters.items() if v}),
+        )
 
     # Filters can come in the URL, e.g. /basic-search?state=KY (from the top-right search)
     selected = request.args.to_dict()
@@ -114,6 +145,24 @@ def api_facilities():
     return jsonify(find_facilities(request.args.get("q", "")))
 
 
+@app.route("/download")
+def download():
+    """CSV of every record matching the search filters in the URL (all columns, no row limit)."""
+    filters = request.args.to_dict()
+    results = search_data(**filters)
+    name_parts = [filters.get(key) for key in ("facility_name", "state", "reporting_year", "primary_fuel")]
+    return csv_response(results, name_parts)
+
+
+@app.route("/download-ranking")
+def download_ranking():
+    """CSV of a ranking, using the same options as the Rankings form."""
+    options = request.args.to_dict()
+    results = advance_search(**options)
+    name_parts = ["ranking", options.get("type"), options.get("field"), options.get("state")]
+    return csv_response(results, name_parts)
+
+
 @app.route("/advanced-search", methods=["GET", "POST"])
 def advanced_search():
     if request.method == "POST":
@@ -124,6 +173,7 @@ def advanced_search():
             results=results,
             ranking=search_parameters,
             rank_label=RANK_FIELDS.get(search_parameters.get("field")),
+            download_url="/download-ranking?" + urlencode(search_parameters),
         )
 
     session = SessionLocal()
