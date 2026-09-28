@@ -3,7 +3,7 @@ retrieval.py
 Pulls data from the CAM API into the database, one reporting year at a time.
 Every pull is validated and recorded as a Dataset (provenance).
 
-Used by ingest.py from the command line, and later by the retrieval page.
+Used by ingest.py from the command line, and by the Retrieve page on the website.
 """
 import json
 import re
@@ -61,13 +61,25 @@ def start_dataset(session, name, year, params, raw_count):
     return dataset
 
 
-def retrieve_emissions(session, client, index, year, filters=None):
+def report(progress, message):
+    """Send a status message to whoever is watching (the retrieval page), if anyone is."""
+    if progress is not None:
+        progress(message)
+
+
+def retrieve_emissions(session, client, index, year, filters=None, progress=None):
     """
     Pull one year of annual emissions, validate every row, and store the new ones.
     Returns the Dataset record, which holds the counts and notes.
     """
     filters = {key: value for key, value in (filters or {}).items() if value}
-    items = client.get_data(year, **filters)["items"]
+    report(progress, f"Requesting {year} annual emissions from the CAM API")
+    items = client.get_data(
+        year,
+        on_page=lambda total: report(progress, f"Received {total:,} emissions records so far"),
+        **filters,
+    )["items"]
+    report(progress, f"Validating and saving {len(items):,} emissions records")
 
     params = dict({"year": year}, **filters)
     dataset = start_dataset(session, f"CAMPD annual emissions {year}", year, params, len(items))
@@ -195,7 +207,7 @@ def to_float(value):
         return None
 
 
-def retrieve_attributes(session, client, index, year, filters=None):
+def retrieve_attributes(session, client, index, year, filters=None, progress=None):
     """
     Pull one year of facility and unit attributes and fill in the fields the
     emissions data doesn't have: county, latitude, longitude, source category,
@@ -203,7 +215,13 @@ def retrieve_attributes(session, client, index, year, filters=None):
     Newer years overwrite older ones, so each facility ends up with its latest attributes.
     """
     filters = {key: value for key, value in (filters or {}).items() if value}
-    items = client.get_facility_attributes(year, **filters)["items"]
+    report(progress, f"Requesting {year} facility attributes from the CAM API")
+    items = client.get_facility_attributes(
+        year,
+        on_page=lambda total: report(progress, f"Received {total:,} attribute records so far"),
+        **filters,
+    )["items"]
+    report(progress, f"Updating facility and unit details from {len(items):,} records")
 
     params = dict({"year": year}, **filters)
     dataset = start_dataset(session, f"CAMPD facility attributes {year}", year, params, len(items))

@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+
+{% block title %}Retrieve EPA data - epaData{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='tools.css') }}">
+{% endblock %}
+
+{% set running = job and job.status == "running" %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Retrieve from EPA</h1>
+    <p>Pull annual emissions straight from EPA's Clean Air Markets Program Data. Choose a year and any filters, then retrieve. Every record is validated, and every retrieval is recorded on the <a href="/datasets">Datasets</a> page.</p>
+    <div class="method-facts">
+        <span><strong>Method:</strong> CAM API, annual apportioned emissions</span>
+        <span><strong>Details:</strong> CAM API facility attributes</span>
+        <span><strong>API key:</strong> kept on the server, never sent to your browser</span>
+    </div>
+</div>
+
+{% if errors %}
+<div class="form-errors">
+    {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form class="panel" method="POST" action="/retrieve" id="retrieve-form">
+    <div class="filter-grid">
+        <div class="field">
+            <label for="year">Reporting year</label>
+            <select class="control" id="year" name="year">
+                {% for y in choices.years %}
+                <option value="{{ y }}" {% if form.get('year') == y|string %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="state">State</label>
+            <select class="control" id="state" name="state">
+                <option value="">All states</option>
+                {% for s in choices.states %}
+                <option value="{{ s }}" {% if form.get('state') == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field picker wide">
+            <label for="facility-picker">Facility</label>
+            <input class="control" type="text" id="facility-picker" autocomplete="off"
+                   placeholder="{{ form.get('facility_label') or 'Any facility (start typing to pick one)' }}">
+            <input type="hidden" name="facility_id" id="facility_id" value="{{ form.get('facility_id', '') }}">
+            <input type="hidden" name="facility_label" id="facility_label" value="{{ form.get('facility_label', '') }}">
+        </div>
+        <div class="field">
+            <label for="fuel">Fuel type</label>
+            <select class="control" id="fuel" name="fuel">
+                <option value="">All fuels</option>
+                {% for f in choices.fuels %}
+                <option value="{{ f }}" {% if form.get('fuel') == f %}selected{% endif %}>{{ f }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="unit_type">Unit type</label>
+            <select class="control" id="unit_type" name="unit_type">
+                <option value="">All unit types</option>
+                {% for u in choices.unit_types %}
+                <option value="{{ u }}" {% if form.get('unit_type') == u %}selected{% endif %}>{{ u }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field wide">
+            <label for="control">Pollution control technology</label>
+            <select class="control" id="control" name="control">
+                <option value="">Any controls</option>
+                {% for c in choices.controls %}
+                <option value="{{ c }}" {% if form.get('control') == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <label class="check">
+        <input type="checkbox" name="attributes" {% if not form or form.get('attributes') == 'on' %}checked{% endif %}>
+        Also update facility details (county, location, source category, operating and retirement dates)
+    </label>
+
+    <p style="margin: 24px 0 0;">
+        <button class="btn btn-primary" type="submit" id="retrieve-button" {% if running %}disabled{% endif %}>
+            {{ "Retrieving…" if running else "Retrieve" }}
+        </button>
+    </p>
+</form>
+
+{% if job %}
+<section style="margin-top: 40px;" id="status" data-job="{{ job.id }}" data-status="{{ job.status }}">
+    {% if busy %}
+    <p class="table-note" style="margin: 0 0 12px;">Another retrieval was already running, so yours wasn't started. Here's the one in progress.</p>
+    {% endif %}
+
+    <div class="status-head">
+        <h2 class="section-title" style="margin: 0;">Retrieval status</h2>
+        <span class="status-pill {{ job.status }}" id="status-pill">
+            {% if job.status == "running" %}<span class="spinner"></span> Running{% elif job.status == "done" %}Done{% else %}Failed{% endif %}
+        </span>
+        <span class="muted" style="font-size: 14px;">Started {{ job.started }}{% if job.finished %}, finished <span id="finished">{{ job.finished }}</span>{% endif %}</span>
+    </div>
+
+    <div class="chips" style="margin: 0 0 16px;">
+        {% for label, value in job.filters.items() %}
+        <span class="chip" style="cursor: default; padding-right: 12px;">{{ label }}: {{ value }}</span>
+        {% endfor %}
+    </div>
+
+    <div class="panel" style="padding: 12px 24px;">
+        <ul class="steps" id="steps">
+            {% for step in job.steps %}
+            <li><span class="time">{{ step.time }}</span><span>{{ step.text }}</span></li>
+            {% endfor %}
+        </ul>
+        <p class="form-errors" id="job-error" style="margin: 12px 0 8px;" {% if not job.error %}hidden{% endif %}>{{ job.error or "" }}</p>
+    </div>
+
+    <div id="results" {% if not job.datasets %}hidden{% endif %}>
+        <h2 class="section-title">Record counts</h2>
+        <div class="table-wrap">
+            <table class="data">
+                <thead>
+                    <tr>
+                        <th class="rank">#</th>
+                        <th>Dataset</th>
+                        <th class="num">Received</th>
+                        <th class="num">Accepted</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody id="results-body">
+                    {% for dataset in job.datasets %}
+                    <tr>
+                        <td class="rank">{{ dataset.dataset_id }}</td>
+                        <td class="name"><a href="/datasets/{{ dataset.dataset_id }}">{{ dataset.name }}</a></td>
+                        <td class="num">{{ "{:,}".format(dataset.received or 0) }}</td>
+                        <td class="num">{{ "{:,}".format(dataset.accepted or 0) }}</td>
+                        <td class="muted">{% for note in dataset.notes %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="summary-actions" style="margin-top: 16px;">
+            {% if job.datasets %}<a class="btn btn-quiet" href="/datasets/{{ job.datasets[0].dataset_id }}">See what was retrieved</a>{% endif %}
+            {% if job.search_url %}<a class="btn-link btn" href="{{ job.search_url }}">Open in Search</a>{% endif %}
+            <a class="btn-link btn" href="/datasets">All datasets</a>
+        </p>
+    </div>
+</section>
+{% endif %}
+
+<h2 class="section-title">Recent retrievals</h2>
+<div class="list">
+    {% for dataset in recent %}
+    <a class="list-row" href="/datasets/{{ dataset.dataset_id }}">
+        <div>
+            <div class="title">{{ dataset.dataset_name }}</div>
+            <div class="detail">
+                {{ "{:,}".format(dataset.num_raw_records or 0) }} received, {{ "{:,}".format(dataset.num_accepted_records or 0) }} accepted{% if dataset.retrieval_date %}, {{ dataset.retrieval_date|replace("T", " ") }}{% endif %}
+            </div>
+        </div>
+        <span class="end">Dataset #{{ dataset.dataset_id }}</span>
+    </a>
+    {% else %}
+    <div class="list-row"><div class="detail">No retrievals yet.</div></div>
+    {% endfor %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='picker.js') }}"></script>
+<script>
+(function () {
+    const picker = document.getElementById("facility-picker");
+    const facilityId = document.getElementById("facility_id");
+    const facilityLabel = document.getElementById("facility_label");
+
+    attachFacilityPicker(picker, facility => {
+        facilityId.value = facility.epa_facility_id;
+        facilityLabel.value = `${facility.facility_name}, ${facility.state}`;
+        picker.placeholder = facilityLabel.value;
+    });
+
+    // Clearing the box (Backspace or Delete on an empty box) removes the chosen facility
+    picker.addEventListener("keydown", event => {
+        const clearing = event.key === "Backspace" || event.key === "Delete";
+        if (clearing && picker.value === "" && facilityId.value) {
+            facilityId.value = "";
+            facilityLabel.value = "";
+            picker.placeholder = "Any facility (start typing to pick one)";
+        }
+    });
+
+    const status = document.getElementById("status");
+    if (!status || status.dataset.status !== "running") {
+        return;
+    }
+
+    function escapeHtml(text) {
+        const replacements = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+        return String(text).replace(/[&<>"']/g, character => replacements[character]);
+    }
+
+    const numberFormat = new Intl.NumberFormat("en-US");
+
+    async function poll() {
+        const response = await fetch(`/api/retrieve/${status.dataset.job}`);
+        if (!response.ok) {
+            return;
+        }
+        const job = await response.json();
+
+        document.getElementById("steps").innerHTML = job.steps.map(step => {
+            return `<li><span class="time">${escapeHtml(step.time)}</span><span>${escapeHtml(step.text)}</span></li>`;
+        }).join("");
+
+        if (job.datasets.length > 0) {
+            document.getElementById("results").hidden = false;
+            document.getElementById("results-body").innerHTML = job.datasets.map(dataset => {
+                const notes = dataset.notes.map(escapeHtml).join("<br>");
+                return `<tr>
+                    <td class="rank">${dataset.dataset_id}</td>
+                    <td class="name"><a href="/datasets/${dataset.dataset_id}">${escapeHtml(dataset.name)}</a></td>
+                    <td class="num">${numberFormat.format(dataset.received || 0)}</td>
+                    <td class="num">${numberFormat.format(dataset.accepted || 0)}</td>
+                    <td class="muted">${notes}</td>
+                </tr>`;
+            }).join("");
+        }
+
+        if (job.status === "running") {
+            setTimeout(poll, 1000);
+            return;
+        }
+
+        // Finished: reload once so the page shows the final state and the new recent retrievals
+        window.location.replace(`/retrieve?job=${job.id}`);
+    }
+
+    setTimeout(poll, 1000);
+})();
+</script>
+{% endblock %}

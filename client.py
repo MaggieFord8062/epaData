@@ -22,8 +22,11 @@ class CAMPDClient:
     def __init__(self, api_key):
         self.api_key = api_key
 
-    def _get_all_pages(self, url, params):
-        """Request every page of results and return them as one list."""
+    def _get_all_pages(self, url, params, on_page=None):
+        """
+        Request every page of results and return them as one list.
+        on_page, if given, is called with the running total after each page (used for progress messages).
+        """
         all_items = []
         page = 1
 
@@ -41,6 +44,8 @@ class CAMPDClient:
                 break
 
             all_items.extend(items)
+            if on_page is not None:
+                on_page(len(all_items))
 
             if len(items) < PER_PAGE:
                 break
@@ -74,7 +79,7 @@ class CAMPDClient:
 
         raise CAMPDError("CAM API request failed")
 
-    def get_data(self, year, state=None, **filters):
+    def get_data(self, year, state=None, on_page=None, **filters):
         """
         Annual emissions: one row per unit per year.
         Optional filters use CAM API parameter names, e.g. stateCode="KY", unitFuelType="Coal".
@@ -83,9 +88,9 @@ class CAMPDClient:
         if state:
             params["stateCode"] = state
         params.update({key: value for key, value in filters.items() if value})
-        return {"items": self._get_all_pages(EMISSIONS_URL, params)}
+        return {"items": self._get_all_pages(EMISSIONS_URL, params, on_page)}
 
-    def get_facility_attributes(self, year, state=None, **filters):
+    def get_facility_attributes(self, year, state=None, on_page=None, **filters):
         """
         Facility and unit attributes: county, latitude/longitude, source category,
         commercial operation date and operating status, one row per unit per year.
@@ -94,4 +99,4 @@ class CAMPDClient:
         if state:
             params["stateCode"] = state
         params.update({key: value for key, value in filters.items() if value})
-        return {"items": self._get_all_pages(ATTRIBUTES_URL, params)}
+        return {"items": self._get_all_pages(ATTRIBUTES_URL, params, on_page)}

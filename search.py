@@ -40,6 +40,7 @@ BASE_JOIN = """
 # Text filters: form field name -> database column (exact match)
 TEXT_FILTERS = {
     "unit_key": "unit.internal_unit_key",
+    "dataset_id": "annual_records.dataset_id",
     "epa_facility_id": "facility.epa_facility_id",
     "facility_name": "facility.facility_name",
     "epa_unit_id": "unit.epa_unit_id",
@@ -164,6 +165,15 @@ def build_where(filters, exclude=()):
         if value and field not in exclude:
             clauses.append(f"{column} LIKE ?")
             parameters.append(f"%{value}%")
+
+    # One control technology in any of the SO2, NOx or PM control fields (used for retrieval queries)
+    control = str(filters.get("control_any") or "").strip()
+    if control and "control_any" not in exclude:
+        clauses.append(
+            "(annual_records.so2_control_info LIKE ? OR annual_records.nox_control_info LIKE ?"
+            " OR annual_records.pm_control_info LIKE ?)"
+        )
+        parameters.extend([f"%{control}%"] * 3)
 
     # Year range, used by historical search (e.g. 2015 through 2025)
     year_from = to_number(filters.get("year_from"))

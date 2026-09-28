@@ -125,7 +125,7 @@
 <h2 class="section-title">Data source</h2>
 <div class="list">
     {% for dataset in sources %}
-    <a class="list-row" href="/datasets">
+    <a class="list-row" href="/datasets/{{ dataset.dataset_id }}">
         <div>
             <div class="title">{{ dataset.dataset_name }}</div>
             <div class="detail">{{ dataset.og_filename or dataset.data_source }}{% if dataset.retrieval_date %}, retrieved {{ dataset.retrieval_date[:10] }}{% endif %}</div>

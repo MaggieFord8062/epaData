@@ -52,9 +52,9 @@
 <dl class="facts">
     <div class="fact"><dt>Primary fuel</dt><dd>{{ unit.primary_fuel or "—" }}</dd></div>
     <div class="fact"><dt>Secondary fuel</dt><dd>{{ unit.secondary_fuel or "—" }}</dd></div>
-    <div class="fact"><dt>SO2 controls</dt><dd>{{ latest.so2_control_info|replace("<br>", ", ") if latest and latest.so2_control_info else "None reported" }}</dd></div>
-    <div class="fact"><dt>NOx controls</dt><dd>{{ latest.nox_control_info|replace("<br>", ", ") if latest and latest.nox_control_info else "None reported" }}</dd></div>
-    <div class="fact"><dt>PM controls</dt><dd>{{ latest.pm_control_info|replace("<br>", ", ") if latest and latest.pm_control_info else "None reported" }}</dd></div>
+    <div class="fact"><dt>SO2 controls</dt><dd>{{ latest.so2_control_info|controls if latest and latest.so2_control_info else "None reported" }}</dd></div>
+    <div class="fact"><dt>NOx controls</dt><dd>{{ latest.nox_control_info|controls if latest and latest.nox_control_info else "None reported" }}</dd></div>
+    <div class="fact"><dt>PM controls</dt><dd>{{ latest.pm_control_info|controls if latest and latest.pm_control_info else "None reported" }}</dd></div>
     <div class="fact"><dt>Programs</dt><dd>{{ latest.program_code if latest and latest.program_code else "—" }}</dd></div>
 </dl>
 {% if latest %}<p class="table-note">Controls and programs as reported in {{ latest.year }}, the most recent year on record.</p>{% endif %}
@@ -91,7 +91,7 @@
                 <td class="num">{% if value is none %}<span class="dim">—</span>{% else %}{{ "{:,.1f}".format(value) }}{% endif %}</td>
                 {% endfor %}
                 <td style="white-space: nowrap;">
-                    {% if dataset %}<a href="/datasets" title="{{ dataset.dataset_name }}, {{ dataset.og_filename or dataset.data_source }}">#{{ dataset.dataset_id }}</a>{% else %}<span class="dim">—</span>{% endif %}
+                    {% if dataset %}<a href="/datasets/{{ dataset.dataset_id }}" title="{{ dataset.dataset_name }}, {{ dataset.og_filename or dataset.data_source }}">#{{ dataset.dataset_id }}</a>{% else %}<span class="dim">—</span>{% endif %}
                 </td>
             </tr>
             {% endfor %}

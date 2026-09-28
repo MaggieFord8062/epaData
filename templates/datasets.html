@@ -34,7 +34,7 @@
             {% set rejected = (dataset.num_raw_records or 0) - (dataset.num_accepted_records or 0) %}
             <tr class="{{ 'has-notes' if dataset.notes else '' }}">
                 <td class="rank">{{ dataset.dataset_id }}</td>
-                <td class="name">{{ dataset.dataset_name }}</td>
+                <td class="name"><a href="/datasets/{{ dataset.dataset_id }}">{{ dataset.dataset_name }}</a></td>
                 <td>{{ dataset.og_filename or dataset.data_source }}</td>
                 <td style="white-space: nowrap;">{{ (dataset.retrieval_date or "")|replace("T", " ") }}</td>
                 <td class="num">{{ "{:,}".format(dataset.num_raw_records or 0) }}</td>
@@ -61,11 +61,12 @@
 <p class="table-note">
     "Records stored" counts the records in the database that trace back to that dataset.
     A later pull of the same year stores 0 new records, because they're already in the database.
+    Click a dataset to see the records it covers.
 </p>
 {% else %}
 <div class="panel empty">
     <h3>No datasets recorded yet</h3>
-    <p>Run <code>python ingest.py</code> to pull data from the EPA API. Each pull is recorded here.</p>
+    <p>Run <code>python ingest.py</code> or use the Retrieve page to pull data from the EPA API. Each pull is recorded here.</p>
 </div>
 {% endif %}
 

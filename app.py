@@ -4,10 +4,11 @@ import json
 from datetime import date
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, jsonify, Response, abort
+from flask import Flask, render_template, request, jsonify, Response, abort, redirect
 from sqlalchemy import func
 from database import SessionLocal
 from models import Facility, Unit, AnnualRecord, Dataset
+import retrieval_jobs
 from search import (search_data, advance_search, get_filter_options, find_facilities,
                     compare_facilities, facility_units, RANK_FIELDS, PER_PAGE_CHOICES,
                     COMPARE_LIMIT)
@@ -151,6 +152,77 @@ def datasets():
     session.close()
 
     return render_template("datasets.html", rows=rows, unlinked=unlinked)
+
+
+# CAM API parameter -> (search filter, readable label)
+QUERY_TO_SEARCH = {
+    "year": ("reporting_year", "Year"),
+    "stateCode": ("state", "State"),
+    "facilityId": ("epa_facility_id", "Facility ID"),
+    "unitFuelType": ("primary_fuel", "Fuel type"),
+    "unitType": ("unit_type", "Unit type"),
+    "controlTechnologies": ("control_any", "Control technology"),
+}
+
+DATASET_PAGE_SIZE = 50
+
+
+@app.route("/datasets/<int:dataset_id>")
+def dataset_detail(dataset_id):
+    """
+    One retrieval or upload: where it came from, what was asked for, the counts,
+    and the records it covers. A repeat retrieval stores nothing new, so this shows both
+    the records its query covers and the ones it was first to store.
+    """
+    session = SessionLocal()
+    dataset = session.get(Dataset, dataset_id)
+    if dataset is None:
+        session.close()
+        abort(404)
+    stored_count = session.query(AnnualRecord).filter(AnnualRecord.dataset_id == dataset_id).count()
+    session.close()
+
+    query = fromjson(dataset.query_parameters)
+    query_labels = []
+    covered_filters = {}
+    for parameter, value in query.items():
+        search_field, label = QUERY_TO_SEARCH.get(parameter, (None, parameter))
+        query_labels.append((label, value))
+        if search_field:
+            covered_filters[search_field] = value
+
+    # Which records to list: an upload lists what it stored; an API pull lists what its query covers
+    show = request.args.get("show")
+    if show not in ("covered", "stored"):
+        show = "covered" if covered_filters else "stored"
+    filters = covered_filters if show == "covered" else {"dataset_id": dataset_id}
+
+    rows = search_data(**filters) if filters else []
+    total = len(rows)
+    pages = max(1, -(-total // DATASET_PAGE_SIZE))
+    page = min(max(request.args.get("page", 1, type=int), 1), pages)
+    page_rows = rows[(page - 1) * DATASET_PAGE_SIZE: page * DATASET_PAGE_SIZE]
+
+    # The Search page can open these records when every filter is one it has a field for
+    search_url = None
+    if show == "covered" and covered_filters and "control_any" not in covered_filters:
+        search_url = "/basic-search?" + urlencode(covered_filters)
+
+    return render_template(
+        "dataset.html",
+        dataset=dataset,
+        query_labels=query_labels,
+        stored_count=stored_count,
+        covered_available=bool(covered_filters),
+        show=show,
+        rows=page_rows,
+        total=total,
+        page=page,
+        pages=pages,
+        page_size=DATASET_PAGE_SIZE,
+        search_url=search_url,
+        download_url="/download?" + urlencode(filters) if filters else None,
+    )
 
 
 @app.route("/facility/<int:facility_id>")
@@ -321,6 +393,8 @@ def download():
     results = search_data(**filters)
     name_parts = [filters.get(key) for key in ("facility_name", "epa_facility_id", "epa_unit_id",
                                                "state", "reporting_year", "primary_fuel")]
+    if filters.get("dataset_id"):
+        name_parts.insert(0, f"dataset{filters['dataset_id']}")
     return csv_response(results, name_parts)
 
 
@@ -490,6 +564,141 @@ def api_units():
     if facility_id is None:
         return jsonify([])
     return jsonify(facility_units(facility_id))
+
+
+# ---------- Retrieval page ----------
+
+US_STATES = [
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN",
+    "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH",
+    "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "PR", "RI", "SC", "SD", "TN", "TX",
+    "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+]
+
+FIRST_CAMPD_YEAR = 1995
+
+
+def retrieval_choices():
+    """What each retrieval filter can be set to. Fuel, unit type and control lists come from data already stored."""
+    session = SessionLocal()
+    fuels = distinct_values(session, Unit.primary_fuel)
+    unit_types = distinct_values(session, Unit.unit_type)
+
+    # Control fields can list several technologies at once ("A|B" or "A<br>B"), so split them up
+    control_technologies = set()
+    for column in (AnnualRecord.so2_control_info, AnnualRecord.nox_control_info, AnnualRecord.pm_control_info):
+        for value in distinct_values(session, column):
+            for part in str(value).replace("<br>", "|").split("|"):
+                if part.strip():
+                    control_technologies.add(part.strip())
+    session.close()
+
+    return {
+        "years": list(range(date.today().year - 1, FIRST_CAMPD_YEAR - 1, -1)),
+        "states": US_STATES,
+        "fuels": fuels,
+        "unit_types": unit_types,
+        "controls": sorted(control_technologies),
+    }
+
+
+@app.route("/retrieve", methods=["GET", "POST"])
+def retrieve():
+    """
+    EPA data retrieval: choose filters, pull from the CAM API in the background,
+    and watch its status. The API key stays on the server (read from .env).
+    """
+    choices = retrieval_choices()
+
+    if request.method == "POST":
+        form = request.form
+        errors = []
+
+        year = form.get("year", type=int)
+        if year not in choices["years"]:
+            errors.append("Choose a reporting year.")
+
+        # Form field -> (CAM API parameter, allowed values, readable label)
+        filter_fields = {
+            "state": ("stateCode", choices["states"], "State"),
+            "fuel": ("unitFuelType", choices["fuels"], "Fuel type"),
+            "unit_type": ("unitType", choices["unit_types"], "Unit type"),
+            "control": ("controlTechnologies", choices["controls"], "Control technology"),
+        }
+
+        api_filters = {}
+        labels = {"Year": year}
+        for field, (parameter, allowed, label) in filter_fields.items():
+            value = form.get(field, "").strip()
+            if not value:
+                continue
+            if value not in allowed:
+                errors.append(f"{label} \"{value}\" isn't one of the available choices.")
+                continue
+            api_filters[parameter] = value
+            labels[label] = value
+
+        facility_id = form.get("facility_id", "").strip()
+        if facility_id:
+            if not facility_id.isdigit():
+                errors.append("Facility ID must be a number.")
+            else:
+                api_filters["facilityId"] = int(facility_id)
+                labels["Facility"] = form.get("facility_label") or facility_id
+
+        if errors:
+            return render_template("retrieve.html", choices=choices, errors=errors, form=form,
+                                   job=None, recent=recent_retrievals())
+
+        job_id, started = retrieval_jobs.start_retrieval(
+            year, api_filters, form.get("attributes") == "on", labels,
+        )
+        if started:
+            # A link to the Search page showing what this retrieval covers
+            search_params = {
+                "reporting_year": year,
+                "state": api_filters.get("stateCode", ""),
+                "epa_facility_id": api_filters.get("facilityId", ""),
+                "primary_fuel": api_filters.get("unitFuelType", ""),
+                "unit_type": api_filters.get("unitType", ""),
+            }
+            retrieval_jobs.get_job(job_id)["search_url"] = "/basic-search?" + urlencode(
+                {key: value for key, value in search_params.items() if value != ""}
+            )
+        return redirect(f"/retrieve?job={job_id}" + ("" if started else "&busy=1"))
+
+    job = retrieval_jobs.get_job(request.args.get("job", "")) or retrieval_jobs.running_job()
+    return render_template(
+        "retrieve.html",
+        choices=choices,
+        errors=[],
+        form={},
+        job=job,
+        busy="busy" in request.args,
+        recent=recent_retrievals(),
+    )
+
+
+def recent_retrievals(limit=6):
+    session = SessionLocal()
+    rows = (
+        session.query(Dataset)
+        .filter(Dataset.data_source.like("%API%"))
+        .order_by(Dataset.dataset_id.desc())
+        .limit(limit)
+        .all()
+    )
+    session.close()
+    return rows
+
+
+@app.route("/api/retrieve/<job_id>")
+def api_retrieve_status(job_id):
+    """Polled by the retrieval page to show live status."""
+    job = retrieval_jobs.get_job(job_id)
+    if job is None:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(job)
 
 
 if __name__ == "__main__":
