@@ -8,8 +8,9 @@ from flask import Flask, render_template, request, jsonify, Response, abort
 from sqlalchemy import func
 from database import SessionLocal
 from models import Facility, Unit, AnnualRecord, Dataset
-from search import (search_data, advance_search, get_filter_options,
-                    find_facilities, RANK_FIELDS, PER_PAGE_CHOICES)
+from search import (search_data, advance_search, get_filter_options, find_facilities,
+                    compare_facilities, facility_units, RANK_FIELDS, PER_PAGE_CHOICES,
+                    COMPARE_LIMIT)
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep result columns in the order search.py lists them
@@ -330,8 +331,8 @@ def download_ranking():
     if options.get("reporting_year") == "all":
         options.pop("reporting_year")
     results = advance_search(**options)
-    name_parts = ["ranking", options.get("type"), options.get("field"), options.get("state"),
-                  options.get("reporting_year")]
+    name_parts = ["ranking", options.get("type"), options.get("field"), options.get("group"),
+                  options.get("state"), options.get("reporting_year")]
     return csv_response(results, name_parts)
 
 
@@ -374,6 +375,121 @@ def advanced_search():
         selected=params,
         **options,
     )
+
+
+def latest_year():
+    session = SessionLocal()
+    year = session.query(func.max(AnnualRecord.year)).scalar()
+    session.close()
+    return year
+
+
+def all_years():
+    session = SessionLocal()
+    years = sorted(distinct_values(session, AnnualRecord.year), reverse=True)
+    session.close()
+    return years
+
+
+@app.route("/compare")
+def compare():
+    """
+    Facility comparison: up to four facilities side by side for one year.
+    The facilities and year are in the URL, e.g. /compare?facility=1364&facility=1356&year=2025
+    """
+    years = all_years()
+    chosen = []
+    for value in request.args.getlist("facility"):
+        if value.isdigit() and int(value) not in chosen:
+            chosen.append(int(value))
+    chosen = chosen[:COMPARE_LIMIT]
+
+    year = request.args.get("year", type=int)
+    if year not in years:
+        year = years[0] if years else None
+
+    data = compare_facilities(chosen, year) if chosen and year else None
+
+    return render_template(
+        "compare.html",
+        data=data,
+        chosen=chosen,
+        year=year,
+        years=years,
+        limit=COMPARE_LIMIT,
+        download_url="/download-compare?" + urlencode([("facility", fid) for fid in chosen] + [("year", year)]),
+    )
+
+
+@app.route("/download-compare")
+def download_compare():
+    """CSV of every unit at the compared facilities for the chosen year."""
+    chosen = [value for value in request.args.getlist("facility") if value.isdigit()]
+    year = request.args.get("year", type=int) or latest_year()
+    data = compare_facilities(chosen, year)
+    return csv_response(data["units"], ["comparison", year] + chosen)
+
+
+@app.route("/history")
+def history():
+    """
+    Historical search: one unit across a range of years, e.g. /history?unit=123&year_from=2015&year_to=2025
+    """
+    years = all_years()
+    unit_key = request.args.get("unit", type=int)
+    year_from = request.args.get("year_from", type=int) or (years[-1] if years else None)
+    year_to = request.args.get("year_to", type=int) or (years[0] if years else None)
+    if year_from and year_to and year_from > year_to:
+        year_from, year_to = year_to, year_from
+
+    session = SessionLocal()
+    unit = session.get(Unit, unit_key) if unit_key else None
+    facility = session.get(Facility, unit.epa_facility_id) if unit else None
+    session.close()
+
+    rows = []
+    change = None
+    if unit:
+        filters = {"unit_key": unit_key, "year_from": year_from, "year_to": year_to, "sort": "year", "dir": "asc"}
+        rows = search_data(**filters)
+
+        # How CO2 changed between the first and last year in the range
+        with_co2 = [row for row in rows if row["CO2 (tons)"] is not None]
+        if len(with_co2) >= 2 and with_co2[0]["CO2 (tons)"]:
+            first, last = with_co2[0], with_co2[-1]
+            change = {
+                "first_year": first["Year"],
+                "last_year": last["Year"],
+                "percent": (last["CO2 (tons)"] - first["CO2 (tons)"]) / first["CO2 (tons)"] * 100,
+            }
+
+    max_co2 = max([row["CO2 (tons)"] or 0 for row in rows] or [0])
+
+    return render_template(
+        "history.html",
+        unit=unit,
+        facility=facility,
+        units=facility_units(facility.epa_facility_id) if facility else [],
+        rows=rows,
+        change=change,
+        max_co2=max_co2,
+        years=years,
+        year_from=year_from,
+        year_to=year_to,
+        download_url="/download?" + urlencode({
+            "unit_key": unit_key or "", "year_from": year_from or "", "year_to": year_to or "",
+            "sort": "year", "dir": "asc",
+        }),
+    )
+
+
+@app.route("/api/units")
+def api_units():
+    """Units at one facility, for the historical search's unit menu."""
+    facility_id = request.args.get("facility", type=int)
+    if facility_id is None:
+        return jsonify([])
+    return jsonify(facility_units(facility_id))
 
 
 if __name__ == "__main__":

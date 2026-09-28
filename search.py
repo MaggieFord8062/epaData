@@ -39,6 +39,7 @@ BASE_JOIN = """
 
 # Text filters: form field name -> database column (exact match)
 TEXT_FILTERS = {
+    "unit_key": "unit.internal_unit_key",
     "epa_facility_id": "facility.epa_facility_id",
     "facility_name": "facility.facility_name",
     "epa_unit_id": "unit.epa_unit_id",
@@ -163,6 +164,16 @@ def build_where(filters, exclude=()):
         if value and field not in exclude:
             clauses.append(f"{column} LIKE ?")
             parameters.append(f"%{value}%")
+
+    # Year range, used by historical search (e.g. 2015 through 2025)
+    year_from = to_number(filters.get("year_from"))
+    year_to = to_number(filters.get("year_to"))
+    if year_from is not None and "year_from" not in exclude:
+        clauses.append("annual_records.year >= ?")
+        parameters.append(int(year_from))
+    if year_to is not None and "year_to" not in exclude:
+        clauses.append("annual_records.year <= ?")
+        parameters.append(int(year_to))
 
     for field, column in NUMERIC_FILTERS.items():
         if field in exclude:
@@ -300,8 +311,13 @@ RANK_FILTERS = ["state", "county", "source_category", "reporting_year",
                 "unit_type", "primary_fuel", "secondary_fuel"]
 
 
+RANK_GROUPS = {
+    "state": "State",
+}
+
+
 def build_advanced_query(type=None, limit=None, order="DESC", field=None, **filters):
-    """Build the advanced search (ranking) SQL and its parameters."""
+    """Build the advanced search (ranking) SQL and its parameters, without any row limit."""
     order = "ASC" if order == "ASC" else "DESC"
 
     # Only the dropdown filters apply to rankings
@@ -331,21 +347,136 @@ def build_advanced_query(type=None, limit=None, order="DESC", field=None, **filt
     else:
         return None, []
 
-    if field in RANK_FIELDS:
-        header = RANK_FIELDS[field]
-        # Rows with no value always go last
-        query += f' ORDER BY "{header}" IS NULL, "{header}" {order}'
-
-    number = to_number(limit)
-    if number is not None and number > 0:
-        query += " LIMIT ?"
-        parameters.append(int(number))
+    header = RANK_FIELDS.get(field, RANK_FIELDS["co2_mass"])
+    # Rows with no value always go last
+    query += f' ORDER BY "{header}" IS NULL, "{header}" {order}'
 
     return query, parameters
 
 
-def advance_search(**options):
+def advance_search(limit=None, group=None, **options):
+    """
+    Rankings. With no group, the top (or bottom) N overall.
+    With group="state", the top (or bottom) N within each state, e.g. the top CO2 facility in every state.
+    """
     query, parameters = build_advanced_query(**options)
     if query is None:
         return []
-    return run_query(query, parameters)
+
+    number = to_positive_int(limit, 10)
+    group_column = RANK_GROUPS.get(group)
+
+    if group_column is None:
+        return run_query(query + " LIMIT ?", parameters + [number])
+
+    # Rows are already in ranked order, so keep the first N rows seen for each group
+    ranked = []
+    count_in_group = {}
+    for row in run_query(query, parameters):
+        key = row.get(group_column)
+        position = count_in_group.get(key, 0) + 1
+        count_in_group[key] = position
+        if position <= number:
+            ranked.append(dict({f"Rank in {group_column}": position}, **row))
+
+    ranked.sort(key=lambda row: (str(row.get(group_column) or ""), row[f"Rank in {group_column}"]))
+    return ranked
+
+
+# ---------- Facility comparison ----------
+
+COMPARE_LIMIT = 4
+
+
+def compare_facilities(facility_ids, year):
+    """
+    Side-by-side totals for a few facilities in one year, plus every unit's numbers
+    and each facility's CO2 in every year on record.
+    """
+    facility_ids = [int(fid) for fid in facility_ids if str(fid).strip().isdigit()][:COMPARE_LIMIT]
+    if not facility_ids:
+        return {"facilities": [], "units": [], "trend": {}, "years": []}
+
+    marks = ", ".join("?" for _ in facility_ids)
+    connection = connect()
+
+    summary_rows = connection.execute(
+        f"""
+        SELECT
+            facility.epa_facility_id AS facility_id,
+            facility.facility_name   AS name,
+            facility.state, facility.county, facility.source_category,
+            COUNT(annual_records.annual_record_id) AS units_reporting,
+            SUM(annual_records.operating_time) AS operating_time,
+            SUM(annual_records.gross_load)     AS gross_load,
+            SUM(annual_records.heat_input)     AS heat_input,
+            SUM(annual_records.co2_mass)       AS co2,
+            SUM(annual_records.so2_mass)       AS so2,
+            SUM(annual_records.nox_mass)       AS nox
+        FROM facility
+        LEFT JOIN annual_records
+            ON annual_records.epa_facility_id = facility.epa_facility_id
+            AND annual_records.year = ?
+        WHERE facility.epa_facility_id IN ({marks})
+        GROUP BY facility.epa_facility_id
+        """,
+        [year] + facility_ids,
+    ).fetchall()
+
+    # Keep the order the user picked them in
+    by_id = {row["facility_id"]: dict(row) for row in summary_rows}
+    facilities = [by_id[fid] for fid in facility_ids if fid in by_id]
+    for facility in facilities:
+        # Tons of CO2 per MWh generated: lower means cleaner electricity
+        if facility["co2"] is not None and facility["gross_load"]:
+            facility["co2_per_mwh"] = facility["co2"] / facility["gross_load"]
+        else:
+            facility["co2_per_mwh"] = None
+
+    unit_query = (
+        f"SELECT {RESULT_COLUMNS} {BASE_JOIN}"
+        f" WHERE facility.epa_facility_id IN ({marks}) AND annual_records.year = ?"
+    )
+    units = [dict(row) for row in connection.execute(unit_query, facility_ids + [year]).fetchall()]
+    position = {fid: index for index, fid in enumerate(facility_ids)}
+    units.sort(key=lambda row: (position.get(row["Facility ID"], 99), -(row["CO2 (tons)"] or 0)))
+
+    trend_rows = connection.execute(
+        f"""
+        SELECT epa_facility_id, year, SUM(co2_mass) AS co2
+        FROM annual_records
+        WHERE epa_facility_id IN ({marks})
+        GROUP BY epa_facility_id, year
+        """,
+        facility_ids,
+    ).fetchall()
+    connection.close()
+
+    trend = {}
+    for row in trend_rows:
+        trend.setdefault(row["year"], {})[row["epa_facility_id"]] = row["co2"]
+    years = sorted(trend.keys(), reverse=True)
+
+    return {"facilities": facilities, "units": units, "trend": trend, "years": years}
+
+
+# ---------- Historical search ----------
+
+def facility_units(facility_id):
+    """Every unit at a facility, with the years it has data for."""
+    connection = connect()
+    rows = connection.execute(
+        """
+        SELECT unit.internal_unit_key AS unit_key, unit.epa_unit_id AS unit_id,
+               unit.unit_type, unit.primary_fuel,
+               MIN(annual_records.year) AS first_year, MAX(annual_records.year) AS last_year
+        FROM unit
+        LEFT JOIN annual_records ON annual_records.internal_unit_key = unit.internal_unit_key
+        WHERE unit.epa_facility_id = ?
+        GROUP BY unit.internal_unit_key
+        ORDER BY unit.epa_unit_id
+        """,
+        [facility_id],
+    ).fetchall()
+    connection.close()
+    return [dict(row) for row in rows]

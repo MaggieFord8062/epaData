@@ -2,12 +2,27 @@
 
 {% block title %}Results - epaData{% endblock %}
 
+{% block head %}
+<style>
+    /* State headings between groups in "in each state" rankings */
+    table.data tr.group-row td {
+        padding-top: 20px;
+        background: var(--fill);
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ink);
+        letter-spacing: 0;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <div class="page-head">
     <h1>{{ "{:,}".format(results|length) }} result{{ "" if results|length == 1 else "s" }}</h1>
     {% if ranking and rank_label %}
     <p>
+        {% if ranking.get('group') == "state" %}{{ "Top" if ranking.get('order') != "ASC" else "Bottom" }} {{ ranking.get('limit', 10) }} in each state:{% endif %}
         {{ "Facilities" if ranking.get('type') == "Facility" else "Units" }} ranked by {{ rank_label }},
         {{ "lowest" if ranking.get('order') == "ASC" else "highest" }} first{% if ranking.get('state') %}, in {{ ranking.get('state') }}{% endif %}{% if ranking.get('reporting_year') and ranking.get('reporting_year') != "all" %}, {{ ranking.get('reporting_year') }}{% else %}, all years combined{% endif %}.
     </p>
@@ -35,16 +50,22 @@
         <thead>
             <tr>
                 {% if ranking %}<th class="rank"></th>{% endif %}
-                {% for header in results[0].keys() if not header.startswith("_") %}
+                {% for header in results[0].keys() if not header.startswith("_") and header != "Rank in State" %}
                 <th class="{{ 'num' if results[0][header] is number and header not in ('Facility ID', 'Year') else '' }} {{ 'ranked' if header == rank_label else '' }}">{{ header }}</th>
                 {% endfor %}
             </tr>
         </thead>
         <tbody>
+            {% set grouped = ranking and ranking.get('group') == "state" %}
             {% for row in results %}
+            {% if grouped and (loop.first or row["State"] != results[loop.index0 - 1]["State"]) %}
+            <tr class="group-row">
+                <td colspan="99">{{ row["State"] }}</td>
+            </tr>
+            {% endif %}
             <tr>
-                {% if ranking %}<td class="rank">{{ loop.index }}</td>{% endif %}
-                {% for header, value in row.items() if not header.startswith("_") %}
+                {% if ranking %}<td class="rank">{{ row["Rank in State"] if grouped else loop.index }}</td>{% endif %}
+                {% for header, value in row.items() if not header.startswith("_") and header != "Rank in State" %}
                 {% if value is none %}
                     <td><span class="dim">—</span></td>
                 {% elif header == "Facility" and row.get("Facility ID") %}

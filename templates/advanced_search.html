@@ -26,9 +26,10 @@
             <option value="DESC" {% if selected.get('order') != "ASC" %}selected{% endif %}>top</option>
             <option value="ASC" {% if selected.get('order') == "ASC" %}selected{% endif %}>bottom</option>
         </select>
+        {% set chosen_limit = selected.get('limit', '10') %}
         <select class="control" name="limit" aria-label="How many">
-            {% for n in [10, 25, 50, 100] %}
-            <option value="{{ n }}" {% if selected.get('limit') == n|string %}selected{% endif %}>{{ n }}</option>
+            {% for n in [1, 3, 5, 10, 25, 50, 100] %}
+            <option value="{{ n }}" {% if chosen_limit == n|string %}selected{% endif %}>{{ n }}</option>
             {% endfor %}
         </select>
         <span>by</span>
@@ -37,7 +38,14 @@
             <option value="{{ value }}" {% if selected.get('field') == value %}selected{% endif %}>{{ header }}</option>
             {% endfor %}
         </select>
+        <select class="control" name="group" aria-label="Overall or in each state">
+            <option value="" {% if not selected.get('group') %}selected{% endif %}>overall</option>
+            <option value="state" {% if selected.get('group') == "state" %}selected{% endif %}>in each state</option>
+        </select>
     </div>
+    <p class="table-note" style="margin: 12px 0 0;">
+        "In each state" ranks separately inside every state. For example, top 1 by CO2 in each state gives each state's biggest emitter.
+    </p>
 
     <div class="filter-grid" style="margin-top: 28px;">
         <div class="field">
