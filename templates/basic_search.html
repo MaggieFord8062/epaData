@@ -37,29 +37,194 @@
 
     <div class="filter-grid">
 
-        <div class="field wide">
-            <label for="facility_name">Facility</label>
-            <input class="control" type="text" id="facility_name" name="facility_name"
-                   list="facility_name_list" placeholder="Start typing a name"
-                   value="{{ selected.get('facility_name', '') }}" autocomplete="off">
-            <datalist id="facility_name_list">
-                {% for name in options.facility_name %}
-                <option value="{{ name }}">
-                {% endfor %}
-            </datalist>
-        </div>
+    <!-- Facility -->
+    <div class="field wide">
+        <label for="facility_name">Facility</label>
 
-        <div class="field">
-            <label for="epa_facility_id">Facility ID</label>
-            <input class="control" type="text" inputmode="numeric" id="epa_facility_id" name="epa_facility_id"
-                   placeholder="e.g. 1364" value="{{ selected.get('epa_facility_id', '') }}" autocomplete="off">
-        </div>
+        <input
+            class="control"
+            type="text"
+            id="facility_name"
+            name="facility_name"
+            list="facility_name_list"
+            placeholder="Start typing a name"
+            value="{{ selected.get('facility_name', '') }}"
+            autocomplete="off"
+        >
 
-        <div class="field">
-            <label for="epa_unit_id">Unit ID</label>
-            <input class="control" type="text" id="epa_unit_id" name="epa_unit_id"
-                   placeholder="e.g. 4 or CT1" value="{{ selected.get('epa_unit_id', '') }}" autocomplete="off">
-        </div>
+        <datalist id="facility_name_list">
+            {% for name in options.facility_name %}
+            <option value="{{ name }}">
+            {% endfor %}
+        </datalist>
+    </div>
+
+
+    <!-- Facility ID -->
+    <div class="field">
+        <label for="epa_facility_id">Facility ID</label>
+
+        <input
+            class="control"
+            type="text"
+            inputmode="numeric"
+            id="epa_facility_id"
+            name="epa_facility_id"
+            placeholder="e.g. 1364"
+            value="{{ selected.get('epa_facility_id', '') }}"
+            autocomplete="off"
+        >
+    </div>
+
+
+    <!-- Unit ID -->
+    <div class="field">
+        <label for="epa_unit_id">Unit ID</label>
+
+        <input
+            class="control"
+            type="text"
+            id="epa_unit_id"
+            name="epa_unit_id"
+            placeholder="e.g. 4 or CT1"
+            value="{{ selected.get('epa_unit_id', '') }}"
+            autocomplete="off"
+        >
+    </div>
+
+</div>
+
+
+    <!-- State and Country -->
+    <div class="field-row">
+
+    <!-- State -->
+    <div class="field">
+        <label for="state">State</label>
+
+        <select class="control" id="state" name="state">
+            <option value="">All states</option>
+
+            {% for state in options.state %}
+            <option
+                value="{{ state }}"
+                {% if selected.get('state') == state %}selected{% endif %}
+            >
+                {{ state }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+
+
+    <!-- Country -->
+    <div class="field">
+        <label for="country">Country</label>
+
+        <select class="control" id="country" name="country">
+            <option value="">All countries</option>
+
+            <option
+                value="United States"
+                {% if selected.get('country') == 'United States' %}selected{% endif %}
+            >
+                United States
+            </option>
+        </select>
+    </div>
+</div>
+
+
+<!-- Reporting Year -->
+<div class="field">
+    <label for="year">Reporting Year</label>
+
+    <div class="range-row">
+        <select
+            class="control"
+            name="year_operator"
+            id="year_operator"
+        >
+            <option value="">Any amount</option>
+
+            <option value="Greater than"
+                {% if selected.get('year_operator') == 'Greater than' %}selected{% endif %}>
+                More than
+            </option>
+
+            <option value="Less than"
+                {% if selected.get('year_operator') == 'Less than' %}selected{% endif %}>
+                Less than
+            </option>
+
+            <option value="Between"
+                {% if selected.get('year_operator') == 'Between' %}selected{% endif %}>
+                Between
+            </option>
+
+            <option value="Equals"
+                {% if selected.get('year_operator') == 'Equals' %}selected{% endif %}>
+                Exactly
+            </option>
+        </select>
+
+        <input
+            class="control year-min"
+            type="text"
+            name="year_min"
+            placeholder="Minimum"
+            value="{{ selected.get('year_min', '') }}"
+        >
+
+        <input
+            class="control year-max"
+            type="text"
+            name="year_max"
+            placeholder="Maximum"
+            value="{{ selected.get('year_max', '') }}"
+        >
+
+        <input
+            class="control year-equals"
+            type="text"
+            name="year_equals"
+            placeholder="Value"
+            value="{{ selected.get('year_equals', '') }}"
+        >
+    </div>
+</div>
+<script>
+    const yearOperator = document.getElementById("year_operator");
+    const yearMin = document.querySelector(".year-min");
+    const yearMax = document.querySelector(".year-max");
+    const yearEquals = document.querySelector(".year-equals");
+
+    function updateYearInputs() {
+        // Hide everything first
+        yearMin.style.display = "none";
+        yearMax.style.display = "none";
+        yearEquals.style.display = "none";
+
+        // Show the correct inputs
+        if (yearOperator.value === "Between") {
+            yearMin.style.display = "block";
+            yearMax.style.display = "block";
+        }
+        else if (
+            yearOperator.value === "Greater than" ||
+            yearOperator.value === "Less than"
+        ) {
+            yearMin.style.display = "block";
+        }
+        else if (yearOperator.value === "Equals") {
+            yearEquals.style.display = "block";
+        }
+    }
+
+    yearOperator.addEventListener("change", updateYearInputs);
+
+    updateYearInputs();
+</script>
 
         {% for name, label, facet in dropdowns %}
         <div class="field" data-facet="{{ facet }}" {% if not options[facet] %}hidden{% endif %}>

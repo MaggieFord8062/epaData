@@ -75,6 +75,7 @@ NUMERIC_FILTERS = {
     "co2_mass": "annual_records.co2_mass",
     "so2_mass": "annual_records.so2_mass",
     "nox_mass": "annual_records.nox_mass",
+    "year": "annual_records.year",
 }
 
 # Columns the search results can be sorted by: URL value -> database column
