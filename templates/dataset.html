@@ -30,7 +30,18 @@
     <div class="fact"><dt>Rejected or skipped</dt><dd>{{ "{:,}".format(received - accepted) }}</dd></div>
     <div class="fact"><dt>Records first stored by it</dt><dd>{{ "{:,}".format(stored_count) }}</dd></div>
     {% if dataset.og_filename %}
-    <div class="fact"><dt>Original file</dt><dd>{{ dataset.og_filename }}</dd></div>
+    <div class="fact">
+        <dt>Original file</dt>
+        <dd>
+            {% if upload and upload.stored_path %}<a href="/upload/{{ upload.upload_id }}/original">{{ dataset.og_filename }}</a>{% else %}{{ dataset.og_filename }}{% endif %}
+        </dd>
+    </div>
+    {% endif %}
+    {% if upload %}
+    <div class="fact">
+        <dt>Data-quality report</dt>
+        <dd><a href="/upload/{{ upload.upload_id }}">Review</a>, <a href="/upload/{{ upload.upload_id }}/report" download>CSV</a></dd>
+    </div>
     {% endif %}
     <div class="fact wide">
         <dt>Query</dt>

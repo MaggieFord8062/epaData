@@ -1,8 +1,8 @@
 """
 validation.py
 Checks one record at a time before it goes into the database.
-Used by ingest.py (API pulls) and, later, by the upload page (CSV files),
-so both follow exactly the same rules.
+Used by the API retrievals (ingest.py and the Retrieve page) and by the Upload page,
+so every source follows exactly the same rules.
 """
 from datetime import date
 
@@ -15,6 +15,17 @@ NUMBER_FIELDS = [
     "operating_time", "gross_load", "steam_load", "heat_input",
     "co2_mass", "so2_mass", "nox_mass",
 ]
+
+# Readable names for messages in the data-quality report
+NUMBER_LABELS = {
+    "operating_time": "Operating time",
+    "gross_load": "Gross load",
+    "steam_load": "Steam load",
+    "heat_input": "Heat input",
+    "co2_mass": "CO2",
+    "so2_mass": "SO2",
+    "nox_mass": "NOx",
+}
 
 TEXT_FIELDS = [
     "facility_name", "state", "unit_type", "primary_fuel", "secondary_fuel",
@@ -117,9 +128,9 @@ def validate_record(record):
             continue
         number = to_float(value)
         if number is None:
-            return None, f"{field} is not a number"
+            return None, f"{NUMBER_LABELS[field]} is not a number (\"{value}\")"
         if number < 0:
-            return None, f"Negative {field}"
+            return None, f"{NUMBER_LABELS[field]} is negative ({value})"
         clean[field] = number
 
     if clean["operating_time"] is not None and clean["operating_time"] > 8784:

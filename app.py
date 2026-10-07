@@ -1,20 +1,29 @@
 import csv
 import io
 import json
-from datetime import date
+import os
+import uuid
+from datetime import date, datetime
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, jsonify, Response, abort, redirect
+from flask import Flask, render_template, request, jsonify, Response, abort, redirect, send_file
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from database import SessionLocal
-from models import Facility, Unit, AnnualRecord, Dataset
+from models import Facility, Unit, AnnualRecord, Dataset, UploadedFile
 import retrieval_jobs
+import uploads
 from search import (search_data, advance_search, get_filter_options, find_facilities,
                     compare_facilities, facility_units, RANK_FIELDS, PER_PAGE_CHOICES,
                     COMPARE_LIMIT)
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep result columns in the order search.py lists them
+
+# Refuse uploads over the limit before they're even read (a little extra for the form itself)
+app.config["MAX_CONTENT_LENGTH"] = uploads.MAX_FILE_BYTES + 1024 * 1024
+os.makedirs(uploads.UPLOAD_DIR, exist_ok=True)
 
 
 @app.template_filter("fromjson")
@@ -180,6 +189,7 @@ def dataset_detail(dataset_id):
         session.close()
         abort(404)
     stored_count = session.query(AnnualRecord).filter(AnnualRecord.dataset_id == dataset_id).count()
+    upload = session.query(UploadedFile).filter(UploadedFile.dataset_id == dataset_id).first()
     session.close()
 
     query = fromjson(dataset.query_parameters)
@@ -222,6 +232,7 @@ def dataset_detail(dataset_id):
         page_size=DATASET_PAGE_SIZE,
         search_url=search_url,
         download_url="/download?" + urlencode(filters) if filters else None,
+        upload=upload,
     )
 
 
@@ -699,6 +710,180 @@ def api_retrieve_status(job_id):
     if job is None:
         return jsonify({"error": "not found"}), 404
     return jsonify(job)
+
+
+# ---------- Upload page ----------
+
+def recent_uploads(limit=8):
+    session = SessionLocal()
+    rows = session.query(UploadedFile).order_by(UploadedFile.upload_id.desc()).limit(limit).all()
+    session.close()
+    return rows
+
+
+def upload_page(errors=None, status=200):
+    return render_template(
+        "upload.html",
+        errors=errors or [],
+        recent=recent_uploads(),
+        max_mb=uploads.MAX_FILE_BYTES // 1024 // 1024,
+        required=[uploads.FIELD_LABELS[field] for field in uploads.REQUIRED_FIELDS],
+        optional=[uploads.FIELD_LABELS[field] for field in uploads.COLUMN_ALIASES
+                  if field not in uploads.REQUIRED_FIELDS],
+    ), status
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def upload_too_large(error):
+    return upload_page([f"That file is too large. The limit is {uploads.MAX_FILE_BYTES // 1024 // 1024} MB."], 413)
+
+
+@app.route("/upload", methods=["GET", "POST"])
+def upload():
+    """
+    Upload a CSV or Excel file. The file is checked and saved, then the user
+    sees a preview and quality report before anything is imported.
+    """
+    if request.method == "GET":
+        return upload_page()
+
+    file = request.files.get("file")
+    original_name = file.filename if file else ""
+
+    # Step 1: extension and size
+    size = 0
+    if file:
+        file.seek(0, os.SEEK_END)
+        size = file.tell()
+        file.seek(0)
+    problems = uploads.check_file(original_name, size)
+    if problems:
+        return upload_page(problems, 400)
+
+    # Keep the original file under a unique name, so two uploads called data.csv don't collide
+    extension = uploads.file_extension(original_name)
+    stored_name = f"{uuid.uuid4().hex[:10]}_{secure_filename(original_name) or 'upload.' + extension}"
+    stored_path = os.path.join(uploads.UPLOAD_DIR, stored_name)
+    file.save(stored_path)
+
+    session = SessionLocal()
+    record = UploadedFile(
+        original_filename=original_name,
+        stored_path=stored_path,
+        file_type=extension,
+        file_size=size,
+        uploaded_at=datetime.now().isoformat(timespec="seconds"),
+        status="pending",
+    )
+    session.add(record)
+    session.flush()
+
+    # Steps 2-4: read it, match the columns, check every row
+    try:
+        result = uploads.analyze(session, stored_path, original_name)
+    except Exception as error:
+        session.rollback()
+        session.close()
+        os.remove(stored_path)
+        return upload_page([f"The file couldn't be read: {error}"], 400)
+
+    counts = result.get("counts", {})
+    record.rows_read = result["rows_read"]
+    record.rows_ready = counts.get("ready", 0)
+    record.rows_rejected = counts.get("rejected", 0) + counts.get("duplicate", 0)
+    session.commit()
+    upload_id = record.upload_id
+    session.close()
+
+    uploads.save_analysis(upload_id, result)
+    return redirect(f"/upload/{upload_id}")
+
+
+REVIEW_PROBLEM_LIMIT = 300
+
+
+@app.route("/upload/<int:upload_id>")
+def upload_review(upload_id):
+    """Step 5: the preview and quality report, with Approve and Cancel."""
+    session = SessionLocal()
+    record = session.get(UploadedFile, upload_id)
+    session.close()
+    if record is None:
+        abort(404)
+
+    result = uploads.load_analysis(upload_id) or {}
+    problems = result.get("problems", [])
+
+    return render_template(
+        "upload_review.html",
+        upload=record,
+        result=result,
+        counts=result.get("counts", {}),
+        problems=problems[:REVIEW_PROBLEM_LIMIT],
+        problem_total=len(problems),
+        preview=[item["record"] for item in result.get("records", [])[:15]],
+        preview_lines=[item["line"] for item in result.get("records", [])[:15]],
+        labels=uploads.FIELD_LABELS,
+    )
+
+
+@app.route("/upload/<int:upload_id>/approve", methods=["POST"])
+def upload_approve(upload_id):
+    """Step 6: store the approved records."""
+    session = SessionLocal()
+    record = session.get(UploadedFile, upload_id)
+    if record is None:
+        session.close()
+        abort(404)
+    if record.status != "pending":
+        session.close()
+        return redirect(f"/upload/{upload_id}")
+
+    result = uploads.load_analysis(upload_id)
+    if not result or not result.get("records"):
+        session.close()
+        return redirect(f"/upload/{upload_id}")
+
+    dataset = uploads.import_upload(session, record, result)
+    dataset_id = dataset.dataset_id
+    session.close()
+    return redirect(f"/datasets/{dataset_id}?show=stored")
+
+
+@app.route("/upload/<int:upload_id>/cancel", methods=["POST"])
+def upload_cancel(upload_id):
+    """Cancel an upload: nothing is imported and the stored copy of the file is deleted."""
+    session = SessionLocal()
+    record = session.get(UploadedFile, upload_id)
+    if record is not None and record.status == "pending":
+        record.status = "cancelled"
+        if record.stored_path and os.path.exists(record.stored_path):
+            os.remove(record.stored_path)
+        record.stored_path = None
+        session.commit()
+    session.close()
+    return redirect("/upload")
+
+
+@app.route("/upload/<int:upload_id>/report")
+def upload_report(upload_id):
+    """The data-quality report (every rejected, duplicate, skipped or questionable row) as CSV."""
+    result = uploads.load_analysis(upload_id)
+    if result is None:
+        abort(404)
+    return csv_response(uploads.quality_report_rows(result), [f"upload{upload_id}", "quality_report"])
+
+
+@app.route("/upload/<int:upload_id>/original")
+def upload_original(upload_id):
+    """Download the original uploaded file, exactly as it was uploaded."""
+    session = SessionLocal()
+    record = session.get(UploadedFile, upload_id)
+    session.close()
+    if record is None or not record.stored_path or not os.path.exists(record.stored_path):
+        abort(404)
+    return send_file(os.path.abspath(record.stored_path), as_attachment=True,
+                     download_name=record.original_filename)
 
 
 if __name__ == "__main__":

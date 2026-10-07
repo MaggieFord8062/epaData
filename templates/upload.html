@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Upload data - epaData{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
+{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Upload data</h1>
+    <p>Add your own annual emissions records from a CSV or Excel file. You'll see a preview and a data-quality report first. Nothing is saved until you approve it.</p>
+</div>
+
+{% if errors %}
+<div class="form-errors">
+    {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+</div>
+{% endif %}
+
+<form method="POST" action="/upload" enctype="multipart/form-data" id="upload-form">
+    <label class="drop-zone" id="drop-zone" for="file">
+        <input type="file" id="file" name="file" accept=".csv,.xlsx">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/>
+            <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+        </svg>
+        <span class="drop-title" id="drop-title">Drop a file here, or click to choose one</span>
+        <span class="drop-detail" id="drop-detail">CSV (.csv) or Excel (.xlsx), up to {{ max_mb }} MB</span>
+    </label>
+
+    <p style="margin: 20px 0 0;">
+        <button class="btn btn-primary" type="submit" id="check-button" disabled>Check file</button>
+    </p>
+</form>
+
+<h2 class="section-title">What the file needs</h2>
+<div class="panel">
+    <p style="margin: 0; color: var(--ink-2); font-size: 15px;">
+        One row for each facility, unit and year, with a header row naming the columns.
+        Column names can match this site's CSV downloads (like "Facility ID" and "CO2 (tons)")
+        or EPA's own CAMPD names (like "facilityId" and "co2Mass"). Extra columns are ignored.
+        The easiest way to make a valid file is to download one from Search and edit it.
+    </p>
+    <div class="schema-columns">
+        <div>
+            <h3>Required</h3>
+            <p>{{ required|join(", ") }}</p>
+        </div>
+        <div>
+            <h3>Optional</h3>
+            <p>{{ optional|join(", ") }}</p>
+        </div>
+    </div>
+</div>
+
+<h2 class="section-title">Recent uploads</h2>
+<div class="list">
+    {% for item in recent %}
+    <a class="list-row" href="{{ '/datasets/' ~ item.dataset_id if item.dataset_id else '/upload/' ~ item.upload_id }}">
+        <div>
+            <div class="title">{{ item.original_filename }}</div>
+            <div class="detail">
+                {{ "{:,}".format(item.rows_read or 0) }} rows read, {{ "{:,}".format(item.rows_ready or 0) }} ready,
+                {{ "{:,}".format(item.rows_rejected or 0) }} rejected{% if item.uploaded_at %}, {{ item.uploaded_at|replace("T", " ") }}{% endif %}
+            </div>
+        </div>
+        <span class="end"><span class="upload-status {{ item.status }}">{{ item.status|capitalize }}</span></span>
+    </a>
+    {% else %}
+    <div class="list-row"><div class="detail">No uploads yet.</div></div>
+    {% endfor %}
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const zone = document.getElementById("drop-zone");
+    const input = document.getElementById("file");
+    const title = document.getElementById("drop-title");
+    const detail = document.getElementById("drop-detail");
+    const button = document.getElementById("check-button");
+    const maxBytes = {{ max_mb }} * 1024 * 1024;
+
+    function showChosenFile() {
+        const file = input.files[0];
+        if (!file) {
+            button.disabled = true;
+            return;
+        }
+        let sizeText = `${(file.size / 1024).toFixed(1)} KB`;
+        if (file.size >= 1024 * 1024) {
+            sizeText = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
+        }
+        title.innerHTML = "";
+        const name = document.createElement("span");
+        name.className = "chosen-file";
+        name.textContent = file.name;
+        title.appendChild(name);
+
+        const extension = file.name.split(".").pop().toLowerCase();
+        if (!["csv", "xlsx"].includes(extension)) {
+            detail.textContent = "Only .csv and .xlsx files can be uploaded.";
+            button.disabled = true;
+            return;
+        }
+        if (file.size > maxBytes) {
+            detail.textContent = `${sizeText} is over the {{ max_mb }} MB limit.`;
+            button.disabled = true;
+            return;
+        }
+        detail.textContent = `${sizeText}. Click "Check file" to see the preview, or choose a different file.`;
+        button.disabled = false;
+    }
+
+    input.addEventListener("change", showChosenFile);
+
+    ["dragenter", "dragover"].forEach(name => {
+        zone.addEventListener(name, event => {
+            event.preventDefault();
+            zone.classList.add("is-over");
+        });
+    });
+
+    ["dragleave", "drop"].forEach(name => {
+        zone.addEventListener(name, event => {
+            event.preventDefault();
+            zone.classList.remove("is-over");
+        });
+    });
+
+    zone.addEventListener("drop", event => {
+        if (event.dataTransfer.files.length > 0) {
+            input.files = event.dataTransfer.files;
+            showChosenFile();
+        }
+    });
+
+    document.getElementById("upload-form").addEventListener("submit", () => {
+        button.disabled = true;
+        button.textContent = "Checking…";
+    });
+})();
+</script>
+{% endblock %}

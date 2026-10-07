@@ -3,3 +3,4 @@
 .idea/
 *.db
 __pycache__/
+uploads/
