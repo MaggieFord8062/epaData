@@ -3,79 +3,152 @@
 {% block content %}
 
 <section class="hero">
-    <h1>Power-plant emissions, searchable.</h1>
-    <p>
-        {{ "{:,}".format(stats.records) }} unit records from {{ "{:,}".format(stats.facilities) }} facilities
-        across {{ stats.states }} states and territories{% if stats.years|length == 1 %},
-        reporting year {{ stats.years[0] }}{% elif stats.years %},
-        reporting years {{ stats.years[0] }}–{{ stats.years[-1] }}{% endif %}.
-        Straight from the EPA's Clean Air Markets Program Data.
+    <h1>Power-plant emissions, made searchable.</h1>
+    <p>Every unit that reports to EPA's Clean Air Markets Program: what it burns, how much it runs, and what it puts into the air.</p>
+
+    <form class="searchbar" action="/explore" method="GET" role="search">
+        <div class="field-wrap">
+            <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="7"/>
+                <line x1="21" y1="21" x2="15.6" y2="15.6"/>
+            </svg>
+            <input class="control" type="text" name="q" id="home-q" autocomplete="off" placeholder="Search facilities, places, fuels, years" aria-label="Search">
+            <ul class="suggest" id="home-suggest" hidden></ul>
+        </div>
+        <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+    <p class="search-examples">
+        Try <a href="/explore?q=mill+creek">Mill Creek</a>,
+        <a href="/explore?q=coal+kentucky+2025">coal Kentucky 2025</a> or
+        <a href="/explore?q=biggest+co2+emitters">biggest CO2 emitters</a>
     </p>
-    <div class="hero-actions">
-        <a class="btn btn-primary" href="/basic-search">Search records</a>
-        <a class="btn-link btn" href="/advanced-search">See the rankings</a>
+</section>
+
+<section class="section">
+    <h2 class="section-title">What's in the database</h2>
+    <p class="section-intro">
+        Annual records for each generating unit{% if stats.years %}, {{ stats.years[0] }} through {{ stats.years[-1] }}{% endif %}.
+        {% if stats.last_retrieval %}Last updated {{ stats.last_retrieval[:10] }}.{% endif %}
+    </p>
+    <div class="stats">
+        <div class="stat"><div class="value">{{ "{:,}".format(stats.records) }}</div><div class="label">Annual records</div></div>
+        <div class="stat"><div class="value">{{ "{:,}".format(stats.facilities) }}</div><div class="label">Facilities</div></div>
+        <div class="stat"><div class="value">{{ "{:,}".format(stats.units) }}</div><div class="label">Generating units</div></div>
+        <div class="stat"><div class="value">{{ stats.states }}</div><div class="label">States and territories</div></div>
+        <div class="stat"><div class="value">{{ stats.years|length }}</div><div class="label">Reporting years</div></div>
     </div>
 </section>
 
-<div class="split">
-
-    <section>
-        <h2 class="section-title">Largest CO2 emitters{% if stats.latest_year %} in {{ stats.latest_year }}{% endif %}</h2>
-        <div class="table-wrap">
-            <table class="data">
-                <thead>
-                    <tr><th class="rank"></th><th>Facility</th><th>State</th><th class="num">CO2 (tons)</th></tr>
-                </thead>
-                <tbody>
-                    {% for row in top_emitters %}
-                    <tr>
-                        <td class="rank">{{ loop.index }}</td>
-                        <td class="name">
-                            <a href="/facility/{{ row.epa_facility_id }}">{{ row.facility_name }}</a>
-                        </td>
-                        <td>{{ row.state }}</td>
-                        <td class="num">{{ "{:,.0f}".format(row.co2 or 0) }}</td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="4" class="muted">No data yet. Run <code>python ingest.py</code> to load it.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Largest CO2 emitters{% if stats.latest_year %} in {{ stats.latest_year }}{% endif %}</h2>
+            <p class="section-intro">Facility totals across every unit at the plant.</p>
         </div>
-    </section>
+        <a class="btn-link" href="/advanced-search?type=Facility&field=co2_mass&limit=25{% if stats.latest_year %}&reporting_year={{ stats.latest_year }}{% endif %}">See the full ranking</a>
+    </div>
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr><th class="rank"></th><th>Facility</th><th>State</th><th class="num">CO2 (tons)</th></tr>
+            </thead>
+            <tbody>
+                {% for row in top_emitters %}
+                <tr>
+                    <td class="rank">{{ loop.index }}</td>
+                    <td class="name"><a href="/facility/{{ row.epa_facility_id }}">{{ row.facility_name }}</a></td>
+                    <td>{{ row.state }}</td>
+                    <td class="num">{{ "{:,.0f}".format(row.co2 or 0) }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="muted">No data yet. Run <code>python ingest.py</code> or use Retrieve to load it.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 
-    <section>
-        <h2 class="section-title">Tools</h2>
-        <div class="list">
-            <a class="list-row" href="/basic-search">
-                <div><div class="title">Search records</div><div class="detail">Filter by state, fuel, unit type and emissions</div></div>
-                <svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="list-row" href="/advanced-search">
-                <div><div class="title">Rankings</div><div class="detail">Top facilities or units by CO2, SO2, NOx and more</div></div>
-                <svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="list-row" href="/explorer">
-                <div><div class="title">Explorer</div><div class="detail">Browse records in a simple table</div></div>
-                <svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="list-row" href="/retrieve">
-                <div><div class="title">Retrieve from EPA</div><div class="detail">Pull data from the CAM API with your own filters</div></div>
-                <svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="list-row" href="/upload">
-                <div><div class="title">Upload data</div><div class="detail">Add records from a CSV or Excel file, with a preview before import</div></div>
-                <svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <a class="list-row" href="/download" download>
-                <div><div class="title">Download all data</div><div class="detail">Every record as a CSV file</div></div>
-                <svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            </a>
-            <div class="list-row is-soon"><div class="title">Analyze, evaluate and visualize</div><span class="end">Phase 2</span></div>
-        </div>
-        <p class="table-note"><a href="/datasets">Datasets retrieved: {{ stats.datasets }}</a></p>
-    </section>
+<section class="section">
+    <h2 class="section-title">What you can do</h2>
+    <p class="section-intro">Find records, compare plants, follow a unit through the years, and bring in or take out data.</p>
+    <div class="tiles">
+        <a class="tile" href="/explore">
+            <h3>Explore</h3>
+            <p>Search in plain words and narrow the results by state, year, fuel, unit type and amounts.</p>
+            <span class="more">Search records</span>
+        </a>
+        <a class="tile" href="/advanced-search">
+            <h3>Rankings</h3>
+            <p>The top or bottom facilities and units by CO2, SO2, NOx, load or heat input, overall or in each state.</p>
+            <span class="more">See rankings</span>
+        </a>
+        <a class="tile" href="/compare">
+            <h3>Compare</h3>
+            <p>Up to four facilities side by side, with every unit and CO2 across every year.</p>
+            <span class="more">Compare facilities</span>
+        </a>
+        <a class="tile" href="/history">
+            <h3>History</h3>
+            <p>Follow one generating unit from 2015 to today.</p>
+            <span class="more">View a unit's history</span>
+        </a>
+        <a class="tile" href="/retrieve">
+            <h3>Retrieve</h3>
+            <p>Pull a year of data from EPA with your own filters and watch it load.</p>
+            <span class="more">Retrieve from EPA</span>
+        </a>
+        <a class="tile" href="/upload">
+            <h3>Upload</h3>
+            <p>Bring in a CSV or Excel file. You review a data-quality report before anything is saved.</p>
+            <span class="more">Upload a file</span>
+        </a>
+        <a class="tile" href="/downloads">
+            <h3>Download</h3>
+            <p>Take any dataset, filtered your way, as CSV or Excel, along with provenance and quality reports.</p>
+            <span class="more">Download data</span>
+        </a>
+        <a class="tile" href="/datasets">
+            <h3>Datasets</h3>
+            <p>Where every record came from: each retrieval and upload, with its query and counts.</p>
+            <span class="more">See provenance</span>
+        </a>
+    </div>
+</section>
 
-</div>
+<section class="section">
+    <h2 class="section-title">Data sources</h2>
+    <p class="section-intro">Every record can be traced back to the retrieval or upload it came from.</p>
+    <div class="list">
+        <a class="list-row" href="https://campd.epa.gov/" target="_blank" rel="noopener">
+            <div>
+                <div class="title">EPA Clean Air Markets Program Data (CAMPD)</div>
+                <div class="detail">Annual operating data and reported emissions for power-sector units, retrieved through EPA's CAM API. Facility details like county, location and operating dates come from the same API.</div>
+            </div>
+            <span class="end">In use</span>
+        </a>
+        <a class="list-row" href="/upload">
+            <div>
+                <div class="title">Uploaded files</div>
+                <div class="detail">CSV or Excel files in the project's format, checked row by row before import. {{ stats.uploads }} imported so far.</div>
+            </div>
+            <span class="end">In use</span>
+        </a>
+        <a class="list-row" href="https://www.epa.gov/chemical-research/tool-reduction-and-assessment-chemicals-and-other-environmental-impacts-traci" target="_blank" rel="noopener">
+            <div>
+                <div class="title">EPA TRACI characterization factors</div>
+                <div class="detail">Converts emissions into environmental-impact indicators for the evaluation and scoring in Phase 2.</div>
+            </div>
+            <span class="end">Phase 2</span>
+        </a>
+    </div>
+</section>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    attachSuggest(document.getElementById("home-q"), document.getElementById("home-suggest"));
+})();
+</script>
 {% endblock %}

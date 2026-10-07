@@ -1,10 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Historical search - epaData{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='tools.css') }}">
-{% endblock %}
+{% block title %}Unit history - epaData{% endblock %}
 
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
@@ -13,18 +9,18 @@
 {% block content %}
 
 <div class="page-head">
-    <h1>Historical search</h1>
+    <h1>Unit history</h1>
     <p>Follow one generating unit across the years: how much it ran, what it burned, and what it emitted.</p>
 </div>
 
 <form class="panel" id="history-form" method="GET" action="/history">
-    <div class="tool-grid three">
-        <div class="field picker span-all">
+    <div class="form-grid">
+        <div class="field picker wide">
             <label for="facility-picker">Facility</label>
             <input class="control" type="text" id="facility-picker" autocomplete="off"
                    placeholder="{{ facility.facility_name if facility else 'Start typing a name, like Gavin' }}">
         </div>
-        <div class="field span-all" id="unit-field" {% if not units %}hidden{% endif %}>
+        <div class="field" id="unit-field" {% if not units %}hidden{% endif %}>
             <label for="unit">Unit</label>
             <select class="control" id="unit" name="unit">
                 {% for option in units %}
@@ -54,15 +50,12 @@
 </form>
 
 {% if unit %}
-
-<div style="margin-top: 40px;">
-    <p class="eyebrow" style="margin: 0 0 6px; color: var(--ink-2);">
-        <a href="/facility/{{ facility.epa_facility_id }}">{{ facility.facility_name }}</a>, {{ facility.state }}
-    </p>
-    <h2 class="section-title" style="margin: 0 0 12px;">Unit {{ unit.epa_unit_id }}, {{ year_from }}–{{ year_to }}</h2>
+<section class="section">
+    <p class="eyebrow"><a href="/facility/{{ facility.epa_facility_id }}">{{ facility.facility_name }}</a>, {{ facility.state }}</p>
+    <h2 class="section-title">Unit {{ unit.epa_unit_id }}, {{ year_from }}–{{ year_to }}</h2>
 
     {% if change %}
-    <p class="summary-sentence">
+    <p class="headline">
         CO2
         {% if change.percent < 0 %}<span class="down">fell {{ "%.0f"|format(-change.percent) }}%</span>
         {% elif change.percent > 0 %}<span class="up">rose {{ "%.0f"|format(change.percent) }}%</span>
@@ -71,61 +64,47 @@
     </p>
     {% endif %}
 
-    <div class="summary-actions" style="margin-bottom: 20px;">
-        <a class="btn btn-primary" href="{{ download_url }}" download>
-            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Download as CSV
-        </a>
-        <a class="btn-link btn" href="/unit/{{ unit.internal_unit_key }}">Unit details</a>
+    <div class="actions">
+        <a class="btn btn-primary" href="{{ download_url }}" download>Download these years</a>
+        <a class="btn-link" href="/unit/{{ unit.internal_unit_key }}">Unit details</a>
     </div>
-</div>
 
-{% if rows %}
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th>Year</th>
-                <th>Primary fuel</th>
-                <th class="num">Operating time (hrs)</th>
-                <th class="num">Gross load (MWh)</th>
-                <th class="num">Heat input (mmBtu)</th>
-                <th class="num">CO2 (tons)</th>
-                <th></th>
-                <th class="num">SO2 (tons)</th>
-                <th class="num">NOx (tons)</th>
-                <th>SO2 controls</th>
-                <th>NOx controls</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in rows %}
-            <tr>
-                <td class="year">{{ row["Year"] }}</td>
-                <td>{{ row["Primary Fuel"] or "—" }}</td>
-                <td class="num">{{ number(row["Operating Time (hrs)"]) }}</td>
-                <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
-                <td class="num">{{ number(row["Heat Input (mmBtu)"]) }}</td>
-                <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
-                <td class="bar-cell">
-                    {% if row["CO2 (tons)"] and max_co2 %}<div class="bar" style="width: {{ (row['CO2 (tons)'] / max_co2 * 100)|round(1) }}%;"></div>{% endif %}
-                </td>
-                <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
-                <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
-                <td>{{ row["SO2 Controls"]|controls or "—" }}</td>
-                <td>{{ row["NOx Controls"]|controls or "—" }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-<p class="table-note">The bar compares each year's CO2 with this unit's highest year in the range. Years with no row are years the unit didn't report.</p>
+    {% if rows %}
+    <div class="table-wrap space-top">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Year</th><th>Primary fuel</th><th class="num">Operating time (hrs)</th><th class="num">Gross load (MWh)</th>
+                    <th class="num">Heat input (mmBtu)</th><th class="num">CO2 (tons)</th><th></th><th class="num">SO2 (tons)</th>
+                    <th class="num">NOx (tons)</th><th>SO2 controls</th><th>NOx controls</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="name">{{ row["Year"] }}</td>
+                    <td>{{ row["Primary Fuel"] or "—" }}</td>
+                    <td class="num">{{ number(row["Operating Time (hrs)"]) }}</td>
+                    <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
+                    <td class="num">{{ number(row["Heat Input (mmBtu)"]) }}</td>
+                    <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
+                    <td class="bar-cell">{% if row["CO2 (tons)"] and max_co2 %}<div class="bar" style="width: {{ (row['CO2 (tons)'] / max_co2 * 100)|round(1) }}%;"></div>{% endif %}</td>
+                    <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
+                    <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
+                    <td class="wrap">{{ row["SO2 Controls"]|controls or "—" }}</td>
+                    <td class="wrap">{{ row["NOx Controls"]|controls or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="note">The bar compares each year's CO2 with this unit's highest year in the range. A missing year means the unit didn't report that year.</p>
+    {% else %}
+    <div class="empty"><h3>No records in {{ year_from }}–{{ year_to }}</h3><p>This unit didn't report in those years. Try a wider range.</p></div>
+    {% endif %}
+</section>
 {% else %}
-<div class="panel empty"><h3>No records in {{ year_from }}–{{ year_to }}</h3><p>This unit didn't report in those years. Try a wider range.</p></div>
-{% endif %}
-
-{% else %}
-<div class="panel empty" style="margin-top: 24px;">
+<div class="empty">
     <h3>Pick a facility, then one of its units</h3>
     <p>You'll get that unit's operating data and emissions for every year in the range.</p>
 </div>

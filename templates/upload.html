@@ -2,19 +2,15 @@
 
 {% block title %}Upload data - epaData{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
-{% endblock %}
-
 {% block content %}
 
 <div class="page-head">
     <h1>Upload data</h1>
-    <p>Add your own annual emissions records from a CSV or Excel file. You'll see a preview and a data-quality report first. Nothing is saved until you approve it.</p>
+    <p>Add annual emissions records from a CSV or Excel file. You'll see a preview and a data-quality report first, and nothing is saved until you approve it.</p>
 </div>
 
 {% if errors %}
-<div class="form-errors">
+<div class="message error">
     {% for error in errors %}<p>{{ error }}</p>{% endfor %}
 </div>
 {% endif %}
@@ -22,7 +18,7 @@
 <form method="POST" action="/upload" enctype="multipart/form-data" id="upload-form">
     <label class="drop-zone" id="drop-zone" for="file">
         <input type="file" id="file" name="file" accept=".csv,.xlsx">
-        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/>
             <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
         </svg>
@@ -30,48 +26,45 @@
         <span class="drop-detail" id="drop-detail">CSV (.csv) or Excel (.xlsx), up to {{ max_mb }} MB</span>
     </label>
 
-    <p style="margin: 20px 0 0;">
+    <div class="form-actions">
         <button class="btn btn-primary" type="submit" id="check-button" disabled>Check file</button>
-    </p>
+    </div>
 </form>
 
-<h2 class="section-title">What the file needs</h2>
-<div class="panel">
-    <p style="margin: 0; color: var(--ink-2); font-size: 15px;">
-        One row for each facility, unit and year, with a header row naming the columns.
-        Column names can match this site's CSV downloads (like "Facility ID" and "CO2 (tons)")
-        or EPA's own CAMPD names (like "facilityId" and "co2Mass"). Extra columns are ignored.
-        The easiest way to make a valid file is to download one from Search and edit it.
+<section class="section">
+    <h2 class="section-title">What the file needs</h2>
+    <p class="section-intro">
+        One row for each facility, unit and year, with a header row. Column names can match this site's downloads
+        (like "Facility ID" and "CO2 (tons)") or EPA's own names (like "facilityId" and "co2Mass"). Extra columns are ignored.
+        The easiest way to make a valid file is to download one from Explore and edit it.
     </p>
-    <div class="schema-columns">
-        <div>
-            <h3>Required</h3>
-            <p>{{ required|join(", ") }}</p>
-        </div>
-        <div>
-            <h3>Optional</h3>
-            <p>{{ optional|join(", ") }}</p>
-        </div>
-    </div>
-</div>
+    <dl class="facts">
+        <div class="fact wide"><dt>Required columns</dt><dd>{{ required|join(", ") }}</dd></div>
+        <div class="fact wide"><dt>Optional columns</dt><dd>{{ optional|join(", ") }}</dd></div>
+        <div class="fact"><dt>Formats</dt><dd>CSV and Excel (.xlsx)</dd></div>
+        <div class="fact"><dt>Largest file</dt><dd>{{ max_mb }} MB, 100,000 rows</dd></div>
+    </dl>
+</section>
 
-<h2 class="section-title">Recent uploads</h2>
-<div class="list">
-    {% for item in recent %}
-    <a class="list-row" href="{{ '/datasets/' ~ item.dataset_id if item.dataset_id else '/upload/' ~ item.upload_id }}">
-        <div>
-            <div class="title">{{ item.original_filename }}</div>
-            <div class="detail">
-                {{ "{:,}".format(item.rows_read or 0) }} rows read, {{ "{:,}".format(item.rows_ready or 0) }} ready,
-                {{ "{:,}".format(item.rows_rejected or 0) }} rejected{% if item.uploaded_at %}, {{ item.uploaded_at|replace("T", " ") }}{% endif %}
+<section class="section">
+    <h2 class="section-title">Recent uploads</h2>
+    <div class="list">
+        {% for item in recent %}
+        <a class="list-row" href="{{ '/datasets/' ~ item.dataset_id if item.dataset_id else '/upload/' ~ item.upload_id }}">
+            <div>
+                <div class="title">{{ item.original_filename }}</div>
+                <div class="detail">
+                    {{ "{:,}".format(item.rows_read or 0) }} rows read, {{ "{:,}".format(item.rows_ready or 0) }} ready,
+                    {{ "{:,}".format(item.rows_rejected or 0) }} rejected{% if item.uploaded_at %}, {{ item.uploaded_at|replace("T", " ") }}{% endif %}
+                </div>
             </div>
-        </div>
-        <span class="end"><span class="upload-status {{ item.status }}">{{ item.status|capitalize }}</span></span>
-    </a>
-    {% else %}
-    <div class="list-row"><div class="detail">No uploads yet.</div></div>
-    {% endfor %}
-</div>
+            <span class="end"><span class="status {{ item.status }}">{{ item.status|capitalize }}</span></span>
+        </a>
+        {% else %}
+        <div class="list-row"><div class="detail">No uploads yet.</div></div>
+        {% endfor %}
+    </div>
+</section>
 
 {% endblock %}
 
@@ -95,11 +88,7 @@
         if (file.size >= 1024 * 1024) {
             sizeText = `${(file.size / 1024 / 1024).toFixed(1)} MB`;
         }
-        title.innerHTML = "";
-        const name = document.createElement("span");
-        name.className = "chosen-file";
-        name.textContent = file.name;
-        title.appendChild(name);
+        title.textContent = file.name;
 
         const extension = file.name.split(".").pop().toLowerCase();
         if (!["csv", "xlsx"].includes(extension)) {
@@ -112,7 +101,7 @@
             button.disabled = true;
             return;
         }
-        detail.textContent = `${sizeText}. Click "Check file" to see the preview, or choose a different file.`;
+        detail.textContent = `${sizeText}. Click Check file to see the preview, or choose a different file.`;
         button.disabled = false;
     }
 

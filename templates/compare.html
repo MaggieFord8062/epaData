@@ -2,10 +2,6 @@
 
 {% block title %}Compare facilities - epaData{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='tools.css') }}">
-{% endblock %}
-
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
 {%- endmacro %}
@@ -14,12 +10,12 @@
 
 <div class="page-head">
     <h1>Compare facilities</h1>
-    <p>Put up to {{ limit }} power plants side by side: their totals for one year, every unit, and CO2 across every year on record.</p>
+    <p>Up to {{ limit }} power plants side by side: their totals for one year, every unit, and CO2 across every year on record.</p>
 </div>
 
 <form class="panel" id="compare-form" method="GET" action="/compare">
-    <div class="tool-grid">
-        <div class="field picker">
+    <div class="form-grid">
+        <div class="field picker wide">
             <label for="facility-picker">Add a facility</label>
             <input class="control" type="text" id="facility-picker" autocomplete="off"
                    placeholder="{% if chosen|length >= limit %}Remove one to add another{% else %}Start typing a name, like Ghent{% endif %}"
@@ -35,16 +31,16 @@
         </div>
     </div>
 
-    <div class="chosen" id="chosen">
-        {% if data %}
+    {% if data and data.facilities %}
+    <div class="chips space-top" id="chosen">
         {% for facility in data.facilities %}
         <button type="button" class="chip" data-remove="{{ facility.facility_id }}" aria-label="Remove {{ facility.name }}">
             {{ facility.name }}, {{ facility.state }}
-            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
         {% endfor %}
-        {% endif %}
     </div>
+    {% endif %}
 
     {% for facility_id in chosen %}
     <input type="hidden" name="facility" value="{{ facility_id }}">
@@ -53,125 +49,114 @@
 
 {% if data and data.facilities %}
 
-<div class="summary" style="margin-bottom: 16px;">
-    <h2 class="section-title" style="margin: 0;">Totals in {{ year }}</h2>
-    <div class="summary-actions">
-        <a class="btn btn-primary" href="{{ download_url }}" download>
-            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Download units as CSV
-        </a>
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Totals in {{ year }}</h2>
+            <p class="section-intro">CO2 per MWh is how much CO2 each plant released for each megawatt-hour it generated. Lower is cleaner.</p>
+        </div>
+        <a class="btn btn-primary" href="{{ download_url }}" download>Download units</a>
     </div>
-</div>
-
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th class="metric"></th>
-                {% for facility in data.facilities %}
-                <th class="facility-head">
-                    <a href="/facility/{{ facility.facility_id }}">{{ facility.name }}</a>
-                    <span class="muted">{{ facility.county or "" }}{% if facility.county %}, {% endif %}{{ facility.state }}</span>
-                </th>
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th></th>
+                    {% for facility in data.facilities %}
+                    <th class="facility-head"><a href="/facility/{{ facility.facility_id }}">{{ facility.name }}</a><span>{{ facility.county or "" }}{% if facility.county %}, {% endif %}{{ facility.state }}</span></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="metric">Source category</td>
+                    {% for facility in data.facilities %}<td class="num">{{ facility.source_category or "—" }}</td>{% endfor %}
+                </tr>
+                <tr>
+                    <td class="metric">Units reporting</td>
+                    {% for facility in data.facilities %}<td class="num">{{ facility.units_reporting }}</td>{% endfor %}
+                </tr>
+                {% for label, key, digits in [
+                    ("Operating time (hrs)", "operating_time", 0),
+                    ("Gross load (MWh)", "gross_load", 0),
+                    ("Heat input (mmBtu)", "heat_input", 0),
+                    ("CO2 (tons)", "co2", 0),
+                    ("SO2 (tons)", "so2", 1),
+                    ("NOx (tons)", "nox", 1),
+                    ("CO2 per MWh (tons)", "co2_per_mwh", 3),
+                ] %}
+                <tr>
+                    <td class="metric">{{ label }}</td>
+                    {% for facility in data.facilities %}<td class="num">{{ number(facility[key], digits) }}</td>{% endfor %}
+                </tr>
                 {% endfor %}
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td class="metric">Source category</td>
-                {% for facility in data.facilities %}<td class="num">{{ facility.source_category or "—" }}</td>{% endfor %}
-            </tr>
-            <tr>
-                <td class="metric">Units reporting</td>
-                {% for facility in data.facilities %}<td class="num">{{ facility.units_reporting }}</td>{% endfor %}
-            </tr>
-            {% for label, key, digits in [
-                ("Operating time (hrs)", "operating_time", 0),
-                ("Gross load (MWh)", "gross_load", 0),
-                ("Heat input (mmBtu)", "heat_input", 0),
-                ("CO2 (tons)", "co2", 0),
-                ("SO2 (tons)", "so2", 1),
-                ("NOx (tons)", "nox", 1),
-                ("CO2 per MWh generated (tons)", "co2_per_mwh", 3),
-            ] %}
-            <tr>
-                <td class="metric">{{ label }}</td>
-                {% for facility in data.facilities %}<td class="num">{{ number(facility[key], digits) }}</td>{% endfor %}
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-<p class="table-note">CO2 per MWh shows how much CO2 each facility released for each megawatt-hour of electricity it made. Lower is cleaner. Facilities with no gross load in {{ year }} show a dash.</p>
+            </tbody>
+        </table>
+    </div>
+</section>
 
-<h2 class="section-title">Units in {{ year }}</h2>
-{% if data.units %}
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th>Facility</th>
-                <th>Unit</th>
-                <th>Unit type</th>
-                <th>Primary fuel</th>
-                <th class="num">Operating time (hrs)</th>
-                <th class="num">Gross load (MWh)</th>
-                <th class="num">CO2 (tons)</th>
-                <th class="num">SO2 (tons)</th>
-                <th class="num">NOx (tons)</th>
-                <th>SO2 controls</th>
-                <th>NOx controls</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in data.units %}
-            <tr>
-                <td class="name"><a href="/facility/{{ row['Facility ID'] }}">{{ row["Facility"] }}</a></td>
-                <td><a href="/unit/{{ row['_unit_key'] }}">{{ row["Unit"] }}</a></td>
-                <td>{{ row["Unit Type"] or "—" }}</td>
-                <td>{{ row["Primary Fuel"] or "—" }}</td>
-                <td class="num">{{ number(row["Operating Time (hrs)"]) }}</td>
-                <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
-                <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
-                <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
-                <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
-                <td>{{ row["SO2 Controls"]|controls or "—" }}</td>
-                <td>{{ row["NOx Controls"]|controls or "—" }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% else %}
-<div class="panel empty"><h3>No units reported in {{ year }}</h3><p>Try another year.</p></div>
-{% endif %}
+<section class="section">
+    <h2 class="section-title">Units in {{ year }}</h2>
+    <p class="section-intro">Every unit at these facilities, biggest CO2 first within each plant.</p>
+    {% if data.units %}
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Facility</th><th>Unit</th><th>Unit type</th><th>Primary fuel</th><th class="num">Operating time (hrs)</th>
+                    <th class="num">Gross load (MWh)</th><th class="num">CO2 (tons)</th><th class="num">SO2 (tons)</th><th class="num">NOx (tons)</th>
+                    <th>SO2 controls</th><th>NOx controls</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in data.units %}
+                <tr>
+                    <td class="name"><a href="/facility/{{ row['Facility ID'] }}">{{ row["Facility"] }}</a></td>
+                    <td><a href="/unit/{{ row['_unit_key'] }}">{{ row["Unit"] }}</a></td>
+                    <td class="wrap">{{ row["Unit Type"] or "—" }}</td>
+                    <td>{{ row["Primary Fuel"] or "—" }}</td>
+                    <td class="num">{{ number(row["Operating Time (hrs)"]) }}</td>
+                    <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
+                    <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
+                    <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
+                    <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
+                    <td class="wrap">{{ row["SO2 Controls"]|controls or "—" }}</td>
+                    <td class="wrap">{{ row["NOx Controls"]|controls or "—" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty"><h3>No units reported in {{ year }}</h3><p>Try another year.</p></div>
+    {% endif %}
+</section>
 
-<h2 class="section-title">CO2 by year (tons)</h2>
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th>Year</th>
-                {% for facility in data.facilities %}
-                <th class="facility-head">{{ facility.name }}</th>
+<section class="section">
+    <h2 class="section-title">CO2 by year</h2>
+    <p class="section-intro">Tons of CO2 from each facility in every year on record.</p>
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    {% for facility in data.facilities %}<th class="facility-head">{{ facility.name }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for y in data.years %}
+                <tr>
+                    <td class="name">{{ y }}</td>
+                    {% for facility in data.facilities %}<td class="num">{{ number(data.trend[y].get(facility.facility_id)) }}</td>{% endfor %}
+                </tr>
                 {% endfor %}
-            </tr>
-        </thead>
-        <tbody>
-            {% for y in data.years %}
-            <tr>
-                <td class="year">{{ y }}</td>
-                {% for facility in data.facilities %}
-                <td class="num">{{ number(data.trend[y].get(facility.facility_id)) }}</td>
-                {% endfor %}
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
+            </tbody>
+        </table>
+    </div>
+</section>
 
 {% else %}
-<div class="panel empty" style="margin-top: 24px;">
+<div class="empty">
     <h3>Add facilities to compare</h3>
     <p>Search for two to {{ limit }} facilities above. For example, compare <a href="/compare?facility=1356&facility=1364">Ghent and Mill Creek</a>.</p>
 </div>
@@ -205,17 +190,20 @@
 
     attachFacilityPicker(document.getElementById("facility-picker"), addFacility);
 
-    document.getElementById("chosen").addEventListener("click", event => {
-        const chip = event.target.closest("[data-remove]");
-        if (!chip) {
-            return;
-        }
-        const input = form.querySelector(`input[name='facility'][value='${chip.dataset.remove}']`);
-        if (input) {
-            input.remove();
-        }
-        form.submit();
-    });
+    const chosen = document.getElementById("chosen");
+    if (chosen) {
+        chosen.addEventListener("click", event => {
+            const chip = event.target.closest("[data-remove]");
+            if (!chip) {
+                return;
+            }
+            const input = form.querySelector(`input[name='facility'][value='${chip.dataset.remove}']`);
+            if (input) {
+                input.remove();
+            }
+            form.submit();
+        });
+    }
 
     document.getElementById("year").addEventListener("change", () => {
         form.submit();

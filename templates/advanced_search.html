@@ -8,10 +8,10 @@
 
 <div class="page-head">
     <h1>Rankings</h1>
-    <p>Find the biggest or smallest emitters. Facility rankings add up every unit at the plant. Every ranking gets its own link you can bookmark or share.</p>
+    <p>The biggest and smallest emitters, overall or in each state. Facility rankings add up every unit at the plant, and every ranking has its own link you can share.</p>
 </div>
 
-<form class="panel" method="GET" action="/advanced-search">
+<form class="panel" method="GET" action="/advanced-search" id="ranking-form">
 
     <div class="segmented" role="radiogroup" aria-label="Rank">
         <input type="radio" id="type-facility" name="type" value="Facility" {% if chosen_type != "Unit" %}checked{% endif %}>
@@ -20,7 +20,7 @@
         <label for="type-unit">Units</label>
     </div>
 
-    <div class="rank-sentence" style="margin-top: 26px;">
+    <div class="sentence space-top">
         <span>Show the</span>
         <select class="control" name="order" aria-label="Order">
             <option value="DESC" {% if selected.get('order') != "ASC" %}selected{% endif %}>top</option>
@@ -28,7 +28,7 @@
         </select>
         {% set chosen_limit = selected.get('limit', '10') %}
         <select class="control" name="limit" aria-label="How many">
-            {% for n in [1, 3, 5, 10, 25, 50, 100] %}
+            {% for n in [1, 3, 5, 10, 20, 25, 50, 100] %}
             <option value="{{ n }}" {% if chosen_limit == n|string %}selected{% endif %}>{{ n }}</option>
             {% endfor %}
         </select>
@@ -43,11 +43,9 @@
             <option value="state" {% if selected.get('group') == "state" %}selected{% endif %}>in each state</option>
         </select>
     </div>
-    <p class="table-note" style="margin: 12px 0 0;">
-        "In each state" ranks separately inside every state. For example, top 1 by CO2 in each state gives each state's biggest emitter.
-    </p>
+    <p class="note">"In each state" ranks separately inside every state. Top 1 by CO2 in each state gives each state's biggest emitter.</p>
 
-    <div class="filter-grid" style="margin-top: 28px;">
+    <div class="form-grid space-top">
         <div class="field">
             <label for="state">State</label>
             <select class="control" id="state" name="state">
@@ -87,9 +85,9 @@
         </div>
     </div>
 
-    <p style="margin: 28px 0 0;">
+    <div class="form-actions">
         <button class="btn btn-primary" type="submit">Show ranking</button>
-    </p>
+    </div>
 </form>
 
 {% endblock %}
@@ -98,7 +96,7 @@
 <script>
 (function () {
     // Leave "All states", "All fuels" and other empty choices out of the link, so it stays short
-    const form = document.querySelector("form[action='/advanced-search']");
+    const form = document.getElementById("ranking-form");
     form.addEventListener("submit", () => {
         form.querySelectorAll("select").forEach(select => {
             if (select.value === "") {
@@ -107,7 +105,7 @@
         });
     });
 
-    // If the user comes back with the browser's back button, turn the empty choices back on
+    // Coming back with the browser's back button turns the empty choices back on
     window.addEventListener("pageshow", () => {
         form.querySelectorAll("select").forEach(select => {
             select.disabled = false;

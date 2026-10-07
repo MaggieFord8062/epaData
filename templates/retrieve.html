@@ -1,10 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Retrieve EPA data - epaData{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='tools.css') }}">
-{% endblock %}
+{% block title %}Retrieve from EPA - epaData{% endblock %}
 
 {% set running = job and job.status == "running" %}
 
@@ -12,22 +8,23 @@
 
 <div class="page-head">
     <h1>Retrieve from EPA</h1>
-    <p>Pull annual emissions straight from EPA's Clean Air Markets Program Data. Choose a year and any filters, then retrieve. Every record is validated, and every retrieval is recorded on the <a href="/datasets">Datasets</a> page.</p>
-    <div class="method-facts">
-        <span><strong>Method:</strong> CAM API, annual apportioned emissions</span>
-        <span><strong>Details:</strong> CAM API facility attributes</span>
-        <span><strong>API key:</strong> kept on the server, never sent to your browser</span>
-    </div>
+    <p>Pull annual emissions straight from EPA's Clean Air Markets Program Data. Choose a year and any filters. Every record is validated, and every retrieval is recorded under <a href="/datasets">Datasets</a>.</p>
 </div>
 
+<dl class="facts">
+    <div class="fact"><dt>Method</dt><dd>CAM API, annual apportioned emissions</dd></div>
+    <div class="fact"><dt>Facility details</dt><dd>CAM API facility attributes</dd></div>
+    <div class="fact"><dt>API key</dt><dd>Kept on the server, never sent to the browser</dd></div>
+</dl>
+
 {% if errors %}
-<div class="form-errors">
+<div class="message error space-top">
     {% for error in errors %}<p>{{ error }}</p>{% endfor %}
 </div>
 {% endif %}
 
-<form class="panel" method="POST" action="/retrieve" id="retrieve-form">
-    <div class="filter-grid">
+<form class="panel space-top" method="POST" action="/retrieve" id="retrieve-form">
+    <div class="form-grid">
         <div class="field">
             <label for="year">Reporting year</label>
             <select class="control" id="year" name="year">
@@ -83,57 +80,55 @@
 
     <label class="check">
         <input type="checkbox" name="attributes" {% if not form or form.get('attributes') == 'on' %}checked{% endif %}>
-        Also update facility details (county, location, source category, operating and retirement dates)
+        Also update facility details: county, location, source category, operating and retirement dates
     </label>
 
-    <p style="margin: 24px 0 0;">
+    <div class="form-actions">
         <button class="btn btn-primary" type="submit" id="retrieve-button" {% if running %}disabled{% endif %}>
             {{ "Retrieving…" if running else "Retrieve" }}
         </button>
-    </p>
+    </div>
 </form>
 
 {% if job %}
-<section style="margin-top: 40px;" id="status" data-job="{{ job.id }}" data-status="{{ job.status }}">
+<section class="section" id="status" data-job="{{ job.id }}" data-status="{{ job.status }}">
     {% if busy %}
-    <p class="table-note" style="margin: 0 0 12px;">Another retrieval was already running, so yours wasn't started. Here's the one in progress.</p>
+    <p class="notice">Another retrieval was already running, so yours wasn't started. Here's the one in progress.</p>
     {% endif %}
 
-    <div class="status-head">
-        <h2 class="section-title" style="margin: 0;">Retrieval status</h2>
-        <span class="status-pill {{ job.status }}" id="status-pill">
-            {% if job.status == "running" %}<span class="spinner"></span> Running{% elif job.status == "done" %}Done{% else %}Failed{% endif %}
-        </span>
-        <span class="muted" style="font-size: 14px;">Started {{ job.started }}{% if job.finished %}, finished <span id="finished">{{ job.finished }}</span>{% endif %}</span>
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Retrieval status</h2>
+            <p class="section-intro">
+                <span class="status {{ 'running' if job.status == 'running' else ('failed' if job.status == 'failed' else '') }}" id="status-label">
+                    {% if job.status == "running" %}Running{% elif job.status == "done" %}Done{% else %}Failed{% endif %}
+                </span>
+                &nbsp; Started {{ job.started }}{% if job.finished %}, finished {{ job.finished }}{% endif %}
+            </p>
+        </div>
     </div>
 
-    <div class="chips" style="margin: 0 0 16px;">
+    <div class="chips">
         {% for label, value in job.filters.items() %}
-        <span class="chip" style="cursor: default; padding-right: 12px;">{{ label }}: {{ value }}</span>
+        <span class="chip static">{{ label }}: {{ value }}</span>
         {% endfor %}
     </div>
 
-    <div class="panel" style="padding: 12px 24px;">
-        <ul class="steps" id="steps">
-            {% for step in job.steps %}
-            <li><span class="time">{{ step.time }}</span><span>{{ step.text }}</span></li>
-            {% endfor %}
-        </ul>
-        <p class="form-errors" id="job-error" style="margin: 12px 0 8px;" {% if not job.error %}hidden{% endif %}>{{ job.error or "" }}</p>
-    </div>
+    <ul class="steps space-top" id="steps">
+        {% for step in job.steps %}
+        <li><span class="time">{{ step.time }}</span><span>{{ step.text }}</span></li>
+        {% endfor %}
+    </ul>
+    {% if job.error %}
+    <div class="message error space-top"><p>{{ job.error }}</p></div>
+    {% endif %}
 
     <div id="results" {% if not job.datasets %}hidden{% endif %}>
-        <h2 class="section-title">Record counts</h2>
+        <h3 class="section-title space-top">Record counts</h3>
         <div class="table-wrap">
             <table class="data">
                 <thead>
-                    <tr>
-                        <th class="rank">#</th>
-                        <th>Dataset</th>
-                        <th class="num">Received</th>
-                        <th class="num">Accepted</th>
-                        <th>Notes</th>
-                    </tr>
+                    <tr><th class="rank">#</th><th>Dataset</th><th class="num">Received</th><th class="num">Accepted</th><th>Notes</th></tr>
                 </thead>
                 <tbody id="results-body">
                     {% for dataset in job.datasets %}
@@ -148,31 +143,32 @@
                 </tbody>
             </table>
         </div>
-        <p class="summary-actions" style="margin-top: 16px;">
-            {% if job.datasets %}<a class="btn btn-quiet" href="/datasets/{{ job.datasets[0].dataset_id }}">See what was retrieved</a>{% endif %}
-            {% if job.search_url %}<a class="btn-link btn" href="{{ job.search_url }}">Open in Search</a>{% endif %}
-            <a class="btn-link btn" href="/datasets">All datasets</a>
-        </p>
+        <div class="actions space-top">
+            {% if job.datasets %}<a class="btn btn-primary" href="/datasets/{{ job.datasets[0].dataset_id }}">See what was retrieved</a>{% endif %}
+            {% if job.search_url %}<a class="btn btn-quiet" href="{{ job.search_url }}">Open in Explore</a>{% endif %}
+            <a class="btn-link" href="/datasets">All datasets</a>
+        </div>
     </div>
 </section>
 {% endif %}
 
-<h2 class="section-title">Recent retrievals</h2>
-<div class="list">
-    {% for dataset in recent %}
-    <a class="list-row" href="/datasets/{{ dataset.dataset_id }}">
-        <div>
-            <div class="title">{{ dataset.dataset_name }}</div>
-            <div class="detail">
-                {{ "{:,}".format(dataset.num_raw_records or 0) }} received, {{ "{:,}".format(dataset.num_accepted_records or 0) }} accepted{% if dataset.retrieval_date %}, {{ dataset.retrieval_date|replace("T", " ") }}{% endif %}
+<section class="section">
+    <h2 class="section-title">Recent retrievals</h2>
+    <p class="section-intro">Open one to see its query, counts and the records it covers.</p>
+    <div class="list">
+        {% for dataset in recent %}
+        <a class="list-row" href="/datasets/{{ dataset.dataset_id }}">
+            <div>
+                <div class="title">{{ dataset.dataset_name }}</div>
+                <div class="detail">{{ "{:,}".format(dataset.num_raw_records or 0) }} received, {{ "{:,}".format(dataset.num_accepted_records or 0) }} accepted{% if dataset.retrieval_date %}, {{ dataset.retrieval_date|replace("T", " ") }}{% endif %}</div>
             </div>
-        </div>
-        <span class="end">Dataset #{{ dataset.dataset_id }}</span>
-    </a>
-    {% else %}
-    <div class="list-row"><div class="detail">No retrievals yet.</div></div>
-    {% endfor %}
-</div>
+            <span class="end">#{{ dataset.dataset_id }}</span>
+        </a>
+        {% else %}
+        <div class="list-row"><div class="detail">No retrievals yet.</div></div>
+        {% endfor %}
+    </div>
+</section>
 
 {% endblock %}
 
@@ -190,7 +186,7 @@
         picker.placeholder = facilityLabel.value;
     });
 
-    // Clearing the box (Backspace or Delete on an empty box) removes the chosen facility
+    // Backspace or Delete in the empty box removes the chosen facility
     picker.addEventListener("keydown", event => {
         const clearing = event.key === "Backspace" || event.key === "Delete";
         if (clearing && picker.value === "" && facilityId.value) {
@@ -242,7 +238,7 @@
             return;
         }
 
-        // Finished: reload once so the page shows the final state and the new recent retrievals
+        // Finished: reload once to show the final state and the new recent retrievals
         window.location.replace(`/retrieve?job=${job.id}`);
     }
 

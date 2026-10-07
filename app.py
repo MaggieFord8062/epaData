@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import os
+import re
 import uuid
 from datetime import date, datetime
 from urllib.parse import urlencode
@@ -13,10 +14,10 @@ from sqlalchemy import func
 from database import SessionLocal
 from models import Facility, Unit, AnnualRecord, Dataset, UploadedFile
 import retrieval_jobs
+import smart_search
 import uploads
-from search import (search_data, advance_search, get_filter_options, find_facilities,
-                    compare_facilities, facility_units, RANK_FIELDS, PER_PAGE_CHOICES,
-                    COMPARE_LIMIT)
+from search import (search_data, advance_search, find_facilities, compare_facilities,
+                    facility_units, RANK_FIELDS, COMPARE_LIMIT)
 
 app = Flask(__name__)
 app.json.sort_keys = False  # keep result columns in the order search.py lists them
@@ -51,28 +52,63 @@ def drop_empty_columns(results):
     return [{key: row[key] for key in keep} for row in results]
 
 
-def csv_response(results, name_parts):
-    """Turn a list of result dicts into a CSV file download."""
-    output = io.StringIO()
-    if results:
-        # Columns starting with "_" are only used for links on the site
-        results = [{key: value for key, value in row.items() if not key.startswith("_")} for row in results]
-        writer = csv.DictWriter(output, fieldnames=list(results[0].keys()))
-        writer.writeheader()
-        for row in results:
-            # CAMPD lists multiple controls as "A<br>B" or "A|B"; make that readable in a spreadsheet
-            writer.writerow({key: str(value).replace("<br>", "; ").replace("|", "; ") if isinstance(value, str) else value
-                             for key, value in row.items()})
+def clean_rows(results):
+    """Drop the link-only columns (names starting with "_") and make control lists readable."""
+    cleaned = []
+    for row in results:
+        values = {}
+        for key, value in row.items():
+            if key.startswith("_"):
+                continue
+            if isinstance(value, str):
+                # CAMPD lists multiple controls as "A<br>B" or "A|B"
+                value = value.replace("<br>", "; ").replace("|", "; ")
+            values[key] = value
+        cleaned.append(values)
+    return cleaned
 
+
+def file_name(name_parts, extension):
     # e.g. epaData_KY_Coal_2026-09-25.csv
     safe_parts = ["".join(ch for ch in str(part) if ch.isalnum() or ch in "-_") for part in name_parts if part]
-    filename = "_".join(["epaData"] + safe_parts + [date.today().isoformat()]) + ".csv"
+    return "_".join(["epaData"] + [part for part in safe_parts if part] + [date.today().isoformat()]) + "." + extension
 
+
+def file_response(results, name_parts, file_format="csv"):
+    """Send rows as a CSV file (the default) or an Excel file."""
+    rows = clean_rows(results)
+    columns = list(rows[0].keys()) if rows else []
+
+    if file_format == "xlsx":
+        from openpyxl import Workbook
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "epaData"
+        sheet.append(columns)
+        for row in rows:
+            sheet.append([row[column] for column in columns])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        return Response(
+            buffer.getvalue(),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{file_name(name_parts, "xlsx")}"'},
+        )
+
+    output = io.StringIO()
+    if rows:
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
     return Response(
         output.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{file_name(name_parts, "csv")}"'},
     )
+
+
+def csv_response(results, name_parts):
+    return file_response(results, name_parts, "csv")
 
 
 def distinct_values(session, column):
@@ -95,6 +131,8 @@ def home():
 
     # Rank by the most recent year only, so 2015-2025 totals aren't mixed together
     stats["latest_year"] = stats["years"][-1] if stats["years"] else None
+    stats["last_retrieval"] = session.query(func.max(Dataset.retrieval_date)).scalar()
+    stats["uploads"] = session.query(UploadedFile).filter(UploadedFile.status == "imported").count()
 
     top_emitters = (
         session.query(
@@ -118,30 +156,8 @@ def home():
 
 @app.route("/explorer")
 def explorer():
-    session = SessionLocal()
-
-    results = (
-        session.query(
-            Facility.epa_facility_id,
-            Facility.facility_name,
-            Facility.state,
-            Unit.epa_unit_id,
-            AnnualRecord.internal_unit_key,
-            AnnualRecord.year,
-            AnnualRecord.co2_mass,
-            AnnualRecord.so2_mass,
-            AnnualRecord.nox_mass,
-        )
-        .join(AnnualRecord, Facility.epa_facility_id == AnnualRecord.epa_facility_id)
-        .join(Unit, Unit.internal_unit_key == AnnualRecord.internal_unit_key)
-        .order_by(Facility.facility_name, Unit.epa_unit_id, AnnualRecord.year.desc())
-        .limit(100)
-        .all()
-    )
-
-    session.close()
-
-    return render_template("explorer.html", results=results)
+    """The old browse page. Exploring now happens on the search page."""
+    return redirect("/explore")
 
 
 @app.route("/datasets")
@@ -216,7 +232,7 @@ def dataset_detail(dataset_id):
     # The Search page can open these records when every filter is one it has a field for
     search_url = None
     if show == "covered" and covered_filters and "control_any" not in covered_filters:
-        search_url = "/basic-search?" + urlencode(covered_filters)
+        search_url = "/explore?" + urlencode(covered_filters)
 
     return render_template(
         "dataset.html",
@@ -357,41 +373,131 @@ def search():
     return render_template("search.html")
 
 
-@app.route("/basic-search", methods=["GET", "POST"])
-def basic_search():
-    if request.method == "POST":
-        search_parameters = request.form.to_dict()
-        results = drop_empty_columns(search_data(**search_parameters))
-        return render_template(
-            "results.html",
-            results=results,
-            download_url="/download?" + urlencode({k: v for k, v in search_parameters.items() if v}),
-        )
+# ---------- Explore (search) ----------
 
-    # Filters, sorting and page can all come in the URL, e.g. /basic-search?state=KY&sort=co2_mass&dir=desc
-    selected = request.args.to_dict()
-    data = get_filter_options(**selected)
+RANGE_FIELDS = [
+    ("co2_mass", "CO2", "tons"),
+    ("so2_mass", "SO2", "tons"),
+    ("nox_mass", "NOx", "tons"),
+    ("gross_load", "Gross load", "MWh"),
+    ("heat_input", "Heat input", "mmBtu"),
+    ("operating_time", "Operating time", "hours"),
+]
+
+SORT_MENU = ["relevance", "newest", "co2-desc", "co2-asc", "so2-desc", "so2-asc", "nox-desc", "nox-asc",
+             "load-desc", "heat-desc", "hours-desc", "name-asc"]
+
+REFINEMENT_LABELS = {
+    "state": "State", "reporting_year": "Year", "primary_fuel": "Fuel", "unit_type": "Unit type",
+    "county": "County", "source_category": "Source", "status": "Status", "year_from": "From",
+    "year_to": "To", "epa_facility_id": "Facility ID", "epa_unit_id": "Unit",
+}
+
+
+@app.template_global()
+def url_with(params, **changes):
+    """The explorer's current URL with some parameters changed (None removes one). Starts again at page 1."""
+    updated = {key: value for key, value in params.items() if value not in (None, "")}
+    if "page" not in changes:
+        updated.pop("page", None)
+    for key, value in changes.items():
+        if value is None or value == "":
+            updated.pop(key, None)
+        else:
+            updated[key] = value
+    return "/explore" + ("?" + urlencode(updated) if updated else "")
+
+
+@app.template_global()
+def facet_label(key, value):
+    if key == "state":
+        name = smart_search.CODE_TO_STATE.get(value)
+        return f"{name} ({value})" if name else value
+    if key == "status":
+        return "Retired" if value == "retired" else "Operating"
+    return value
+
+
+def explore_params():
+    """The explorer's parameters from the URL, without blanks."""
+    return {key: value.strip() for key, value in request.args.items() if value.strip()}
+
+
+@app.route("/explore")
+def explore():
+    """
+    The data explorer: one search box that understands plain words, with refinements
+    on the side, sorting, pagination and downloads. Everything lives in the URL.
+    """
+    params = explore_params()
+    result = smart_search.explore(params)
+    q = params.get("q", "")
+
+    # Chips for everything the search understood, each with a link that removes it
+    chips = []
+    for item in result["parsed"]["understood"]:
+        href = None
+        if item["text"]:
+            href = url_with(params, q=smart_search.query_without(q, item["text"]) or None)
+        chips.append({"label": item["label"], "href": href})
+    for key, label in REFINEMENT_LABELS.items():
+        if params.get(key):
+            chips.append({"label": f"{label}: {facet_label(key, params[key])}", "href": url_with(params, **{key: None})})
+    for field, label, units in RANGE_FIELDS:
+        low = params.get(f"{field}_min")
+        high = params.get(f"{field}_max")
+        if low or high:
+            text = f"{label} {low or 0} to {high}" if (low and high) else (f"{label} over {low}" if low else f"{label} under {high}")
+            chips.append({"label": text, "href": url_with(params, **{f"{field}_min": None, f"{field}_max": None})})
+    for term in result["parsed"]["terms"]:
+        chips.append({"label": f'"{term}"', "href": None})
+
+    corrected_query = q
+    for wrong, right in result["parsed"]["corrections"]:
+        corrected_query = re.sub(rf"\b{re.escape(wrong)}\b", right, corrected_query, flags=re.IGNORECASE)
+
+    download_params = {key: value for key, value in params.items() if key not in ("page", "per_page")}
 
     return render_template(
-        "basic_search.html",
-        selected=selected,
-        options=data["options"],
-        ranges=data["ranges"],
-        count=data["count"],
-        per_page=data["per_page"],
-        per_page_choices=PER_PAGE_CHOICES,
+        "explore.html",
+        params=params,
+        q=q,
+        result=result,
+        chips=chips,
+        corrected_query=corrected_query,
+        range_fields=RANGE_FIELDS,
+        sort_options=smart_search.SORT_OPTIONS,
+        sort_menu=SORT_MENU,
+        per_page_choices=smart_search.PER_PAGE_CHOICES,
+        query_string=urlencode(download_params),
     )
 
 
-@app.route("/api/filter-options")
-def api_filter_options():
-    """Called by the search page every time a filter changes."""
-    return jsonify(get_filter_options(**request.args.to_dict()))
+@app.route("/basic-search")
+def basic_search():
+    """The old search page's address now opens the explorer with the same filters."""
+    return redirect("/explore" + ("?" + request.query_string.decode() if request.query_string else ""))
+
+
+@app.route("/download-explore")
+def download_explore():
+    """Every result of an explorer search (not just one page), as CSV or Excel."""
+    params = explore_params()
+    file_format = params.pop("format", "csv")
+    result = smart_search.explore(params, everything=True)
+    name_parts = [params.get("q", "").replace(" ", "-")[:40], params.get("state"), params.get("reporting_year")]
+    return file_response(result["rows"], name_parts, file_format)
+
+
+@app.route("/api/suggest")
+def api_suggest():
+    """Suggestions while typing in a search box."""
+    return jsonify(smart_search.suggest(request.args.get("q", "")))
 
 
 @app.route("/api/facilities")
 def api_facilities():
-    """Called by the top-right search as you type a facility name."""
+    """Called by the facility pickers as you type a facility name."""
     return jsonify(find_facilities(request.args.get("q", "")))
 
 
@@ -401,12 +507,13 @@ def download():
     filters = request.args.to_dict()
     filters.pop("page", None)       # a download always includes every matching row,
     filters.pop("per_page", None)   # not just the page on screen
+    file_format = filters.pop("format", "csv")
     results = search_data(**filters)
     name_parts = [filters.get(key) for key in ("facility_name", "epa_facility_id", "epa_unit_id",
                                                "state", "reporting_year", "primary_fuel")]
     if filters.get("dataset_id"):
         name_parts.insert(0, f"dataset{filters['dataset_id']}")
-    return csv_response(results, name_parts)
+    return file_response(results, name_parts, file_format)
 
 
 @app.route("/download-ranking")
@@ -665,7 +772,7 @@ def retrieve():
             year, api_filters, form.get("attributes") == "on", labels,
         )
         if started:
-            # A link to the Search page showing what this retrieval covers
+            # A link to Explore showing what this retrieval covers
             search_params = {
                 "reporting_year": year,
                 "state": api_filters.get("stateCode", ""),
@@ -673,7 +780,7 @@ def retrieve():
                 "primary_fuel": api_filters.get("unitFuelType", ""),
                 "unit_type": api_filters.get("unitType", ""),
             }
-            retrieval_jobs.get_job(job_id)["search_url"] = "/basic-search?" + urlencode(
+            retrieval_jobs.get_job(job_id)["search_url"] = "/explore?" + urlencode(
                 {key: value for key, value in search_params.items() if value != ""}
             )
         return redirect(f"/retrieve?job={job_id}" + ("" if started else "&busy=1"))
@@ -884,6 +991,101 @@ def upload_original(upload_id):
         abort(404)
     return send_file(os.path.abspath(record.stored_path), as_attachment=True,
                      download_name=record.original_filename)
+
+
+# ---------- Download page ----------
+
+@app.route("/downloads")
+def downloads():
+    """Choose a dataset, filters and a file format, plus provenance and data-quality reports."""
+    session = SessionLocal()
+    stored = (
+        session.query(Dataset, func.count(AnnualRecord.annual_record_id).label("records"))
+        .join(AnnualRecord, AnnualRecord.dataset_id == Dataset.dataset_id)
+        .group_by(Dataset.dataset_id)
+        .order_by(Dataset.dataset_id.desc())
+        .all()
+    )
+    choices = {
+        "states": distinct_values(session, Facility.state),
+        "years": sorted(distinct_values(session, AnnualRecord.year), reverse=True),
+        "fuels": distinct_values(session, Unit.primary_fuel),
+        "unit_types": distinct_values(session, Unit.unit_type),
+    }
+    upload_rows = session.query(UploadedFile).order_by(UploadedFile.upload_id.desc()).all()
+    rejected_pulls = (
+        session.query(Dataset)
+        .filter(Dataset.notes.like("%Rejected%"))
+        .order_by(Dataset.dataset_id.desc())
+        .all()
+    )
+    total = session.query(AnnualRecord).count()
+    session.close()
+
+    return render_template(
+        "downloads.html",
+        stored=stored,
+        choices=choices,
+        upload_rows=upload_rows,
+        rejected_pulls=rejected_pulls,
+        total=total,
+    )
+
+
+@app.route("/download-records")
+def download_records():
+    """The Download page's form: records from one dataset (or all), narrowed by filters, as CSV or Excel."""
+    params = {key: value for key, value in request.args.items() if value.strip()}
+    file_format = params.pop("format", "csv")
+    if file_format not in ("csv", "xlsx"):
+        file_format = "csv"
+    dataset = params.pop("dataset", "all")
+
+    filters = {key: params[key] for key in ("state", "reporting_year", "primary_fuel", "unit_type", "epa_facility_id")
+               if key in params}
+    if dataset != "all" and dataset.isdigit():
+        filters["dataset_id"] = dataset
+    filters["sort"] = "facility"
+
+    results = search_data(**filters)
+    name_parts = [f"dataset{dataset}" if dataset != "all" else "all", params.get("state"),
+                  params.get("reporting_year"), params.get("primary_fuel"), params.get("epa_facility_id")]
+    return file_response(results, name_parts, file_format)
+
+
+@app.route("/download-provenance")
+def download_provenance():
+    """Every retrieval and upload: source, date, query, counts and notes."""
+    file_format = request.args.get("format", "csv")
+    session = SessionLocal()
+    rows = (
+        session.query(Dataset, func.count(AnnualRecord.annual_record_id).label("records"))
+        .outerjoin(AnnualRecord, AnnualRecord.dataset_id == Dataset.dataset_id)
+        .group_by(Dataset.dataset_id)
+        .order_by(Dataset.dataset_id)
+        .all()
+    )
+    uploads_by_dataset = {row.dataset_id: row for row in session.query(UploadedFile).all() if row.dataset_id}
+    session.close()
+
+    results = []
+    for dataset, records in rows:
+        upload = uploads_by_dataset.get(dataset.dataset_id)
+        results.append({
+            "Dataset ID": dataset.dataset_id,
+            "Dataset name": dataset.dataset_name,
+            "Data source": dataset.data_source,
+            "Reporting year": dataset.reporting_year,
+            "Retrieved or uploaded": dataset.retrieval_date,
+            "Original file": dataset.og_filename,
+            "Query parameters": dataset.query_parameters,
+            "Records received": dataset.num_raw_records,
+            "Records accepted": dataset.num_accepted_records,
+            "Records stored from this dataset": records,
+            "Upload ID": upload.upload_id if upload else None,
+            "Notes": dataset.notes,
+        })
+    return file_response(results, ["provenance"], file_format)
 
 
 if __name__ == "__main__":

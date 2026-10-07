@@ -6,15 +6,14 @@
 
 <div class="page-head">
     <h1>Datasets</h1>
-    <p>Every time data enters the database, whether from the EPA API or an uploaded file, it's recorded here with what came in and what was accepted.</p>
+    <p>Every time data enters the database, from EPA or from an uploaded file, it's recorded here with where it came from, what was asked for, and what was accepted.</p>
+    <div class="head-actions">
+        <a class="btn btn-quiet" href="/download-provenance" download>Download as CSV</a>
+        <a class="btn-link" href="/downloads">All downloads</a>
+    </div>
 </div>
 
 {% if rows %}
-<style>
-    /* Notes sit under their dataset, so the two rows read as one entry */
-    table.data tr.has-notes td { border-bottom: 0; padding-bottom: 4px; }
-    table.data tr.notes-row td { padding-top: 0; font-size: 13px; }
-</style>
 <div class="table-wrap">
     <table class="data">
         <thead>
@@ -22,7 +21,7 @@
                 <th class="rank">#</th>
                 <th>Dataset</th>
                 <th>Source</th>
-                <th>Retrieved</th>
+                <th>Date</th>
                 <th class="num">Received</th>
                 <th class="num">Accepted</th>
                 <th class="num">Rejected</th>
@@ -32,46 +31,37 @@
         <tbody>
             {% for dataset, records in rows %}
             {% set rejected = (dataset.num_raw_records or 0) - (dataset.num_accepted_records or 0) %}
-            <tr class="{{ 'has-notes' if dataset.notes else '' }}">
+            <tr>
                 <td class="rank">{{ dataset.dataset_id }}</td>
                 <td class="name"><a href="/datasets/{{ dataset.dataset_id }}">{{ dataset.dataset_name }}</a></td>
                 <td>{{ dataset.og_filename or dataset.data_source }}</td>
-                <td style="white-space: nowrap;">{{ (dataset.retrieval_date or "")|replace("T", " ") }}</td>
+                <td>{{ (dataset.retrieval_date or "")[:10] }}</td>
                 <td class="num">{{ "{:,}".format(dataset.num_raw_records or 0) }}</td>
                 <td class="num">{{ "{:,}".format(dataset.num_accepted_records or 0) }}</td>
                 <td class="num">{% if rejected > 0 %}{{ "{:,}".format(rejected) }}{% else %}<span class="dim">0</span>{% endif %}</td>
                 <td class="num">{{ "{:,}".format(records) }}</td>
             </tr>
-            {% if dataset.notes %}
-            <tr class="notes-row">
-                <td></td>
-                <td colspan="7" class="muted">
-                    {% if dataset.query_parameters %}
-                    {% set query = dataset.query_parameters|fromjson %}
-                    Query: {% for key, value in query.items() %}{{ key }}={{ value }}{% if not loop.last %}, {% endif %}{% endfor %}<br>
-                    {% endif %}
-                    {% for note in dataset.notes.split("; ") %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}
-                </td>
-            </tr>
-            {% endif %}
             {% endfor %}
         </tbody>
     </table>
 </div>
-<p class="table-note">
-    "Records stored" counts the records in the database that trace back to that dataset.
-    A later pull of the same year stores 0 new records, because they're already in the database.
-    Click a dataset to see the records it covers.
+<p class="note">
+    "Records stored" counts the records that trace back to that dataset. A later retrieval of the same year stores no new records,
+    because they're already in the database. Open a dataset to see its query, notes and records.
 </p>
 {% else %}
-<div class="panel empty">
-    <h3>No datasets recorded yet</h3>
-    <p>Run <code>python ingest.py</code> or use the Retrieve page to pull data from the EPA API. Each pull is recorded here.</p>
+<div class="empty">
+    <h3>No datasets yet</h3>
+    <p>Retrieve data from EPA or upload a file. Each one is recorded here.</p>
+    <div class="actions center">
+        <a class="btn btn-primary" href="/retrieve">Retrieve from EPA</a>
+        <a class="btn-link" href="/upload">Upload a file</a>
+    </div>
 </div>
 {% endif %}
 
 {% if unlinked %}
-<p class="table-note">{{ "{:,}".format(unlinked) }} records were saved before provenance tracking existed. Run <code>python ingest.py</code> once to link them to a dataset.</p>
+<p class="note">{{ "{:,}".format(unlinked) }} records were saved before provenance tracking existed. Run <code>python ingest.py</code> once to link them to a dataset.</p>
 {% endif %}
 
 {% endblock %}

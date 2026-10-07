@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}{% if q %}{{ q }} - {% endif %}Explore - epaData{% endblock %}
+
+{% macro number(value, digits=0) -%}
+{% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
+{%- endmacro %}
+
+{% macro sort_link(label, ascending, descending, numeric=False) -%}
+{% set current = result.order %}
+{% set target = descending if current == ascending else (ascending if current == descending else (descending if numeric else ascending)) %}
+<a href="{{ url_with(params, order=target) }}" class="{{ 'is-sorted' if current in (ascending, descending) else '' }}">{{ label }}{% if current == ascending %} ↑{% elif current == descending %} ↓{% endif %}</a>
+{%- endmacro %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Explore</h1>
+    <p>Search the way you'd describe it. Names, places, fuels, years, controls and amounts all work, in any order.</p>
+</div>
+
+<form class="searchbar" action="/explore" method="GET" role="search">
+    <div class="field-wrap">
+        <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <circle cx="10.5" cy="10.5" r="7"/>
+            <line x1="21" y1="21" x2="15.6" y2="15.6"/>
+        </svg>
+        <input class="control" type="text" name="q" id="q" value="{{ q }}" autocomplete="off"
+               placeholder="Try coal Kentucky 2025, or Mill Creek" aria-label="Search">
+        <ul class="suggest" id="q-suggest" hidden></ul>
+    </div>
+    <button class="btn btn-primary" type="submit">Search</button>
+</form>
+<p class="search-examples">
+    Examples:
+    <a href="/explore?q=coal+kentucky+2025+co2+over+500000">coal Kentucky 2025 CO2 over 500,000</a>,
+    <a href="/explore?q=biggest+so2+emitters+in+ohio">biggest SO2 emitters in Ohio</a>,
+    <a href="/explore?q=gas+turbines+texas">gas turbines Texas</a>,
+    <a href="/explore?q=scrubber+coal+2015-2025">scrubber coal 2015–2025</a>
+</p>
+
+<div class="explore">
+
+    <aside class="refine" aria-label="Refine results">
+        <h2>Refine</h2>
+
+        {% for key, facet in result.facets.items() %}
+        {% if facet["items"] %}
+        <div class="refine-group">
+            <h3>{{ facet.label }}</h3>
+            <ul>
+                {% for item in facet["items"][:facet.show] %}
+                {% set selected = result.filters.get(key)|string == item.value|string %}
+                <li>
+                    <a href="{{ url_with(params, **{key: (None if selected else item.value)}) }}" class="{{ 'is-selected' if selected else '' }}">
+                        {{ facet_label(key, item.value) }}<span class="count">{{ "{:,}".format(item.count) }}</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+            {% if facet["items"]|length > facet.show %}
+            <details>
+                <summary>See all {{ facet["items"]|length }}</summary>
+                <ul>
+                    {% for item in facet["items"][facet.show:] %}
+                    {% set selected = result.filters.get(key)|string == item.value|string %}
+                    <li>
+                        <a href="{{ url_with(params, **{key: (None if selected else item.value)}) }}" class="{{ 'is-selected' if selected else '' }}">
+                            {{ facet_label(key, item.value) }}<span class="count">{{ "{:,}".format(item.count) }}</span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+
+        <form class="refine-group" action="/explore" method="GET">
+            <h3>Amounts</h3>
+            {% for key, value in params.items() if not key.endswith("_min") and not key.endswith("_max") and key != "page" %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endfor %}
+            {% for field, label, units in range_fields %}
+            {% set low, high = result.ranges.get(field, (none, none)) %}
+            <p class="range-label">{{ label }} <span class="dim">({{ units }})</span></p>
+            <div class="range-row">
+                <input class="control" type="text" inputmode="decimal" name="{{ field }}_min" value="{{ params.get(field ~ '_min', '') }}" placeholder="Min" aria-label="{{ label }} minimum">
+                <input class="control" type="text" inputmode="decimal" name="{{ field }}_max" value="{{ params.get(field ~ '_max', '') }}" placeholder="Max" aria-label="{{ label }} maximum">
+            </div>
+            <p class="range-hint">{% if low is not none %}{{ "{:,.0f}".format(low) }} to {{ "{:,.0f}".format(high) }} in these results{% else %}No values in these results{% endif %}</p>
+            {% endfor %}
+            <button class="btn btn-quiet btn-small" type="submit">Apply amounts</button>
+        </form>
+    </aside>
+
+    <section aria-label="Results">
+
+        <div class="results-head">
+            <p class="results-count">
+                {{ "{:,}".format(result.total) }} result{{ "" if result.total == 1 else "s" }}{% if q %} <span class="for">for "{{ q }}"</span>{% endif %}
+            </p>
+            <div class="results-tools">
+                <form action="/explore" method="GET" id="order-form">
+                    {% for key, value in params.items() if key not in ("order", "page") %}
+                    <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <select class="control" name="order" aria-label="Sort by" onchange="this.form.submit()">
+                        {% for value, option in sort_options.items() if value in sort_menu %}
+                        <option value="{{ value }}" {% if value == result.order %}selected{% endif %}>Sort: {{ option[0] }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+                {% if result.total %}
+                <a class="btn btn-primary btn-small" href="/download-explore?{{ query_string }}" download>Download CSV</a>
+                <a class="btn-link" href="/download-explore?{{ query_string }}{{ '&' if query_string else '' }}format=xlsx" download>Excel</a>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if result.parsed.corrections and not params.get("exact") %}
+        <p class="notice">
+            Showing results for <strong>{{ corrected_query }}</strong>.
+            <a href="{{ url_with(params, exact='1') }}">Search instead for {{ q }}</a>
+        </p>
+        {% endif %}
+
+        {% if result.partial %}
+        <p class="notice">No record matched every word, so these match some of them. The best matches come first.</p>
+        {% endif %}
+
+        {% if chips %}
+        <div class="understood">
+            <span class="lead">{{ "Showing" if result.total else "Searched for" }}</span>
+            {% for chip in chips %}
+            {% if chip.href %}
+            <a class="chip" href="{{ chip.href }}" aria-label="Remove {{ chip.label }}">
+                {{ chip.label }}
+                <svg width="12" height="12" viewBox="0 0 14 14" aria-hidden="true"><path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </a>
+            {% else %}
+            <span class="chip static">{{ chip.label }}</span>
+            {% endif %}
+            {% endfor %}
+            <a class="btn-link clear" href="/explore">Clear all</a>
+        </div>
+        {% endif %}
+
+        {% if result.rows %}
+        <div class="table-wrap">
+            <table class="data">
+                <thead>
+                    <tr>
+                        <th>{{ sort_link("Facility", "name-asc", "name-desc") }}</th>
+                        <th>{{ sort_link("State", "state-asc", "state-asc") }}</th>
+                        <th>{{ sort_link("Unit", "unit-asc", "unit-asc") }}</th>
+                        <th>{{ sort_link("Year", "year-asc", "newest") }}</th>
+                        <th>{{ sort_link("Unit type", "type-asc", "type-asc") }}</th>
+                        <th>{{ sort_link("Fuel", "fuel-asc", "fuel-asc") }}</th>
+                        <th class="num">{{ sort_link("Gross load (MWh)", "load-desc", "load-desc", True) }}</th>
+                        <th class="num">{{ sort_link("CO2 (tons)", "co2-asc", "co2-desc", True) }}</th>
+                        <th class="num">{{ sort_link("SO2 (tons)", "so2-asc", "so2-desc", True) }}</th>
+                        <th class="num">{{ sort_link("NOx (tons)", "nox-asc", "nox-desc", True) }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in result.rows %}
+                    <tr>
+                        <td class="name"><a href="/facility/{{ row['Facility ID'] }}">{{ row["Facility"] }}</a></td>
+                        <td>{{ row["State"] }}</td>
+                        <td><a href="/unit/{{ row['_unit_key'] }}">{{ row["Unit"] }}</a></td>
+                        <td>{{ row["Year"] }}</td>
+                        <td class="wrap">{{ row["Unit Type"] or "—" }}</td>
+                        <td>{{ row["Primary Fuel"] or "—" }}</td>
+                        <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
+                        <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
+                        <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
+                        <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pager">
+            <span>
+                {{ "{:,}".format((result.page - 1) * result.per_page + 1) }}–{{ "{:,}".format([result.page * result.per_page, result.total]|min) }}
+                of {{ "{:,}".format(result.total) }}, page {{ result.page }} of {{ result.pages }}
+            </span>
+            <div class="actions">
+                {% if result.page > 1 %}<a class="btn btn-quiet btn-small" href="{{ url_with(params, page=result.page - 1) }}">Previous</a>{% endif %}
+                {% if result.page < result.pages %}<a class="btn btn-quiet btn-small" href="{{ url_with(params, page=result.page + 1) }}">Next</a>{% endif %}
+                <form action="/explore" method="GET">
+                    {% for key, value in params.items() if key not in ("per_page", "page") %}
+                    <input type="hidden" name="{{ key }}" value="{{ value }}">
+                    {% endfor %}
+                    <select class="control" name="per_page" aria-label="Results per page" onchange="this.form.submit()">
+                        {% for n in per_page_choices %}
+                        <option value="{{ n }}" {% if n == result.per_page %}selected{% endif %}>{{ n }} per page</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <div class="empty">
+            <h3>No results{% if q %} for "{{ q }}"{% endif %}</h3>
+            {% if result.suggestion %}
+            <p>Did you mean <a href="/explore?q={{ result.suggestion|urlencode }}">{{ result.suggestion }}</a>?</p>
+            {% else %}
+            <p>Try fewer words, check the spelling, or remove a refinement. You can search by facility name, state, county, fuel, unit type, control, year or an amount like "CO2 over 500,000".</p>
+            {% endif %}
+            <a class="btn btn-quiet" href="/explore">Start over</a>
+        </div>
+        {% endif %}
+
+    </section>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    attachSuggest(document.getElementById("q"), document.getElementById("q-suggest"));
+})();
+</script>
+{% endblock %}

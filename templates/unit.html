@@ -2,114 +2,97 @@
 
 {% block title %}Unit {{ unit.epa_unit_id }}, {{ facility.facility_name }} - epaData{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='detail.css') }}">
-{% endblock %}
+{% macro number(value, digits=0) -%}
+{% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
+{%- endmacro %}
 
 {% block content %}
 
 <div class="page-head">
-    <p class="eyebrow">
-        <a href="/facility/{{ facility.epa_facility_id }}">{{ facility.facility_name }}</a>{% if facility.state %}, {{ facility.state }}{% endif %}
-    </p>
+    <p class="eyebrow"><a href="/facility/{{ facility.epa_facility_id }}">{{ facility.facility_name }}</a>{% if facility.state %}, {{ facility.state }}{% endif %}</p>
     <h1>Unit {{ unit.epa_unit_id }}</h1>
     <p>
         {{ unit.unit_type or "Unknown unit type" }}{% if unit.primary_fuel %}, burning {{ unit.primary_fuel|lower }}{% endif %}.
         {% if unit.retirement_date %}Retired {{ unit.retirement_date }}.{% elif unit.operating_date %}Operating since {{ unit.operating_date }}.{% endif %}
     </p>
-
     <div class="head-actions">
-        <a class="btn btn-primary" href="/download?epa_facility_id={{ facility.epa_facility_id }}&epa_unit_id={{ unit.epa_unit_id|urlencode }}" download>
-            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Download history as CSV
-        </a>
-        <a class="btn-link btn" href="/facility/{{ facility.epa_facility_id }}">All units at this facility</a>
+        <a class="btn btn-primary" href="/download?epa_facility_id={{ facility.epa_facility_id }}&epa_unit_id={{ unit.epa_unit_id|urlencode }}" download>Download history</a>
+        <a class="btn btn-quiet" href="/history?unit={{ unit.internal_unit_key }}">Compare years</a>
+        <a class="btn-link" href="/facility/{{ facility.epa_facility_id }}">All units at this facility</a>
     </div>
 </div>
 
-<h2 class="section-title" style="margin-top: 0;">Identification</h2>
-<dl class="facts">
-    <div class="fact"><dt>Facility</dt><dd><a href="/facility/{{ facility.epa_facility_id }}">{{ facility.facility_name }}</a></dd></div>
-    <div class="fact"><dt>EPA facility ID</dt><dd>{{ facility.epa_facility_id }}</dd></div>
-    <div class="fact"><dt>EPA unit ID</dt><dd>{{ unit.epa_unit_id }}</dd></div>
-    <div class="fact"><dt>State and county</dt><dd>{{ facility.state or "—" }}{% if facility.county %}, {{ facility.county }}{% endif %}</dd></div>
-    <div class="fact"><dt>Unit type</dt><dd>{{ unit.unit_type or "—" }}</dd></div>
-    <div class="fact"><dt>Operating date</dt><dd>{{ unit.operating_date or "—" }}</dd></div>
-    <div class="fact">
-        <dt>Status</dt>
-        <dd>
-            {% if unit.retirement_date %}<span class="status retired">Retired {{ unit.retirement_date }}</span>
-            {% else %}<span class="status">Operating</span>{% endif %}
-        </dd>
-    </div>
-    <div class="fact">
-        <dt>Years reported</dt>
-        <dd>{% if history %}{{ history[-1][0].year }}–{{ history[0][0].year }} ({{ history|length }}){% else %}—{% endif %}</dd>
-    </div>
-</dl>
+<section class="section">
+    <h2 class="section-title">Identification</h2>
+    <dl class="facts">
+        <div class="fact"><dt>Facility</dt><dd><a href="/facility/{{ facility.epa_facility_id }}">{{ facility.facility_name }}</a></dd></div>
+        <div class="fact"><dt>EPA facility ID</dt><dd>{{ facility.epa_facility_id }}</dd></div>
+        <div class="fact"><dt>EPA unit ID</dt><dd>{{ unit.epa_unit_id }}</dd></div>
+        <div class="fact"><dt>State and county</dt><dd>{{ facility.state or "—" }}{% if facility.county %}, {{ facility.county }}{% endif %}</dd></div>
+        <div class="fact"><dt>Unit type</dt><dd>{{ unit.unit_type or "—" }}</dd></div>
+        <div class="fact"><dt>Operating date</dt><dd>{{ unit.operating_date or "—" }}</dd></div>
+        <div class="fact"><dt>Status</dt><dd>{% if unit.retirement_date %}<span class="status retired">Retired {{ unit.retirement_date }}</span>{% else %}<span class="status">Operating</span>{% endif %}</dd></div>
+        <div class="fact"><dt>Years reported</dt><dd>{% if history %}{{ history[-1][0].year }}–{{ history[0][0].year }} ({{ history|length }}){% else %}—{% endif %}</dd></div>
+    </dl>
+</section>
 
-<h2 class="section-title">Fuel and control information</h2>
-<dl class="facts">
-    <div class="fact"><dt>Primary fuel</dt><dd>{{ unit.primary_fuel or "—" }}</dd></div>
-    <div class="fact"><dt>Secondary fuel</dt><dd>{{ unit.secondary_fuel or "—" }}</dd></div>
-    <div class="fact"><dt>SO2 controls</dt><dd>{{ latest.so2_control_info|controls if latest and latest.so2_control_info else "None reported" }}</dd></div>
-    <div class="fact"><dt>NOx controls</dt><dd>{{ latest.nox_control_info|controls if latest and latest.nox_control_info else "None reported" }}</dd></div>
-    <div class="fact"><dt>PM controls</dt><dd>{{ latest.pm_control_info|controls if latest and latest.pm_control_info else "None reported" }}</dd></div>
-    <div class="fact"><dt>Programs</dt><dd>{{ latest.program_code if latest and latest.program_code else "—" }}</dd></div>
-</dl>
-{% if latest %}<p class="table-note">Controls and programs as reported in {{ latest.year }}, the most recent year on record.</p>{% endif %}
+<section class="section">
+    <h2 class="section-title">Fuel and controls</h2>
+    <p class="section-intro">{% if latest %}As reported in {{ latest.year }}, the most recent year on record.{% else %}No records yet.{% endif %}</p>
+    <dl class="facts">
+        <div class="fact"><dt>Primary fuel</dt><dd>{{ unit.primary_fuel or "—" }}</dd></div>
+        <div class="fact"><dt>Secondary fuel</dt><dd>{{ unit.secondary_fuel or "—" }}</dd></div>
+        <div class="fact"><dt>SO2 controls</dt><dd>{{ latest.so2_control_info|controls if latest and latest.so2_control_info else "None reported" }}</dd></div>
+        <div class="fact"><dt>NOx controls</dt><dd>{{ latest.nox_control_info|controls if latest and latest.nox_control_info else "None reported" }}</dd></div>
+        <div class="fact"><dt>PM controls</dt><dd>{{ latest.pm_control_info|controls if latest and latest.pm_control_info else "None reported" }}</dd></div>
+        <div class="fact"><dt>Programs</dt><dd>{{ latest.program_code if latest and latest.program_code else "—" }}</dd></div>
+    </dl>
+</section>
 
-<h2 class="section-title">Operating data and emissions by year</h2>
-{% if history %}
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th>Year</th>
-                <th class="num">Operating time (hrs)</th>
-                <th class="num">Gross load (MWh)</th>
-                <th class="num">Steam load (1000 lb)</th>
-                <th class="num">Heat input (mmBtu)</th>
-                <th class="num">CO2 (tons)</th>
-                <th></th>
-                <th class="num">SO2 (tons)</th>
-                <th class="num">NOx (tons)</th>
-                <th>Dataset</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for record, dataset in history %}
-            <tr>
-                <td class="year">{{ record.year }}</td>
-                {% for value in [record.operating_time, record.gross_load, record.steam_load, record.heat_input, record.co2_mass] %}
-                <td class="num">{% if value is none %}<span class="dim">—</span>{% else %}{{ "{:,.0f}".format(value) }}{% endif %}</td>
+<section class="section">
+    <h2 class="section-title">Operating data and emissions</h2>
+    <p class="section-intro">One row for each reporting year. The bar compares each year's CO2 with this unit's highest year, and the dataset shows where the year came from.</p>
+    {% if history %}
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Year</th><th class="num">Operating time (hrs)</th><th class="num">Gross load (MWh)</th><th class="num">Steam load (1000 lb)</th>
+                    <th class="num">Heat input (mmBtu)</th><th class="num">CO2 (tons)</th><th></th><th class="num">SO2 (tons)</th><th class="num">NOx (tons)</th><th>Dataset</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record, dataset in history %}
+                <tr>
+                    <td class="name">{{ record.year }}</td>
+                    <td class="num">{{ number(record.operating_time) }}</td>
+                    <td class="num">{{ number(record.gross_load) }}</td>
+                    <td class="num">{{ number(record.steam_load) }}</td>
+                    <td class="num">{{ number(record.heat_input) }}</td>
+                    <td class="num">{{ number(record.co2_mass) }}</td>
+                    <td class="bar-cell">{% if record.co2_mass and max_co2 %}<div class="bar" style="width: {{ (record.co2_mass / max_co2 * 100)|round(1) }}%;"></div>{% endif %}</td>
+                    <td class="num">{{ number(record.so2_mass, 1) }}</td>
+                    <td class="num">{{ number(record.nox_mass, 1) }}</td>
+                    <td>{% if dataset %}<a href="/datasets/{{ dataset.dataset_id }}" title="{{ dataset.dataset_name }}">#{{ dataset.dataset_id }}</a>{% else %}<span class="dim">—</span>{% endif %}</td>
+                </tr>
                 {% endfor %}
-                <td class="bar-cell">
-                    {% if record.co2_mass and max_co2 %}<div class="bar" style="width: {{ (record.co2_mass / max_co2 * 100)|round(1) }}%;"></div>{% endif %}
-                </td>
-                {% for value in [record.so2_mass, record.nox_mass] %}
-                <td class="num">{% if value is none %}<span class="dim">—</span>{% else %}{{ "{:,.1f}".format(value) }}{% endif %}</td>
-                {% endfor %}
-                <td style="white-space: nowrap;">
-                    {% if dataset %}<a href="/datasets/{{ dataset.dataset_id }}" title="{{ dataset.dataset_name }}, {{ dataset.og_filename or dataset.data_source }}">#{{ dataset.dataset_id }}</a>{% else %}<span class="dim">—</span>{% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-<p class="table-note">The bar compares each year's CO2 with this unit's highest year. Dataset shows which API pull or upload each year came from.</p>
-{% else %}
-<div class="panel empty"><h3>No annual records stored</h3><p>This unit has no emissions data in the database.</p></div>
-{% endif %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty"><h3>No annual records stored</h3><p>This unit has no emissions data in the database.</p></div>
+    {% endif %}
+</section>
 
 {% if siblings %}
-<h2 class="section-title">Other units at {{ facility.facility_name }}</h2>
-<div class="chip-links">
-    {% for other in siblings %}
-    <a href="/unit/{{ other.internal_unit_key }}">Unit {{ other.epa_unit_id }}</a>
-    {% endfor %}
-</div>
+<section class="section">
+    <h2 class="section-title">Other units at {{ facility.facility_name }}</h2>
+    <div class="chips">
+        {% for other in siblings %}
+        <a class="chip" href="/unit/{{ other.internal_unit_key }}">Unit {{ other.epa_unit_id }}</a>
+        {% endfor %}
+    </div>
+</section>
 {% endif %}
 
 {% endblock %}

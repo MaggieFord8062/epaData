@@ -2,10 +2,6 @@
 
 {% block title %}{{ dataset.dataset_name }} - epaData{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='detail.css') }}">
-{% endblock %}
-
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
 {%- endmacro %}
@@ -19,7 +15,7 @@
 <div class="page-head">
     <p class="eyebrow"><a href="/datasets">Datasets</a>, #{{ dataset.dataset_id }}</p>
     <h1>{{ dataset.dataset_name }}</h1>
-    <p>{{ dataset.og_filename or dataset.data_source }}{% if dataset.retrieval_date %}, retrieved {{ dataset.retrieval_date|replace("T", " at ") }}{% endif %}.</p>
+    <p>{{ dataset.og_filename or dataset.data_source }}{% if dataset.retrieval_date %}, {{ dataset.retrieval_date|replace("T", " at ") }}{% endif %}.</p>
 </div>
 
 <dl class="facts">
@@ -32,9 +28,7 @@
     {% if dataset.og_filename %}
     <div class="fact">
         <dt>Original file</dt>
-        <dd>
-            {% if upload and upload.stored_path %}<a href="/upload/{{ upload.upload_id }}/original">{{ dataset.og_filename }}</a>{% else %}{{ dataset.og_filename }}{% endif %}
-        </dd>
+        <dd>{% if upload and upload.stored_path %}<a href="/upload/{{ upload.upload_id }}/original">{{ dataset.og_filename }}</a>{% else %}{{ dataset.og_filename }}{% endif %}</dd>
     </div>
     {% endif %}
     {% if upload %}
@@ -45,100 +39,91 @@
     {% endif %}
     <div class="fact wide">
         <dt>Query</dt>
-        <dd>
-            {% for label, value in query_labels %}{{ label }}: {{ value }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}
-        </dd>
+        <dd>{% for label, value in query_labels %}{{ label }}: {{ value }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</dd>
     </div>
 </dl>
 
 {% if dataset.notes %}
-<h2 class="section-title">What happened</h2>
-<div class="list">
-    {% for note in dataset.notes.split("; ") %}
-    <div class="list-row"><div class="detail" style="color: var(--ink);">{{ note }}</div></div>
-    {% endfor %}
-</div>
+<section class="section">
+    <h2 class="section-title">What happened</h2>
+    <ul class="list">
+        {% for note in dataset.notes.split("; ") %}
+        <li class="list-row">{{ note }}</li>
+        {% endfor %}
+    </ul>
+</section>
 {% endif %}
 
-<h2 class="section-title">Records</h2>
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Records</h2>
+            <p class="section-intro">
+                {% if show == "covered" %}
+                {{ "{:,}".format(total) }} records in the database match this {{ "retrieval's" if not dataset.og_filename else "dataset's" }} query.
+                {% if is_attributes %}This pull updated their facility and unit details rather than adding emissions records.
+                {% elif stored_count == 0 %}They were all stored by earlier retrievals, so this one added none.
+                {% else %}{{ "{:,}".format(stored_count) }} of them were first stored by this retrieval.{% endif %}
+                {% else %}
+                {{ "{:,}".format(total) }} records were first stored by this dataset.
+                {% endif %}
+            </p>
+        </div>
+        {% if covered_available and stored_count %}
+        <div class="segmented" role="tablist" aria-label="Which records">
+            <a href="?show=covered" class="{{ 'is-active' if show == 'covered' else '' }}">Everything its query covers</a>
+            <a href="?show=stored" class="{{ 'is-active' if show == 'stored' else '' }}">Only what it stored</a>
+        </div>
+        {% endif %}
+    </div>
 
-{% if covered_available and stored_count %}
-<div class="segmented" role="tablist" aria-label="Which records" style="margin-bottom: 16px;">
-    <a href="?show=covered" role="tab" style="padding: 7px 20px; border-radius: 8px; font-size: 14px; color: var(--ink); {% if show == 'covered' %}background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-weight: 500;{% endif %}">Everything its query covers</a>
-    <a href="?show=stored" role="tab" style="padding: 7px 20px; border-radius: 8px; font-size: 14px; color: var(--ink); {% if show == 'stored' %}background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-weight: 500;{% endif %}">Only records it stored</a>
-</div>
-{% endif %}
+    {% if rows %}
+    <div class="actions">
+        {% if download_url %}<a class="btn btn-primary" href="{{ download_url }}" download>Download {{ "{:,}".format(total) }} records</a>{% endif %}
+        {% if search_url %}<a class="btn-link" href="{{ search_url }}">Open in Explore</a>{% endif %}
+    </div>
 
-<p class="table-note" style="margin: 0 0 16px;">
-    {% if show == "covered" %}
-    {{ "{:,}".format(total) }} records in the database match this {{ "retrieval's" if not dataset.og_filename else "dataset's" }} query.
-    {% if is_attributes %}This pull updated their facility and unit details rather than adding emissions records.
-    {% elif stored_count == 0 %}They were all already stored by earlier retrievals, so this one added no new records.
-    {% else %}{{ "{:,}".format(stored_count) }} of them were first stored by this retrieval.{% endif %}
+    <div class="table-wrap space-top">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Facility</th><th>State</th><th>Unit</th><th>Year</th><th>Primary fuel</th>
+                    <th class="num">Gross load (MWh)</th><th class="num">CO2 (tons)</th><th class="num">SO2 (tons)</th><th class="num">NOx (tons)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="name"><a href="/facility/{{ row['Facility ID'] }}">{{ row["Facility"] }}</a></td>
+                    <td>{{ row["State"] }}</td>
+                    <td><a href="/unit/{{ row['_unit_key'] }}">{{ row["Unit"] }}</a></td>
+                    <td>{{ row["Year"] }}</td>
+                    <td>{{ row["Primary Fuel"] or "—" }}</td>
+                    <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
+                    <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
+                    <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
+                    <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pages > 1 %}
+    <div class="pager">
+        <span>{{ "{:,}".format((page - 1) * page_size + 1) }}–{{ "{:,}".format([page * page_size, total]|min) }} of {{ "{:,}".format(total) }}, page {{ page }} of {{ pages }}</span>
+        <div class="actions">
+            {% if page > 1 %}<a class="btn btn-quiet btn-small" href="?show={{ show }}&page={{ page - 1 }}">Previous</a>{% endif %}
+            {% if page < pages %}<a class="btn btn-quiet btn-small" href="?show={{ show }}&page={{ page + 1 }}">Next</a>{% endif %}
+        </div>
+    </div>
+    {% endif %}
     {% else %}
-    {{ "{:,}".format(total) }} records were first stored by this dataset.
+    <div class="empty">
+        <h3>No records to show</h3>
+        <p>{% if received == 0 %}The source returned no records for this query.{% else %}None of this dataset's records are in the database.{% endif %}</p>
+    </div>
     {% endif %}
-</p>
-
-{% if rows %}
-<p class="summary-actions" style="margin: 0 0 16px;">
-    {% if download_url %}
-    <a class="btn btn-primary" href="{{ download_url }}" download>
-        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Download {{ "{:,}".format(total) }} as CSV
-    </a>
-    {% endif %}
-    {% if search_url %}<a class="btn-link btn" href="{{ search_url }}">Open in Search</a>{% endif %}
-</p>
-
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th>Facility</th>
-                <th>State</th>
-                <th>Unit</th>
-                <th>Year</th>
-                <th>Primary fuel</th>
-                <th class="num">Gross load (MWh)</th>
-                <th class="num">CO2 (tons)</th>
-                <th class="num">SO2 (tons)</th>
-                <th class="num">NOx (tons)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for row in rows %}
-            <tr>
-                <td class="name"><a href="/facility/{{ row['Facility ID'] }}">{{ row["Facility"] }}</a></td>
-                <td>{{ row["State"] }}</td>
-                <td><a href="/unit/{{ row['_unit_key'] }}">{{ row["Unit"] }}</a></td>
-                <td>{{ row["Year"] }}</td>
-                <td>{{ row["Primary Fuel"] or "—" }}</td>
-                <td class="num">{{ number(row["Gross Load (MWh)"]) }}</td>
-                <td class="num">{{ number(row["CO2 (tons)"]) }}</td>
-                <td class="num">{{ number(row["SO2 (tons)"], 1) }}</td>
-                <td class="num">{{ number(row["NOx (tons)"], 1) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-{% if pages > 1 %}
-<div class="table-note" style="display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;">
-    <span>Showing {{ "{:,}".format((page - 1) * page_size + 1) }}–{{ "{:,}".format([page * page_size, total]|min) }} of {{ "{:,}".format(total) }}, page {{ page }} of {{ pages }}</span>
-    <span class="summary-actions">
-        {% if page > 1 %}<a class="btn btn-quiet" style="min-height: 34px; font-size: 14px;" href="?show={{ show }}&page={{ page - 1 }}">Previous</a>{% endif %}
-        {% if page < pages %}<a class="btn btn-quiet" style="min-height: 34px; font-size: 14px;" href="?show={{ show }}&page={{ page + 1 }}">Next</a>{% endif %}
-    </span>
-</div>
-{% endif %}
-
-{% else %}
-<div class="panel empty">
-    <h3>No records to show</h3>
-    <p>{% if received == 0 %}The source returned no records for this query.{% else %}None of this dataset's records are in the database.{% endif %}</p>
-</div>
-{% endif %}
+</section>
 
 {% endblock %}

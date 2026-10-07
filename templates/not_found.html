@@ -3,9 +3,12 @@
 {% block title %}Not found - epaData{% endblock %}
 
 {% block content %}
-<div class="panel empty">
+<div class="empty">
     <h3>We couldn't find that page</h3>
     <p>The facility or unit may not be in the database, or the link may be mistyped.</p>
-    <a class="btn btn-quiet" href="/">Go to Overview</a>
+    <div class="actions center">
+        <a class="btn btn-primary" href="/explore">Search the data</a>
+        <a class="btn-link" href="/">Go to Overview</a>
+    </div>
 </div>
 {% endblock %}

@@ -2,11 +2,6 @@
 
 {% block title %}Review {{ upload.original_filename }} - epaData{% endblock %}
 
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='detail.css') }}">
-{% endblock %}
-
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
 {%- endmacro %}
@@ -22,154 +17,130 @@
     <h1>{{ upload.original_filename }}</h1>
     <p>
         {{ upload.file_type|upper }} file, {{ "%.1f"|format((upload.file_size or 0) / 1024) }} KB, uploaded {{ (upload.uploaded_at or "")|replace("T", " at ") }}.
-        {% if upload.status == "pending" %}Review it below, then approve or cancel.
-        {% elif upload.status == "imported" %}Imported.
-        {% else %}Cancelled, so nothing was imported.{% endif %}
+        {% if upload.status == "pending" %}Review it, then approve or cancel.{% elif upload.status == "imported" %}Imported.{% else %}Cancelled, so nothing was imported.{% endif %}
     </p>
 </div>
 
 {% if not result %}
-<div class="panel empty">
+<div class="empty">
     <h3>This upload's review is no longer available</h3>
     <p>Upload the file again to check it.</p>
     <a class="btn btn-quiet" href="/upload">Upload a file</a>
 </div>
 {% elif blocked %}
-
-<div class="form-errors">
+<div class="message error">
     {% if columns.get("missing_required") %}
-    <p><strong>This file is missing required columns:</strong> {{ columns.missing_required|join(", ") }}.</p>
-    <p style="margin-top: 6px;">Nothing can be imported until those columns are added. The columns found were: {{ (columns.get("ignored", []) + columns.get("matched", [])|map(attribute="1")|list)|join(", ") or "none" }}.</p>
+    <p>This file is missing required columns: {{ columns.missing_required|join(", ") }}.</p>
+    <p>Nothing can be imported until they're added. The columns found were: {{ (columns.get("ignored", []) + columns.get("matched", [])|map(attribute="1")|list)|join(", ") or "none" }}.</p>
     {% elif result.get("too_many_rows") %}
     <p>This file has more than 100,000 rows. Split it into smaller files and upload them one at a time.</p>
     {% else %}
     <p>This file has a header row but no data rows.</p>
     {% endif %}
 </div>
-
 {% else %}
 
-<div class="counts">
-    <div class="count-tile"><div class="value">{{ "{:,}".format(result.rows_read) }}</div><div class="label">Rows read</div></div>
-    <div class="count-tile good"><div class="value">{{ "{:,}".format(ready) }}</div><div class="label">Ready to import</div></div>
-    <div class="count-tile warn"><div class="value">{{ "{:,}".format(counts.get("questionable", 0)) }}</div><div class="label">Questionable (still imported)</div></div>
-    <div class="count-tile bad"><div class="value">{{ "{:,}".format(counts.get("rejected", 0)) }}</div><div class="label">Rejected</div></div>
-    <div class="count-tile bad"><div class="value">{{ "{:,}".format(counts.get("duplicate", 0)) }}</div><div class="label">Duplicates in the file</div></div>
-    <div class="count-tile"><div class="value">{{ "{:,}".format(counts.get("existing", 0)) }}</div><div class="label">Already in the database</div></div>
+<div class="stats">
+    <div class="stat"><div class="value">{{ "{:,}".format(result.rows_read) }}</div><div class="label">Rows read</div></div>
+    <div class="stat good"><div class="value">{{ "{:,}".format(ready) }}</div><div class="label">Ready to import</div></div>
+    <div class="stat warn"><div class="value">{{ "{:,}".format(counts.get("questionable", 0)) }}</div><div class="label">Questionable, still imported</div></div>
+    <div class="stat bad"><div class="value">{{ "{:,}".format(counts.get("rejected", 0)) }}</div><div class="label">Rejected</div></div>
+    <div class="stat bad"><div class="value">{{ "{:,}".format(counts.get("duplicate", 0)) }}</div><div class="label">Duplicates in the file</div></div>
+    <div class="stat"><div class="value">{{ "{:,}".format(counts.get("existing", 0)) }}</div><div class="label">Already in the database</div></div>
 </div>
 
-<h2 class="section-title">Columns</h2>
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr><th>Column in your file</th><th>Matched to</th></tr>
-        </thead>
-        <tbody>
-            {% for label, column in columns.get("matched", []) %}
-            <tr><td>{{ column }}</td><td>{{ label }}</td></tr>
-            {% endfor %}
-            {% for column in columns.get("ignored", []) %}
-            <tr><td>{{ column }}</td><td class="muted">Not part of the schema, ignored</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% if columns.get("missing_optional") %}
-<p class="table-note">Optional columns not in this file, left empty: {{ columns.missing_optional|join(", ") }}.</p>
-{% endif %}
-
-{% if result.get("missing_counts") %}
-<h2 class="section-title">Missing values</h2>
-<div class="table-wrap">
-    <table class="data">
-        <thead><tr><th>Column</th><th class="num">Blank cells</th><th class="num">Share of rows</th></tr></thead>
-        <tbody>
-            {% for label, count in result.missing_counts.items() %}
-            <tr>
-                <td>{{ label }}</td>
-                <td class="num">{{ "{:,}".format(count) }}</td>
-                <td class="num">{{ "%.0f"|format(count / result.rows_read * 100) }}%</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-<p class="table-note">Blank emissions or operating values are allowed (many units don't report every pollutant). Blank required values are rejected.</p>
-{% endif %}
-
-<h2 class="section-title">Data-quality report</h2>
-{% if problem_total %}
-<p class="summary-actions" style="margin: 0 0 16px;">
-    <a class="btn btn-quiet" href="/upload/{{ upload.upload_id }}/report" download>
-        <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Download the full report as CSV
-    </a>
-    <span class="muted" style="font-size: 14px;">{{ "{:,}".format(problem_total) }} rows listed{% if problem_total > problems|length %}, first {{ problems|length }} shown{% endif %}</span>
-</p>
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr><th>Line</th><th>Status</th><th>Facility ID</th><th>Unit</th><th>Year</th><th>Issue</th></tr>
-        </thead>
-        <tbody>
-            {% for problem in problems %}
-            <tr>
-                <td class="rank">{{ problem.line }}</td>
-                <td><span class="kind {{ problem.kind.split()[0] }}">{{ problem.kind }}</span></td>
-                <td>{{ problem.facility_id or "—" }}</td>
-                <td>{{ problem.unit_id or "—" }}</td>
-                <td>{{ problem.year or "—" }}</td>
-                <td>{{ problem.issue }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-<p class="table-note">Line numbers match your file, counting the header as line 1. Rejected and duplicate rows are not imported. Questionable rows are imported and stay listed here.</p>
-{% else %}
-<div class="panel empty" style="padding: 32px 24px;">
-    <h3>No problems found</h3>
-    <p>Every row passed validation.</p>
-</div>
-{% endif %}
+<section class="section">
+    <h2 class="section-title">Data-quality report</h2>
+    <p class="section-intro">Every row that won't be imported, or that looks questionable. Line numbers match your file, with the header as line 1.</p>
+    {% if problem_total %}
+    <div class="actions">
+        <a class="btn btn-quiet" href="/upload/{{ upload.upload_id }}/report" download>Download the full report</a>
+        <span class="dim">{{ "{:,}".format(problem_total) }} rows listed{% if problem_total > problems|length %}, first {{ problems|length }} shown{% endif %}</span>
+    </div>
+    <div class="table-wrap space-top">
+        <table class="data">
+            <thead>
+                <tr><th>Line</th><th>Status</th><th>Facility ID</th><th>Unit</th><th>Year</th><th>Issue</th></tr>
+            </thead>
+            <tbody>
+                {% for problem in problems %}
+                <tr>
+                    <td class="rank">{{ problem.line }}</td>
+                    <td><span class="kind {{ problem.kind.split()[0] }}">{{ problem.kind }}</span></td>
+                    <td>{{ problem.facility_id or "—" }}</td>
+                    <td>{{ problem.unit_id or "—" }}</td>
+                    <td>{{ problem.year or "—" }}</td>
+                    <td>{{ problem.issue }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty"><h3>No problems found</h3><p>Every row passed validation.</p></div>
+    {% endif %}
+</section>
 
 {% if preview %}
-<h2 class="section-title">Preview</h2>
-<div class="table-wrap">
-    <table class="data">
-        <thead>
-            <tr>
-                <th>Line</th><th>Facility</th><th>State</th><th>Unit</th><th>Year</th><th>Primary fuel</th>
-                <th class="num">Gross load (MWh)</th><th class="num">CO2 (tons)</th><th class="num">SO2 (tons)</th><th class="num">NOx (tons)</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for record in preview %}
-            <tr>
-                <td class="rank">{{ preview_lines[loop.index0] }}</td>
-                <td class="name">{{ record.facility_name }}</td>
-                <td>{{ record.state }}</td>
-                <td>{{ record.unit_id }}</td>
-                <td>{{ record.year }}</td>
-                <td>{{ record.primary_fuel or "—" }}</td>
-                <td class="num">{{ number(record.gross_load) }}</td>
-                <td class="num">{{ number(record.co2_mass) }}</td>
-                <td class="num">{{ number(record.so2_mass, 1) }}</td>
-                <td class="num">{{ number(record.nox_mass, 1) }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-<p class="table-note">The first {{ preview|length }} of {{ "{:,}".format(ready) }} rows ready to import.</p>
+<section class="section">
+    <h2 class="section-title">Preview</h2>
+    <p class="section-intro">The first {{ preview|length }} of {{ "{:,}".format(ready) }} rows ready to import.</p>
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Line</th><th>Facility</th><th>State</th><th>Unit</th><th>Year</th><th>Primary fuel</th>
+                    <th class="num">Gross load (MWh)</th><th class="num">CO2 (tons)</th><th class="num">SO2 (tons)</th><th class="num">NOx (tons)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in preview %}
+                <tr>
+                    <td class="rank">{{ preview_lines[loop.index0] }}</td>
+                    <td class="name">{{ record.facility_name }}</td>
+                    <td>{{ record.state }}</td>
+                    <td>{{ record.unit_id }}</td>
+                    <td>{{ record.year }}</td>
+                    <td>{{ record.primary_fuel or "—" }}</td>
+                    <td class="num">{{ number(record.gross_load) }}</td>
+                    <td class="num">{{ number(record.co2_mass) }}</td>
+                    <td class="num">{{ number(record.so2_mass, 1) }}</td>
+                    <td class="num">{{ number(record.nox_mass, 1) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
 {% endif %}
+
+<section class="section">
+    <h2 class="section-title">Columns</h2>
+    <p class="section-intro">How each column in the file was matched to the project schema.</p>
+    <div class="table-wrap">
+        <table class="data">
+            <thead><tr><th>Column in your file</th><th>Matched to</th><th class="num">Blank cells</th></tr></thead>
+            <tbody>
+                {% for label, column in columns.get("matched", []) %}
+                <tr><td>{{ column }}</td><td>{{ label }}</td><td class="num">{{ "{:,}".format(result.get("missing_counts", {}).get(label, 0)) }}</td></tr>
+                {% endfor %}
+                {% for column in columns.get("ignored", []) %}
+                <tr><td>{{ column }}</td><td class="dim">Not in the schema, ignored</td><td class="num dim">—</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if columns.get("missing_optional") %}
+    <p class="note">Optional columns not in this file, left empty: {{ columns.missing_optional|join(", ") }}. Blank emissions values are allowed, since many units don't report every pollutant. Blank required values are rejected.</p>
+    {% endif %}
+</section>
 
 {% endif %}
 
 <div class="decision">
     {% if upload.status == "pending" and result and not blocked and ready > 0 %}
-    <p>Import <strong>{{ "{:,}".format(ready) }}</strong> record{{ "" if ready == 1 else "s" }}? Rejected, duplicate and already-stored rows will be left out.</p>
-    <div class="summary-actions">
+    <p>Import <strong>{{ "{:,}".format(ready) }}</strong> record{{ "" if ready == 1 else "s" }}? Rejected, duplicate and already-stored rows are left out.</p>
+    <div class="actions">
         <form method="POST" action="/upload/{{ upload.upload_id }}/cancel">
             <button class="btn btn-quiet" type="submit">Cancel</button>
         </form>
@@ -179,15 +150,13 @@
     </div>
     {% elif upload.status == "pending" %}
     <p>There's nothing to import from this file.</p>
-    <div class="summary-actions">
-        <form method="POST" action="/upload/{{ upload.upload_id }}/cancel">
-            <button class="btn btn-primary" type="submit">Cancel and upload another</button>
-        </form>
-    </div>
+    <form method="POST" action="/upload/{{ upload.upload_id }}/cancel">
+        <button class="btn btn-primary" type="submit">Cancel and upload another</button>
+    </form>
     {% elif upload.status == "imported" %}
     <p>Imported into <a href="/datasets/{{ upload.dataset_id }}">dataset #{{ upload.dataset_id }}</a>.</p>
-    <div class="summary-actions">
-        {% if upload.stored_path %}<a class="btn-link btn" href="/upload/{{ upload.upload_id }}/original">Original file</a>{% endif %}
+    <div class="actions">
+        {% if upload.stored_path %}<a class="btn-link" href="/upload/{{ upload.upload_id }}/original">Original file</a>{% endif %}
         <a class="btn btn-quiet" href="/upload">Upload another</a>
     </div>
     {% else %}

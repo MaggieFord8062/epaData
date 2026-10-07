@@ -66,6 +66,16 @@ CONTROL_FILTERS = {
     "pm_control": "annual_records.pm_control_info",
 }
 
+# Partial-match filters used by the smart search: field -> database column(s).
+# "coal" matches "Coal" and "Coal Refuse"; "turbine" matches "Combustion turbine".
+LIKE_FILTERS = {
+    "fuel_like": ["unit.primary_fuel"],
+    "unit_type_like": ["unit.unit_type"],
+    "county_like": ["facility.county"],
+    "source_like": ["facility.source_category"],
+    "facility_like": ["facility.facility_name"],
+}
+
 # Numeric filters: form field prefix -> database column
 NUMERIC_FILTERS = {
     "operating_time": "annual_records.operating_time",
@@ -166,6 +176,29 @@ def build_where(filters, exclude=()):
             clauses.append(f"{column} LIKE ?")
             parameters.append(f"%{value}%")
 
+    for field, columns in LIKE_FILTERS.items():
+        value = str(filters.get(field) or "").strip()
+        if value and field not in exclude:
+            clauses.append("(" + " OR ".join(f"{column} LIKE ?" for column in columns) + ")")
+            parameters.extend([f"%{value}%"] * len(columns))
+
+    # Operating or retired units
+    status = str(filters.get("status") or "").strip().lower()
+    if status and "status" not in exclude:
+        if status == "retired":
+            clauses.append("unit.retirement_date IS NOT NULL AND unit.retirement_date != ''")
+        elif status == "operating":
+            clauses.append("(unit.retirement_date IS NULL OR unit.retirement_date = '')")
+
+    # Units with any SO2 control (a "scrubber"), or with none at all
+    if filters.get("has_so2_control") and "has_so2_control" not in exclude:
+        clauses.append("annual_records.so2_control_info IS NOT NULL AND annual_records.so2_control_info != ''")
+    if filters.get("no_controls") and "no_controls" not in exclude:
+        clauses.append(
+            "COALESCE(annual_records.so2_control_info, '') = '' AND COALESCE(annual_records.nox_control_info, '') = ''"
+            " AND COALESCE(annual_records.pm_control_info, '') = ''"
+        )
+
     # One control technology in any of the SO2, NOx or PM control fields (used for retrieval queries)
     control = str(filters.get("control_any") or "").strip()
     if control and "control_any" not in exclude:
@@ -193,6 +226,16 @@ def build_where(filters, exclude=()):
         low = to_number(filters.get(f"{field}_min"))
         high = to_number(filters.get(f"{field}_max"))
         equal = to_number(filters.get(f"{field}_equals"))
+
+        # Plain minimum and/or maximum boxes (the explorer's range refinements)
+        if not operator:
+            if low is not None:
+                clauses.append(f"{column} >= ?")
+                parameters.append(low)
+            if high is not None:
+                clauses.append(f"{column} <= ?")
+                parameters.append(high)
+            continue
 
         if operator == "Equals" and equal is not None:
             clauses.append(f"{column} = ?")
@@ -230,7 +273,7 @@ def search_data(**filters):
 
 def get_filter_options(**filters):
     """
-    Everything the search page needs to stay in sync with the data:
+    Everything a filter form needs to stay in sync with the data:
       - options: the values still available for each dropdown
       - ranges:  the smallest and largest value for each number filter
       - count:   how many records match right now

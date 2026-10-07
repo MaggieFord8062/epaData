@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Download - epaData{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Download</h1>
+    <p>Take any part of the data with you. Choose a dataset, narrow it down, and pick a format. Every search, ranking, facility and unit page also has its own download.</p>
+</div>
+
+<section class="section">
+    <h2 class="section-title">Records</h2>
+    <p class="section-intro">Annual records with every column, one row per facility, unit and year. Leave a filter on "All" to include everything.</p>
+
+    <form class="panel" method="GET" action="/download-records" id="download-form">
+        <div class="form-grid">
+            <div class="field wide">
+                <label for="dataset">Dataset</label>
+                <select class="control" id="dataset" name="dataset">
+                    <option value="all">All data ({{ "{:,}".format(total) }} records)</option>
+                    {% for dataset, records in stored %}
+                    <option value="{{ dataset.dataset_id }}">#{{ dataset.dataset_id }} {{ dataset.dataset_name }} ({{ "{:,}".format(records) }} records)</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label for="state">State</label>
+                <select class="control" id="state" name="state">
+                    <option value="">All states</option>
+                    {% for value in choices.states %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label for="reporting_year">Reporting year</label>
+                <select class="control" id="reporting_year" name="reporting_year">
+                    <option value="">All years</option>
+                    {% for value in choices.years %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label for="primary_fuel">Primary fuel</label>
+                <select class="control" id="primary_fuel" name="primary_fuel">
+                    <option value="">All fuels</option>
+                    {% for value in choices.fuels %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="field">
+                <label for="unit_type">Unit type</label>
+                <select class="control" id="unit_type" name="unit_type">
+                    <option value="">All unit types</option>
+                    {% for value in choices.unit_types %}<option value="{{ value }}">{{ value }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="field picker wide">
+                <label for="facility-picker">Facility</label>
+                <input class="control" type="text" id="facility-picker" autocomplete="off" placeholder="All facilities (start typing to pick one)">
+                <input type="hidden" name="epa_facility_id" id="epa_facility_id">
+            </div>
+            <div class="field">
+                <span class="label">Format</span>
+                <div class="segmented" role="radiogroup" aria-label="Format">
+                    <input type="radio" id="format-csv" name="format" value="csv" checked>
+                    <label for="format-csv">CSV</label>
+                    <input type="radio" id="format-xlsx" name="format" value="xlsx">
+                    <label for="format-xlsx">Excel</label>
+                </div>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-primary" type="submit">Download</button>
+        </div>
+    </form>
+</section>
+
+<section class="section">
+    <h2 class="section-title">Provenance</h2>
+    <p class="section-intro">Every retrieval and upload: the source, when it happened, the exact query, how many records came in, how many were accepted, and why any were rejected.</p>
+    <div class="actions">
+        <a class="btn btn-primary" href="/download-provenance" download>Download CSV</a>
+        <a class="btn btn-quiet" href="/download-provenance?format=xlsx" download>Download Excel</a>
+        <a class="btn-link" href="/datasets">View datasets</a>
+    </div>
+</section>
+
+<section class="section">
+    <h2 class="section-title">Data-quality reports</h2>
+    <p class="section-intro">The rows each uploaded file had rejected, flagged as duplicates, skipped or marked questionable, with line numbers and reasons.</p>
+    <div class="list">
+        {% for item in upload_rows %}
+        <a class="list-row" href="/upload/{{ item.upload_id }}/report" download>
+            <div>
+                <div class="title">{{ item.original_filename }}</div>
+                <div class="detail">{{ "{:,}".format(item.rows_rejected or 0) }} rejected of {{ "{:,}".format(item.rows_read or 0) }} rows, {{ (item.uploaded_at or "")[:10] }}</div>
+            </div>
+            <span class="end"><span class="status {{ item.status }}">{{ item.status|capitalize }}</span></span>
+        </a>
+        {% else %}
+        <div class="list-row"><div class="detail">No uploads yet.</div></div>
+        {% endfor %}
+    </div>
+    {% if rejected_pulls %}
+    <p class="note">
+        EPA retrievals with rejected records:
+        {% for dataset in rejected_pulls %}<a href="/datasets/{{ dataset.dataset_id }}">#{{ dataset.dataset_id }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.
+        Their rejection reasons and counts are in the provenance download.
+    </p>
+    {% else %}
+    <p class="note">No EPA retrieval has rejected any records. Rejection counts for each retrieval are in the provenance download.</p>
+    {% endif %}
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='picker.js') }}"></script>
+<script>
+(function () {
+    const picker = document.getElementById("facility-picker");
+    const facilityId = document.getElementById("epa_facility_id");
+
+    attachFacilityPicker(picker, facility => {
+        facilityId.value = facility.epa_facility_id;
+        picker.placeholder = `${facility.facility_name}, ${facility.state}`;
+    });
+
+    // Backspace or Delete in the empty box goes back to all facilities
+    picker.addEventListener("keydown", event => {
+        const clearing = event.key === "Backspace" || event.key === "Delete";
+        if (clearing && picker.value === "" && facilityId.value) {
+            facilityId.value = "";
+            picker.placeholder = "All facilities (start typing to pick one)";
+        }
+    });
+
+    // Leave empty choices out of the link
+    const form = document.getElementById("download-form");
+    form.addEventListener("submit", () => {
+        form.querySelectorAll("select, input[type='hidden']").forEach(element => {
+            if (element.value === "") {
+                element.disabled = true;
+            }
+        });
+        setTimeout(() => {
+            form.querySelectorAll("select, input[type='hidden']").forEach(element => {
+                element.disabled = false;
+            });
+        }, 500);
+    });
+})();
+</script>
+{% endblock %}

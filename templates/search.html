@@ -2,52 +2,57 @@
 
 {% block title %}All tools - epaData{% endblock %}
 
+{% set chev %}<svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>{% endset %}
+
 {% block content %}
 
 <div class="page-head">
     <h1>All tools</h1>
-    <p>Everything you can do with the data, and what's still being built.</p>
+    <p>Everything you can do with the data.</p>
 </div>
 
-{% set chev %}<svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>{% endset %}
+<section class="section">
+    <h2 class="section-title">Find data</h2>
+    <div class="list">
+        <a class="list-row" href="/explore">
+            <div><div class="title">Explore</div><div class="detail">Search in plain words, then refine by state, year, fuel, unit type, controls and amounts</div></div>
+            {{ chev }}
+        </a>
+        <a class="list-row" href="/advanced-search">
+            <div><div class="title">Rankings</div><div class="detail">Top or bottom facilities and units, overall or in each state</div></div>
+            {{ chev }}
+        </a>
+        <a class="list-row" href="/compare">
+            <div><div class="title">Compare facilities</div><div class="detail">Up to four facilities side by side: totals, every unit, and CO2 by year</div></div>
+            {{ chev }}
+        </a>
+        <a class="list-row" href="/history">
+            <div><div class="title">Unit history</div><div class="detail">Follow one generating unit across the years</div></div>
+            {{ chev }}
+        </a>
+    </div>
+</section>
 
-<div class="list">
-    <a class="list-row" href="/basic-search">
-        <div><div class="title">Search records</div><div class="detail">Filter by facility, state, year, fuel, unit type, emissions and controls</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/advanced-search">
-        <div><div class="title">Rankings</div><div class="detail">Rank facilities or units by emissions, load or heat input</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/explorer">
-        <div><div class="title">Explorer</div><div class="detail">Browse the first 100 records</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/retrieve">
-        <div><div class="title">Retrieve from EPA</div><div class="detail">Pull a year of data from the CAM API with your own filters and watch it load</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/upload">
-        <div><div class="title">Upload data</div><div class="detail">Add records from a CSV or Excel file: validation, preview and a data-quality report before anything is saved</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/datasets">
-        <div><div class="title">Datasets</div><div class="detail">Where every record came from: each API pull and upload, with counts and rejections</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/download" download>
-        <div><div class="title">Download all data</div><div class="detail">Every record as a CSV file. Search results and rankings have their own download button.</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/compare">
-        <div><div class="title">Facility comparison</div><div class="detail">Put up to four facilities side by side: totals, every unit, and CO2 by year</div></div>
-        {{ chev }}
-    </a>
-    <a class="list-row" href="/history">
-        <div><div class="title">Historical search</div><div class="detail">Follow one unit across 2015 to 2025</div></div>
-        {{ chev }}
-    </a>
-</div>
+<section class="section">
+    <h2 class="section-title">Manage data</h2>
+    <div class="list">
+        <a class="list-row" href="/retrieve">
+            <div><div class="title">Retrieve from EPA</div><div class="detail">Pull data from the CAM API with your own filters and watch it load</div></div>
+            {{ chev }}
+        </a>
+        <a class="list-row" href="/upload">
+            <div><div class="title">Upload a file</div><div class="detail">CSV or Excel, with validation, a preview and a data-quality report before anything is saved</div></div>
+            {{ chev }}
+        </a>
+        <a class="list-row" href="/downloads">
+            <div><div class="title">Download</div><div class="detail">Datasets, filtered records, provenance and data-quality reports as CSV or Excel</div></div>
+            {{ chev }}
+        </a>
+        <a class="list-row" href="/datasets">
+            <div><div class="title">Datasets and provenance</div><div class="detail">Every retrieval and upload, with its query, counts and notes</div></div>
+            {{ chev }}
+        </a>
+    </div>
+</section>
 
 {% endblock %}
