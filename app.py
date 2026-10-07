@@ -733,11 +733,12 @@ def retrieve():
         errors = []
 
         year = form.get("year", type=int)
-        if year not in choices["years"]:
-            errors.append("Choose a reporting year.")
+        if year is not None and year not in choices["years"]:
+            errors.append("Choose a valid reporting year.")
 
         # Form field -> (CAM API parameter, allowed values, readable label)
         filter_fields = {
+            "year": ("year", choices["years"], "Year"),
             "state": ("stateCode", choices["states"], "State"),
             "fuel": ("unitFuelType", choices["fuels"], "Fuel type"),
             "unit_type": ("unitType", choices["unit_types"], "Unit type"),
@@ -745,7 +746,7 @@ def retrieve():
         }
 
         api_filters = {}
-        labels = {"Year": year}
+        labels = {"Year": year if year is not None else "All years"}
         for field, (parameter, allowed, label) in filter_fields.items():
             value = form.get(field, "").strip()
             if not value:
@@ -769,7 +770,11 @@ def retrieve():
                                    job=None, recent=recent_retrievals())
 
         job_id, started = retrieval_jobs.start_retrieval(
-            year, api_filters, form.get("attributes") == "on", labels,
+            year,
+            api_filters,
+            form.get("attributes") == "on",
+            labels,
+            choices["years"],
         )
         if started:
             # A link to Explore showing what this retrieval covers

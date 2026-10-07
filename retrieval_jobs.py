@@ -48,7 +48,7 @@ def running_job():
     return _jobs.get(_running_job_id) if _running_job_id else None
 
 
-def start_retrieval(year, filters, include_attributes, labels):
+def start_retrieval(year, filters, include_attributes, labels, available_years):
     """
     Start a retrieval in the background and return its job id.
     If one is already running, return that one's id instead of starting another.
@@ -77,12 +77,12 @@ def start_retrieval(year, filters, include_attributes, labels):
         }
         _running_job_id = job_id
 
-    thread = threading.Thread(target=_run, args=(job_id, year, filters, include_attributes), daemon=True)
+    thread = threading.Thread(target=_run, args=(job_id, year, filters, include_attributes, available_years), daemon=True)
     thread.start()
     return job_id, True
 
 
-def _run(job_id, year, filters, include_attributes):
+def _run(job_id, year, filters, include_attributes, available_years):
     global _running_job_id
     job = _jobs[job_id]
 
@@ -105,12 +105,34 @@ def _run(job_id, year, filters, include_attributes):
         progress("Loading what's already in the database")
         index = DatabaseIndex(session)
 
-        dataset = retrieve_emissions(session, client, index, year, filters, progress)
-        job["datasets"].append(_summarize(dataset))
+        if year is None:
+            years_to_retrieve = available_years
+        else:
+            years_to_retrieve = [year]
 
-        if include_attributes:
-            dataset = retrieve_attributes(session, client, index, year, filters, progress)
+        for retrieval_year in years_to_retrieve:
+            progress(f"Retrieving {retrieval_year}")
+
+            dataset = retrieve_emissions(
+                session,
+                client,
+                index,
+                retrieval_year,
+                filters,
+                progress,
+            )
             job["datasets"].append(_summarize(dataset))
+
+            if include_attributes:
+                dataset = retrieve_attributes(
+                    session,
+                    client,
+                    index,
+                    retrieval_year,
+                    filters,
+                    progress,
+                )
+                job["datasets"].append(_summarize(dataset))
 
         progress("Finished")
         job["status"] = "done"

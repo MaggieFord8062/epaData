@@ -28,6 +28,7 @@
         <div class="field">
             <label for="year">Reporting year</label>
             <select class="control" id="year" name="year">
+                <option value="">All years</option>
                 {% for y in choices.years %}
                 <option value="{{ y }}" {% if form.get('year') == y|string %}selected{% endif %}>{{ y }}</option>
                 {% endfor %}
