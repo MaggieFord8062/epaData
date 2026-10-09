@@ -10,6 +10,8 @@ import requests
 BASE_URL = "https://api.epa.gov/easey"
 EMISSIONS_URL = f"{BASE_URL}/emissions-mgmt/emissions/apportioned/annual"
 ATTRIBUTES_URL = f"{BASE_URL}/facilities-mgmt/facilities/attributes"
+HOURLY_URL = f"{BASE_URL}/emissions-mgmt/emissions/apportioned/hourly"
+MATS_HOURLY_URL = f"{BASE_URL}/emissions-mgmt/emissions/apportioned/mats/hourly"
 
 PER_PAGE = 500
 
@@ -89,6 +91,39 @@ class CAMPDClient:
             params["stateCode"] = state
         params.update({key: value for key, value in filters.items() if value})
         return {"items": self._get_all_pages(EMISSIONS_URL, params, on_page)}
+
+    def get_hourly_data(self, operating_date, state=None, on_page=None, **filters):
+        """Retrieve hourly apportioned emissions for one selected calendar day.
+
+        ``operating_date`` may be a date object or an ISO YYYY-MM-DD string.
+        Optional filters use CAMPD API parameter names, such as facilityId/unitId.
+        """
+        if hasattr(operating_date, "isoformat"):
+            day = operating_date.isoformat()
+        else:
+            day = str(operating_date)
+        # A date-only request keeps the response small: one unit for one day.
+        params = {"beginDate": day, "endDate": day}
+        if state:
+            params["stateCode"] = state
+        params.update({key: value for key, value in filters.items() if value not in (None, "")})
+        return {"items": self._get_all_pages(HOURLY_URL, params, on_page)}
+
+    def get_hourly_mats_data(self, operating_date, state=None, on_page=None, **filters):
+        """Retrieve hourly MATS emissions, including mercury mass, for one day.
+
+        CAMPD's regular apportioned hourly endpoint does not include hgMass;
+        the separate hourly MATS endpoint supplies it.
+        """
+        if hasattr(operating_date, "isoformat"):
+            day = operating_date.isoformat()
+        else:
+            day = str(operating_date)
+        params = {"beginDate": day, "endDate": day}
+        if state:
+            params["stateCode"] = state
+        params.update({key: value for key, value in filters.items() if value not in (None, "")})
+        return {"items": self._get_all_pages(MATS_HOURLY_URL, params, on_page)}
 
     def get_facility_attributes(self, year, state=None, on_page=None, **filters):
         """

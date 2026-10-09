@@ -8,6 +8,16 @@
 
 {% block content %}
 
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="section" aria-live="polite">
+    {% for category, message in messages %}
+    <p class="hourly-message {{ category }}">{{ message }}</p>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
 <div class="page-head">
     <p class="eyebrow">Facility {{ facility.epa_facility_id }}{% if facility.county %}, {{ facility.county }}{% endif %}{% if facility.state %}, {{ facility.state }}{% endif %}</p>
     <h1>{{ facility.facility_name }}</h1>
@@ -92,6 +102,59 @@
     </div>
     {% else %}
     <div class="empty"><h3>No annual records stored</h3><p>This facility has no emissions data in the database.</p></div>
+    {% endif %}
+</section>
+
+<section class="section" id="hourly-records">
+    <h2 class="section-title">Hourly records</h2>
+    <p class="section-intro">Choose a unit and a specific date to retrieve hourly records from EPA CAMPD. Annual data remains separate; hourly records are imported only when you request them here.</p>
+    {% if hourly_choices %}
+    <form method="get" action="/facility/{{ facility.epa_facility_id }}#hourly-records" class="hourly-filter">
+        <label for="hourly-choice">Unit</label>
+        <select id="hourly-choice" name="hourly_choice" required>
+            {% for unit_key, epa_unit_id in hourly_choices %}
+            <option value="{{ unit_key }}" {% if selected_hourly_choice == (unit_key|string) %}selected{% endif %}>Unit {{ epa_unit_id }}</option>
+            {% endfor %}
+        </select>
+        <label for="hourly-date">Date</label>
+        <input type="date" id="hourly-date" name="hourly_date" value="{{ selected_hourly_date }}" required>
+        <button class="btn" type="submit">View saved data</button>
+    </form>
+    <form method="post" action="/facility/{{ facility.epa_facility_id }}/hourly/import" class="hourly-filter">
+        <input type="hidden" name="unit_key" id="hourly-unit-key" value="{{ selected_hourly_choice or hourly_choices[0][0] }}">
+        <input type="hidden" name="operating_date" id="hourly-import-date" value="{{ selected_hourly_date }}">
+        <button class="btn btn-primary" type="submit">Import hourly data for this day</button>
+    </form>
+    <script>
+    (function () {
+        const unitSelect = document.getElementById('hourly-choice');
+        const dateInput = document.getElementById('hourly-date');
+        const unitHidden = document.getElementById('hourly-unit-key');
+        const dateHidden = document.getElementById('hourly-import-date');
+        function syncSelection() {
+            unitHidden.value = unitSelect.value;
+            dateHidden.value = dateInput.value;
+        }
+        unitSelect.addEventListener('change', syncSelection);
+        dateInput.addEventListener('change', syncSelection);
+        syncSelection();
+    })();
+    </script>
+    {% if selected_hourly_choice %}
+        {% if hourly_total %}
+        <p class="section-intro">Showing {{ hourly_records|length }} of {{ hourly_total }} stored hourly records for {{ selected_hourly_date }}.</p>
+        <div class="table-wrap"><table class="data">
+            <thead><tr><th>Timestamp</th><th class="num">Operating time</th><th class="num">Gross load</th><th class="num">Heat input</th><th class="num">CO₂ mass</th><th class="num">SO₂ mass</th><th class="num">NOx mass</th><th class="num">Hg mass</th></tr></thead>
+            <tbody>{% for row in hourly_records %}
+                <tr><td class="name">{{ row.timestamp }}</td><td class="num">{{ number(row.operating_time, 2) }}</td><td class="num">{{ number(row.gross_load, 2) }}</td><td class="num">{{ number(row.heat_input, 2) }}</td><td class="num">{{ number(row.co2_mass, 3) }}</td><td class="num">{{ number(row.so2_mass, 3) }}</td><td class="num">{{ number(row.nox_mass, 3) }}</td><td class="num">{{ number(row.hg_mass, 4) }}</td></tr>
+            {% endfor %}</tbody>
+        </table></div>
+        {% else %}
+        <div class="empty"><h3>No hourly records stored for this date</h3><p>Click “Import hourly data for this day” to request and save this unit's records for the selected date.</p></div>
+        {% endif %}
+    {% endif %}
+    {% else %}
+    <div class="empty"><h3>No unit choices available</h3><p>Import annual records for this facility first. The unit selector uses units already in your database.</p></div>
     {% endif %}
 </section>
 

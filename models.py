@@ -269,6 +269,10 @@ class HourlyRecord(Base):
 
     timestamp = Column(String, index=True)
 
+    # Link hourly rows to the import/provenance record. database.py adds this
+    # column to an existing SQLite database without deleting existing records.
+    dataset_id = Column(Integer, ForeignKey("dataset.dataset_id"), nullable=True, index=True)
+
     operating_time = Column(Float)
     gross_load = Column(Float)
     steam_load = Column(Float)

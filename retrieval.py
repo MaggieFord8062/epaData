@@ -12,8 +12,8 @@ from datetime import datetime
 
 from sqlalchemy import func
 
-from models import Dataset, Facility, Unit, AnnualRecord
-from validation import from_campd, validate_record
+from models import Dataset, Facility, Unit, AnnualRecord, HourlyRecord
+from validation import from_campd, validate_record, validate_hourly_record
 
 SOURCE = "EPA CAMPD API"
 
@@ -292,3 +292,104 @@ def retrieve_attributes(session, client, index, year, filters=None, progress=Non
 
     session.commit()
     return dataset
+
+def retrieve_hourly_records(session, client, unit, operating_date, progress=None):
+    """Retrieve, validate, merge MATS mercury, de-duplicate, and save hourly data for one unit/day."""
+    day = operating_date.isoformat() if hasattr(operating_date, "isoformat") else str(operating_date)
+    year = int(day[:4])
+    filters = {"facilityId": unit.epa_facility_id, "unitId": unit.epa_unit_id}
+    report(progress, f"Requesting hourly emissions for Unit {unit.epa_unit_id}, {day}")
+    items = client.get_hourly_data(
+        day, on_page=lambda total: report(progress, f"Received {total:,} hourly records so far"),
+        **filters,
+    )["items"]
+    report(progress, f"Received {len(items):,} regular hourly records; requesting hourly MATS mercury data")
+
+    # Hg is supplied by CAMPD's separate apportioned hourly MATS endpoint.
+    # Index its values by the normalized date/hour timestamp used by HourlyRecord.
+    mats_hg_by_timestamp = {}
+    try:
+        mats_items = client.get_hourly_mats_data(
+            day, on_page=lambda total: report(progress, f"Received {total:,} hourly MATS records so far"),
+            **filters,
+        )["items"]
+    except Exception as error:
+        # Preserve the existing regular hourly import if the optional MATS request fails.
+        mats_items = []
+        report(progress, f"Warning: hourly MATS Hg request failed; importing other emissions without new Hg values ({error})")
+
+    for mats_row in mats_items:
+        mats_clean, mats_problem = validate_hourly_record(
+            mats_row, expected_facility_id=unit.epa_facility_id,
+            expected_unit_id=unit.epa_unit_id, expected_year=year, expected_date=day,
+        )
+        if mats_problem or mats_clean is None:
+            continue
+        if mats_clean.get("hg_mass") is not None:
+            mats_hg_by_timestamp[mats_clean["timestamp"]] = mats_clean["hg_mass"]
+
+    report(progress, f"Validating {len(items):,} regular hourly records")
+    dataset = start_dataset(
+        session,
+        f"CAMPD hourly emissions {day} - Facility {unit.epa_facility_id}, Unit {unit.epa_unit_id}",
+        year, {"beginDate": day, "endDate": day, **filters}, len(items),
+    )
+    inserted = skipped = updated_hg = 0
+    rejected = Counter()
+    seen = set()
+    try:
+        for row in items:
+            clean, problem = validate_hourly_record(
+                row, expected_facility_id=unit.epa_facility_id,
+                expected_unit_id=unit.epa_unit_id, expected_year=year, expected_date=day,
+            )
+            if problem:
+                rejected[problem] += 1
+                continue
+            timestamp = clean["timestamp"]
+            if clean.get("hg_mass") is None:
+                clean["hg_mass"] = mats_hg_by_timestamp.get(timestamp)
+            key = (unit.internal_unit_key, timestamp)
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+            existing = session.query(HourlyRecord).filter_by(
+                internal_unit_key=unit.internal_unit_key, timestamp=timestamp
+            ).first()
+            if existing:
+                # Re-imports should fill Hg on previously saved rows without overwriting
+                # any Hg value that is already present.
+                if existing.hg_mass is None and clean.get("hg_mass") is not None:
+                    existing.hg_mass = clean["hg_mass"]
+                    updated_hg += 1
+                else:
+                    skipped += 1
+                continue
+            session.add(HourlyRecord(
+                internal_unit_key=unit.internal_unit_key, timestamp=timestamp,
+                dataset_id=dataset.dataset_id, operating_time=clean["operating_time"],
+                gross_load=clean["gross_load"], steam_load=clean["steam_load"],
+                heat_input=clean["heat_input"], co2_mass=clean["co2_mass"],
+                so2_mass=clean["so2_mass"], nox_mass=clean["nox_mass"],
+                hg_mass=clean.get("hg_mass"),
+            ))
+            inserted += 1
+        dataset.num_accepted_records = inserted
+        notes = [f"{inserted} new hourly records", f"{updated_hg} existing records updated with Hg", f"{skipped} duplicates/already stored",
+                 f"{sum(rejected.values())} rejected", f"{len(mats_hg_by_timestamp)} hourly MATS Hg values matched"]
+        notes.extend(f"Rejected ({count}): {reason}" for reason, count in rejected.most_common())
+        if not items:
+            notes.append("The regular hourly API returned no records for this unit and date")
+        if not mats_items:
+            notes.append("The hourly MATS API returned no records; Hg may remain blank for this date")
+        dataset.notes = "; ".join(notes)
+        session.commit()
+        report(progress, f"Saved {inserted:,} new hourly records; updated Hg on {updated_hg:,} existing records; skipped {skipped:,}; rejected {sum(rejected.values()):,}; matched {len(mats_hg_by_timestamp):,} MATS Hg values")
+        return {"dataset": dataset, "received": len(items), "inserted": inserted,
+                "updated_hg": updated_hg, "mats_received": len(mats_items),
+                "mats_hg_matched": len(mats_hg_by_timestamp), "skipped": skipped,
+                "rejected": sum(rejected.values())}
+    except Exception:
+        session.rollback()
+        raise

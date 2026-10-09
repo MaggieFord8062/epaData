@@ -7,19 +7,24 @@ import uuid
 from datetime import date, datetime
 from urllib.parse import urlencode
 
-from flask import Flask, render_template, request, jsonify, Response, abort, redirect, send_file
+from flask import Flask, render_template, request, jsonify, Response, abort, redirect, send_file, flash
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 from sqlalchemy import func
 from database import SessionLocal
-from models import Facility, Unit, AnnualRecord, Dataset, UploadedFile
+from client import CAMPDClient, CAMPDError
+from dotenv import load_dotenv
+from models import Facility, Unit, AnnualRecord, HourlyRecord, Dataset, UploadedFile
 import retrieval_jobs
 import smart_search
 import uploads
+from retrieval import retrieve_hourly_records
 from search import (search_data, advance_search, find_facilities, compare_facilities,
                     facility_units, RANK_FIELDS, COMPARE_LIMIT)
 
+load_dotenv()
 app = Flask(__name__)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "epaData-local-session-key")
 app.json.sort_keys = False  # keep result columns in the order search.py lists them
 
 # Refuse uploads over the limit before they're even read (a little extra for the form itself)
@@ -254,69 +259,120 @@ def dataset_detail(dataset_id):
 
 @app.route("/facility/<int:facility_id>")
 def facility_detail(facility_id):
-    """One facility: where it is, its units, and its emissions totaled by year."""
+    """Facility page with annual summaries and a selector for hourly records."""
     session = SessionLocal()
+    try:
+        facility = session.get(Facility, facility_id)
+        if facility is None:
+            abort(404)
 
-    facility = session.get(Facility, facility_id)
-    if facility is None:
+        units = (
+            session.query(Unit, func.min(AnnualRecord.year).label("first_year"),
+                          func.max(AnnualRecord.year).label("last_year"),
+                          func.count(AnnualRecord.annual_record_id).label("records"))
+            .outerjoin(AnnualRecord, AnnualRecord.internal_unit_key == Unit.internal_unit_key)
+            .filter(Unit.epa_facility_id == facility_id)
+            .group_by(Unit.internal_unit_key).order_by(Unit.epa_unit_id).all()
+        )
+        yearly = (
+            session.query(AnnualRecord.year,
+                          func.count(AnnualRecord.annual_record_id).label("units"),
+                          func.sum(AnnualRecord.operating_time).label("operating_time"),
+                          func.sum(AnnualRecord.gross_load).label("gross_load"),
+                          func.sum(AnnualRecord.heat_input).label("heat_input"),
+                          func.sum(AnnualRecord.co2_mass).label("co2"),
+                          func.sum(AnnualRecord.so2_mass).label("so2"),
+                          func.sum(AnnualRecord.nox_mass).label("nox"))
+            .filter(AnnualRecord.epa_facility_id == facility_id)
+            .group_by(AnnualRecord.year).order_by(AnnualRecord.year.desc()).all()
+        )
+        sources = (
+            session.query(Dataset).join(AnnualRecord, AnnualRecord.dataset_id == Dataset.dataset_id)
+            .filter(AnnualRecord.epa_facility_id == facility_id).distinct()
+            .order_by(Dataset.reporting_year.desc(), Dataset.dataset_id.desc()).all()
+        )
+        choice_rows = (
+            session.query(Unit.internal_unit_key, Unit.epa_unit_id, AnnualRecord.year)
+            .join(AnnualRecord, AnnualRecord.internal_unit_key == Unit.internal_unit_key)
+            .filter(Unit.epa_facility_id == facility_id).distinct()
+            .order_by(Unit.epa_unit_id, AnnualRecord.year.desc()).all()
+        )
+        # One selector option per unit; the selected date determines the year.
+        hourly_choices = list({r.internal_unit_key: (r.internal_unit_key, r.epa_unit_id)
+                               for r in choice_rows}.values())
+        hourly_choices.sort(key=lambda item: (item[1], item[0]))
+        selected = request.args.get("hourly_choice", "")
+        selected_date = request.args.get("hourly_date", date.today().isoformat())
+        hourly_records, hourly_total = [], 0
+        if selected:
+            try:
+                selected_key = int(selected)
+                date.fromisoformat(selected_date)
+                valid = any(k == selected_key for k, _ in hourly_choices)
+                if valid:
+                    query = session.query(HourlyRecord).filter(
+                        HourlyRecord.internal_unit_key == selected_key,
+                        HourlyRecord.timestamp.like(f"{selected_date}%"),
+                    ).order_by(HourlyRecord.timestamp.asc())
+                    hourly_total = query.count()
+                    hourly_records = query.limit(100).all()
+                else:
+                    selected = ""
+            except (ValueError, TypeError):
+                selected = ""
+                selected_date = date.today().isoformat()
+        max_co2 = max([row.co2 or 0 for row in yearly] or [0])
+        return render_template("facility.html", facility=facility, units=units, yearly=yearly,
+                               sources=sources, max_co2=max_co2, hourly_choices=hourly_choices,
+                               selected_hourly_choice=selected, selected_hourly_date=selected_date,
+                               hourly_records=hourly_records, hourly_total=hourly_total)
+    finally:
         session.close()
-        abort(404)
 
-    # Each unit with the years it reported
-    units = (
-        session.query(
-            Unit,
-            func.min(AnnualRecord.year).label("first_year"),
-            func.max(AnnualRecord.year).label("last_year"),
-            func.count(AnnualRecord.annual_record_id).label("records"),
-        )
-        .outerjoin(AnnualRecord, AnnualRecord.internal_unit_key == Unit.internal_unit_key)
-        .filter(Unit.epa_facility_id == facility_id)
-        .group_by(Unit.internal_unit_key)
-        .order_by(Unit.epa_unit_id)
-        .all()
-    )
 
-    # Facility totals for each reporting year
-    yearly = (
-        session.query(
-            AnnualRecord.year,
-            func.count(AnnualRecord.annual_record_id).label("units"),
-            func.sum(AnnualRecord.operating_time).label("operating_time"),
-            func.sum(AnnualRecord.gross_load).label("gross_load"),
-            func.sum(AnnualRecord.heat_input).label("heat_input"),
-            func.sum(AnnualRecord.co2_mass).label("co2"),
-            func.sum(AnnualRecord.so2_mass).label("so2"),
-            func.sum(AnnualRecord.nox_mass).label("nox"),
-        )
-        .filter(AnnualRecord.epa_facility_id == facility_id)
-        .group_by(AnnualRecord.year)
-        .order_by(AnnualRecord.year.desc())
-        .all()
-    )
+@app.route("/facility/<int:facility_id>/hourly/import", methods=["POST"])
+def import_facility_hourly(facility_id):
+    """Retrieve hourly emissions for one selected unit and calendar day."""
+    unit_key = request.form.get("unit_key", type=int)
+    operating_date = (request.form.get("operating_date") or "").strip()
+    choice = str(unit_key or "")
+    try:
+        parsed_date = date.fromisoformat(operating_date)
+    except ValueError:
+        parsed_date = None
 
-    # Where this facility's data came from
-    sources = (
-        session.query(Dataset)
-        .join(AnnualRecord, AnnualRecord.dataset_id == Dataset.dataset_id)
-        .filter(AnnualRecord.epa_facility_id == facility_id)
-        .distinct()
-        .order_by(Dataset.reporting_year.desc(), Dataset.dataset_id.desc())
-        .all()
-    )
-
-    session.close()
-
-    max_co2 = max([row.co2 or 0 for row in yearly] or [0])
-
-    return render_template(
-        "facility.html",
-        facility=facility,
-        units=units,
-        yearly=yearly,
-        sources=sources,
-        max_co2=max_co2,
-    )
+    session = SessionLocal()
+    try:
+        facility = session.get(Facility, facility_id)
+        unit = session.get(Unit, unit_key) if unit_key else None
+        if facility is None or unit is None or unit.epa_facility_id != facility_id or parsed_date is None:
+            flash("Choose a valid unit and date.", "error")
+            return redirect(f"/facility/{facility_id}")
+        exists = session.query(AnnualRecord.annual_record_id).filter_by(
+            epa_facility_id=facility_id, internal_unit_key=unit_key, year=parsed_date.year
+        ).first()
+        if not exists:
+            flash("That unit has no annual record for the selected date's year. Import annual data for that year first.", "error")
+            return redirect(f"/facility/{facility_id}?hourly_choice={choice}&hourly_date={operating_date}#hourly-records")
+        api_key = os.getenv("CAMPD_API_KEY")
+        if not api_key:
+            flash("CAMPD_API_KEY is missing from your .env file. Add it and restart the app.", "error")
+            return redirect(f"/facility/{facility_id}?hourly_choice={choice}&hourly_date={operating_date}#hourly-records")
+        result = retrieve_hourly_records(session, CAMPDClient(api_key), unit, operating_date)
+        flash(f"Hourly import for {operating_date} finished: received {result['received']:,}, saved {result['inserted']:,}, "
+              f"skipped {result['skipped']:,}, rejected {result['rejected']:,}.",
+              "success" if result["inserted"] or result["received"] == 0 else "info")
+    except CAMPDError as error:
+        session.rollback()
+        app.logger.exception("CAMPD hourly import failed for facility %s, unit %s, date %s", facility_id, unit_key, operating_date)
+        flash(f"EPA hourly retrieval failed: {error}", "error")
+    except Exception:
+        session.rollback()
+        app.logger.exception("Hourly import failed for facility %s, unit %s, date %s", facility_id, unit_key, operating_date)
+        flash("Hourly import failed while saving records. Check the VS Code terminal for details.", "error")
+    finally:
+        session.close()
+    return redirect(f"/facility/{facility_id}?hourly_choice={choice}&hourly_date={operating_date}#hourly-records")
 
 
 @app.route("/unit/<int:unit_key>")
