@@ -788,13 +788,21 @@ def retrieve():
         form = request.form
         errors = []
 
-        year = form.get("year", type=int)
-        if year is not None and year not in choices["years"]:
-            errors.append("Choose a valid reporting year.")
+        year_value = form.get("year", "").strip()
+
+        if year_value == "":
+            year = None  # All Years
+        else:
+            try:
+                year = int(year_value)
+                if year not in choices["years"]:
+                    errors.append("Choose a valid reporting year.")
+            except ValueError:
+                year = None
+                errors.append("Choose a valid reporting year.")
 
         # Form field -> (CAM API parameter, allowed values, readable label)
         filter_fields = {
-            "year": ("year", choices["years"], "Year"),
             "state": ("stateCode", choices["states"], "State"),
             "fuel": ("unitFuelType", choices["fuels"], "Fuel type"),
             "unit_type": ("unitType", choices["unit_types"], "Unit type"),

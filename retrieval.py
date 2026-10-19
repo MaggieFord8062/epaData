@@ -125,9 +125,12 @@ def retrieve_emissions(session, client, index, year, filters=None, progress=None
             session.flush()
             index.units[(facility_id, unit_id)] = unit
         if record_year >= index.unit_year.get(unit.internal_unit_key, 0):
-            unit.unit_type = record["unit_type"]
-            unit.primary_fuel = record["primary_fuel"]
-            unit.secondary_fuel = record["secondary_fuel"]
+            # A newer API row may omit an attribute that was present in an older
+            # row. Only replace saved unit metadata when the API supplies a value.
+            for attribute in ("unit_type", "primary_fuel", "secondary_fuel"):
+                value = record.get(attribute)
+                if value is not None and str(value).strip():
+                    setattr(unit, attribute, value)
             index.unit_year[unit.internal_unit_key] = record_year
 
         record_key = (facility_id, unit.internal_unit_key, record_year)
@@ -146,6 +149,19 @@ def retrieve_emissions(session, client, index, year, filters=None, progress=None
                 # Saved before provenance existed: attach it to this pull
                 old.dataset_id = dataset.dataset_id
                 linked += 1
+
+            # Re-retrievals should fill fields that were missing in an older
+            # import, without overwriting existing values with blanks or changing
+            # already-populated measurements.
+            for field in (
+                "operating_time", "gross_load", "steam_load", "heat_input",
+                "co2_mass", "so2_mass", "nox_mass",
+                "so2_control_info", "nox_control_info", "pm_control_info",
+                "program_code",
+            ):
+                new_value = record.get(field)
+                if getattr(old, field) is None and new_value is not None and str(new_value).strip():
+                    setattr(old, field, new_value)
             continue
 
         new_record = AnnualRecord(
