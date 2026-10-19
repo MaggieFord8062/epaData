@@ -142,7 +142,7 @@ METRIC_LABELS = {
 
 # Words that carry no meaning for the search
 STOPWORDS = {
-    "the", "a", "an", "of", "in", "for", "with", "and", "or", "at", "on", "by", "from", "to", "show", "me", "find",
+    "the", "annual", "of", "in", "for", "with", "and", "or", "at", "on", "by", "from", "to", "show", "me", "find",
     "list", "all", "any", "units", "unit", "plants", "plant", "facility", "facilities", "that", "which", "are", "is",
     "data", "records", "record", "year", "years", "state", "fired", "based", "fueled", "fuel", "emitters", "emitter",
     "emissions", "emission", "emitting", "polluters", "polluting", "pollution", "sources", "source", "generating", "power",
@@ -279,7 +279,12 @@ def parse_query(query, autocorrect=True):
         name, units = METRIC_LABELS[field]
         take(match.start(), match.end(), f"{name} {nice_number(low)} to {nice_number(high)} {units}", "range", field, None)
 
-    compare = re.compile(FIELD_PATTERN + r"\s*(>=|<=|>|<|over|above|more than|greater than|at least|under|below|less than|at most|fewer than)\s*" + NUMBER_PATTERN)
+    compare = re.compile(
+        FIELD_PATTERN
+        + r"(?:\s+(?:annual|total|reported|emissions?|mass))*\s*"
+        + r"(>=|<=|>|<|over|above|more than|greater than|at least|under|below|less than|at most|fewer than)\s*"
+        + NUMBER_PATTERN
+    )
     for match in list(compare.finditer(lowered))[::-1]:
         field = FIELD_FOR_WORD[match.group(1)]
         side = COMPARE_WORDS[match.group(2)]
