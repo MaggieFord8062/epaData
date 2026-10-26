@@ -119,6 +119,90 @@
             </div>
         </div>
 
+    
+    {% if dataset_summary.records %}
+    <section class="dataset-summary" aria-label="Dataset summary">
+        <h2>Selected dataset</h2>
+
+        <div class="summary-cards">
+            <article class="summary-card">
+                <span>Selected records</span>
+                <strong>{{ "{:,}".format(dataset_summary.records) }}</strong>
+            </article>
+
+            <article class="summary-card">
+                <span>Distinct facilities</span>
+                <strong>{{ "{:,}".format(dataset_summary.facilities) }}</strong>
+            </article>
+
+            <article class="summary-card">
+                <span>Distinct units</span>
+                <strong>{{ "{:,}".format(dataset_summary.units) }}</strong>
+            </article>
+
+            <article class="summary-card">
+                <span>Reporting-year range</span>
+                <strong>
+                    {% if dataset_summary.first_year is not none %}
+                        {{ dataset_summary.first_year }}–{{ dataset_summary.last_year }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </strong>
+            </article>
+        </div>
+
+        <details class="analysis-details">
+            <summary>Variables Available for Analysis</summary>
+            {% for group in ["Facility", "Unit", "Annual"] %}
+                <h3>{{ group }}</h3>
+                <ul>
+                    {% for variable in available_variables if variable.group == group %}
+                        <li>
+                            {{ variable.name }}
+                            {% if not variable.usable %}
+                                <span class="dim">— No usable values in this selection</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
+        </details>
+
+        <details class="analysis-details">
+            <summary>Missing-Value Summary</summary>
+            <p>
+                Missing counts are calculated across
+                {{ "{:,}".format(dataset_summary.records) }} selected annual records.
+            </p>
+
+            <div class="table-wrap">
+                <table class="data">
+                    <thead>
+                        <tr>
+                            <th>Record group</th>
+                            <th>Variable</th>
+                            <th class="num">Missing values</th>
+                            <th class="num">Missing (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in missing_summary %}
+                        <tr>
+                            <td>{{ item.group }}</td>
+                            <td>{{ item.name }}</td>
+                            <td class="num">{{ item.missing }} / {{ item.total }}</td>
+                            <td class="num">{{ "%.1f"|format(item.percent) }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </section>
+    {% endif %}
+
+
         {% if result.parsed.corrections and not params.get("exact") %}
         <p class="notice">
             Showing results for <strong>{{ corrected_query }}</strong>.

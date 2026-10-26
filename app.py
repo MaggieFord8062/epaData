@@ -487,6 +487,84 @@ def explore():
     """
     params = explore_params()
     result = smart_search.explore(params)
+    
+    # All records matching the current search and filters, not just the current page
+    all_result = smart_search.explore(params, everything=True)
+    all_rows = all_result["rows"]
+
+    # Dataset summary
+    facility_ids = {
+        row.get("Facility ID")
+        for row in all_rows
+        if row.get("Facility ID") not in (None, "")
+    }
+    unit_keys = {
+        row.get("_unit_key")
+        for row in all_rows
+        if row.get("_unit_key") not in (None, "")
+    }
+    years = [
+        int(row["Year"])
+        for row in all_rows
+        if row.get("Year") not in (None, "")
+    ]
+
+    dataset_summary = {
+        "records": len(all_rows),
+        "facilities": len(facility_ids),
+        "units": len(unit_keys),
+        "first_year": min(years) if years else None,
+        "last_year": max(years) if years else None,
+    }
+
+    # Variables currently represented in the Explore result rows.
+    # Ignore internal columns used only for links or application logic.
+    variable_groups = {
+        "Facility": ["Facility", "Facility ID", "State"],
+        "Unit": ["Unit", "Unit Type", "Primary Fuel"],
+        "Annual": [
+            "Year",
+            "Gross Load (MWh)",
+            "CO2 (tons)",
+            "SO2 (tons)",
+            "NOx (tons)",
+        ],
+    }
+
+    available_variables = []
+    missing_summary = []
+
+    if all_rows:
+        columns = [
+            key for key in all_rows[0]
+            if not key.startswith("_")
+        ]
+
+        for group, labels in variable_groups.items():
+            for label in labels:
+                if label not in columns:
+                    continue
+
+                missing = sum(
+                    row.get(label) in (None, "")
+                    for row in all_rows
+                )
+                total = len(all_rows)
+
+                available_variables.append({
+                    "group": group,
+                    "name": label,
+                    "usable": missing < total,
+                })
+
+                missing_summary.append({
+                    "group": group,
+                    "name": label,
+                    "missing": missing,
+                    "total": total,
+                    "percent": (missing / total * 100) if total else 0,
+                })
+
     q = params.get("q", "")
 
     # Chips for everything the search understood, each with a link that removes it
@@ -526,6 +604,9 @@ def explore():
         sort_menu=SORT_MENU,
         per_page_choices=smart_search.PER_PAGE_CHOICES,
         query_string=urlencode(download_params),
+        dataset_summary=dataset_summary,
+        available_variables=available_variables,
+        missing_summary=missing_summary,
     )
 
 
