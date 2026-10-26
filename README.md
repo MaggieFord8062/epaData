@@ -4,7 +4,7 @@
 
 epaData is a Flask + SQLite web application for the U.S. EPA's Clean Air Markets Program Data (CAMPD). It pulls annual and hourly emissions for every covered power-plant unit through the EPA CAM API, validates every record, stores it in a relational database with full provenance, and lets users search, rank, compare and download the data. Users can also upload their own CSV or Excel files, which go through the same validation before anything is saved.
 
-Phase 1 of the WKU course project (Data Management Website).
+Phase 1 of the WKU course project (Data Management Website), now being extended in Phase 2 into a data analysis and decision-support system (descriptive statistics and derived indicators so far; see section 12).
 Team: **Danny Rios** and **Maggie Ford**.
 
 ---
@@ -22,6 +22,8 @@ Team: **Danny Rios** and **Maggie Ford**.
 9. [Database schema](#9-database-schema)
 10. [Troubleshooting](#10-troubleshooting)
 11. [Data sources and acknowledgments](#11-data-sources-and-acknowledgments)
+12. [Phase 2: statistics and derived indicators](#12-phase-2-statistics-and-derived-indicators)
+13. [Run the automated tests](#13-run-the-automated-tests)
 
 ---
 
@@ -37,7 +39,7 @@ Team: **Danny Rios** and **Maggie Ford**.
 
 No database server is needed: SQLite is built into Python, and the database is a single file, `epaData.db`.
 
-All Python packages are listed in `requirements.txt` (Flask, SQLAlchemy, requests, python-dotenv, openpyxl and their dependencies).
+All Python packages are listed in `requirements.txt` (Flask, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, pytest and their dependencies). The right NumPy version is picked automatically for Python 3.9 and for 3.10 or newer.
 
 ---
 
@@ -77,7 +79,7 @@ pip install -r requirements.txt
 ### 2.4 Get an EPA API key and put it in `.env`
 
 1. Sign up for a free key at **https://www.epa.gov/power-sector/cam-api-portal** (it arrives by email within a few minutes).
-2. In the project folder, create a file named exactly `.env` with this line:
+2. In the project folder, copy `.env.example` to a file named exactly `.env` (or create `.env` yourself) with this line:
 
 ```
 CAMPD_API_KEY=paste-your-key-here
@@ -160,6 +162,10 @@ After step 3, each of these should work exactly as described.
 | 11 | **Upload** the sample file from section 7 | Preview, column match, and a quality report listing the rejected rows; **Approve** stores the valid rows |
 | 12 | **Download** → a dataset, CSV | A CSV with the same rows the filters show |
 | 13 | Facility page → **Hourly records** → a unit and date → **Import** | Hourly rows for that day, including mercury where reported |
+| 14 | Explore `coal kentucky` → **Statistics** | Statistics page for the same records; CO₂ intensity by default, with count, missing values, quartiles, percentiles and the overall ratio |
+| 15 | On that page choose **Group by: Year** and variable **CO₂ mass** | One row per year with the total CO₂ for Kentucky coal units, oldest first |
+| 16 | Choose variable **CO₂ mass % change from previous year** | Year-over-year change per unit; units without a record for the previous year are counted as missing |
+| 17 | **Download CSV** in the analytical dataset section | Every selected record with all derived indicators, with the filters, definitions and software version at the top of the file |
 
 ---
 
@@ -169,6 +175,7 @@ After step 3, each of these should work exactly as described.
 |---|---|---|
 | Overview | `/` | Project introduction, data sources, current data coverage, navigation |
 | Explore | `/explore` | Description-based search: type a sentence, get filters, results, refinements with counts, did-you-mean |
+| Statistics | `/statistics` | Descriptive statistics and derived indicators for the Explore selection, overall or grouped (Phase 2) |
 | All tools | `/search` | Basic and multi-criteria search on every field, with range and comparison operators |
 | Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state) |
 | Compare | `/compare` | Up to four facilities side by side |
@@ -228,7 +235,10 @@ epaData/
 ├── uploads.py           Upload pipeline: read, match columns, validate, report, import
 ├── search.py            Filtered search, rankings, comparison, history queries
 ├── smart_search.py      Description-based search: parsing, typo correction, relevance, facets
+├── analysis.py          Phase 2: derived indicators, descriptive statistics, exports with metadata
 ├── requirements.txt     Python packages
+├── .env.example         Template for .env (copy it, then add your EPA API key)
+├── tests/               Automated tests (pytest) with a small fixture database
 ├── static/
 │   ├── style.css        The one stylesheet
 │   ├── suggest.js       Search suggestions as you type
@@ -287,5 +297,52 @@ Indexes cover every commonly searched column: state, county, fuel, unit type, ye
 
 - **U.S. EPA Clean Air Markets Program Data (CAMPD)**, CAM API: annual and hourly apportioned emissions, MATS hourly mercury, facility attributes. https://campd.epa.gov · https://www.epa.gov/power-sector/cam-api-portal
 - **U.S. EPA TRACI** characterization factors (to be used in Phase 2). https://www.epa.gov/chemical-research/tool-reduction-and-assessment-chemicals-and-other-environmental-impacts-traci
-- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl.
+- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, pytest.
 - **Generative AI disclosure:** Claude (Anthropic) was used as a coding assistant for parts of the implementation, debugging and documentation. All code was reviewed, run and tested by the team.
+
+---
+
+## 12. Phase 2: statistics and derived indicators
+
+The **Statistics** page (`/statistics`) analyzes exactly the records the **Explore** page shows. Search or refine in Explore, then click **Statistics** next to the download buttons; every Explore filter carries over in the URL, so any analysis can be bookmarked, shared and reopened.
+
+**Choices** (also saved in the URL):
+
+| URL parameter | What it does | Values |
+|---|---|---|
+| `variable` | The variable to analyze | measured values (`co2_mass`, `so2_mass`, `nox_mass`, `gross_load`, `heat_input`, `operating_time`, `steam_load`), derived indicators (below), or year-over-year change (`co2_mass_change`, `co2_mass_change_pct`, and the same for `so2_mass`, `nox_mass`, `gross_load`) |
+| `group` | Statistics for each group | `state`, `primary_fuel`, `unit_type`, `year`, `facility`, `so2_control`, `nox_control` |
+| `pct` | Extra percentiles | e.g. `5,10,90,95` (default) |
+| `gsort` | Grouped-table order | `group`, `records`, `mean`, `median`, `total`, `overall` |
+
+Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
+
+**Statistics** for the selected variable: count of values present, missing count, minimum, first quartile, median, mean, third quartile, maximum, interquartile range, sample standard deviation (n − 1), selected percentiles, the total (for amounts that can be added) and the overall ratio (for ratios). Percentiles use linear interpolation between the closest ranks, the same method as Excel's `PERCENTILE.INC` and NumPy's default.
+
+**Derived indicators** (`analysis.py`):
+
+| Indicator | Formula | Unit |
+|---|---|---|
+| CO₂ intensity | CO₂ mass ÷ gross load | short tons/MWh |
+| SO₂ intensity | SO₂ mass × 2,000 ÷ gross load | lb/MWh |
+| NOx intensity | NOx mass × 2,000 ÷ gross load | lb/MWh |
+| Heat rate | heat input ÷ gross load | mmBtu/MWh |
+| Operating utilization | operating time ÷ hours in the year (8,760 or 8,784) × 100 | % |
+| Year-over-year change | this year − the same unit's previous year | same as the variable |
+| Year-over-year % change | (this year − previous year) ÷ previous year × 100 | % |
+
+**Missing and undefined values.** A ratio is left missing when either input is missing or the denominator is zero or negative (for example, a unit that reported no gross load); it is never replaced with 0. Missing values are left out of every statistic and counted separately, and the page says how many were missing because the denominator was 0. Year-over-year change reads the previous year from the whole database, so a one-year selection still has something to compare with; it is missing when the unit has no record for the previous year.
+
+**Mean versus overall ratio.** For a ratio, the *mean* averages each record's own ratio (every unit counts equally), while the *overall ratio* divides one total by the other over the same records (large units count more). Both are shown because they answer different questions.
+
+**Downloads** (CSV or Excel): the overall statistics, the grouped table, and the analytical dataset (every selected record with all derived indicators). Each file starts with its metadata: analysis date, data source, dataset identifier, a selection fingerprint (a short code that changes if the selected unit-years change), the selected filters and the Explore link that reopens them, the variable and its definition, the percentile and standard-deviation methods, the missing-value rule, and the software version (analysis version, Git commit, pandas and NumPy versions). In Excel the metadata is on its own sheet; in CSV it is a block of lines starting with `#`, which pandas skips with `pd.read_csv(path, comment="#")`.
+
+---
+
+## 13. Run the automated tests
+
+```bash
+python -m pytest
+```
+
+The tests build a small fixture database (3 facilities, 4 units, 8 annual records) in a temporary folder, so they never touch your real `epaData.db`. The fixture values are chosen so the expected statistics can be checked by hand; the arithmetic is written out at the top of `tests/test_analysis.py`. Expected result: all tests pass.

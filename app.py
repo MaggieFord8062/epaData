@@ -15,6 +15,7 @@ from database import SessionLocal
 from client import CAMPDClient, CAMPDError
 from dotenv import load_dotenv
 from models import Facility, Unit, AnnualRecord, HourlyRecord, Dataset, UploadedFile
+import analysis
 import retrieval_jobs
 import smart_search
 import uploads
@@ -1437,6 +1438,167 @@ def download_provenance():
             "Notes": dataset.notes,
         })
     return file_response(results, ["provenance"], file_format)
+
+
+# ---------- Phase 2: descriptive statistics and derived indicators ----------
+
+# URL parameters that belong to the Statistics page. Everything else in the URL is an
+# Explore filter, so the Statistics page analyzes exactly the records Explore shows.
+STATISTICS_PARAMS = {"variable", "group", "pct", "gsort", "what", "format", "page", "per_page", "order"}
+
+app.add_template_filter(analysis.format_number, "stat")
+
+
+def statistics_request():
+    """
+    The page's choices and the selected records.
+    Returns (choices, Explore filters, Explore result, analysis DataFrame).
+    """
+    params = explore_params()
+    filters = {key: value for key, value in params.items() if key not in STATISTICS_PARAMS}
+    result = smart_search.explore(filters, everything=True)
+    frame = analysis.build_frame(result["rows"])
+
+    variable = params.get("variable")
+    if variable not in analysis.VARIABLES:
+        variable = analysis.DEFAULT_VARIABLE
+    group = params.get("group") if params.get("group") in analysis.GROUPS else ""
+    gsort = params.get("gsort")
+    if gsort not in analysis.GROUP_SORTS:
+        gsort = analysis.default_group_sort(variable, group)
+
+    choices = {
+        "variable": variable,
+        "group": group,
+        "gsort": gsort,
+        "pct_text": params.get("pct", ""),
+        "percentiles": analysis.parse_percentiles(params.get("pct")),
+    }
+    return choices, filters, result, frame
+
+
+def selection_labels(filters, result):
+    """Plain-language labels for every filter in the selection, e.g. "State: Kentucky (KY)"."""
+    labels = [item["label"] for item in result["parsed"]["understood"]]
+    for key, label in REFINEMENT_LABELS.items():
+        if filters.get(key):
+            labels.append(f"{label}: {facet_label(key, filters[key])}")
+    for field, label, units in RANGE_FIELDS:
+        low = filters.get(f"{field}_min")
+        high = filters.get(f"{field}_max")
+        if low and high:
+            labels.append(f"{label} {low} to {high} {units}")
+        elif low:
+            labels.append(f"{label} at least {low} {units}")
+        elif high:
+            labels.append(f"{label} at most {high} {units}")
+    for term in result["parsed"]["terms"]:
+        labels.append(f'Text: "{term}"')
+    return labels
+
+
+def statistics_url(filters, choices, **changes):
+    """The Statistics page URL with the same selection and some choices changed."""
+    values = dict(filters)
+    values["variable"] = choices["variable"]
+    if choices["group"]:
+        values["group"] = choices["group"]
+        values["gsort"] = choices["gsort"]
+    if choices["pct_text"]:
+        values["pct"] = choices["pct_text"]
+    for key, value in changes.items():
+        if value is None or value == "":
+            values.pop(key, None)
+        else:
+            values[key] = value
+    return "/statistics?" + urlencode(values)
+
+
+@app.route("/statistics")
+def statistics():
+    """
+    Descriptive statistics for one variable over the Explore selection, overall and by group.
+    Everything is in the URL, e.g.
+    /statistics?q=coal+kentucky&variable=co2_intensity&group=year
+    """
+    choices, filters, result, frame = statistics_request()
+    variable = choices["variable"]
+
+    summary = analysis.describe(frame, variable, choices["percentiles"])
+    groups = []
+    if choices["group"]:
+        groups = analysis.describe_groups(frame, variable, choices["group"], choices["gsort"])
+
+    sort_links = {
+        key: statistics_url(filters, choices, gsort=key) for key in analysis.GROUP_SORTS
+    }
+    download_base = statistics_url(filters, choices).replace("/statistics?", "/statistics/download?", 1)
+
+    return render_template(
+        "statistics.html",
+        choices=choices,
+        filters=filters,
+        result=result,
+        labels=selection_labels(filters, result),
+        selection=analysis.selection_summary(frame),
+        summary=summary,
+        groups=groups[:analysis.GROUP_LIMIT],
+        group_count=len(groups),
+        group_limit=analysis.GROUP_LIMIT,
+        sort_links=sort_links,
+        explore_url="/explore" + ("?" + urlencode(filters) if filters else ""),
+        download_base=download_base,
+        info=analysis.VARIABLES[variable],
+        variable_menu=analysis.variables_by_group(),
+        group_options=analysis.GROUPS,
+        group_sorts=analysis.GROUP_SORTS,
+        percentile_label=analysis.percentile_label,
+        methods={
+            "percentiles": analysis.PERCENTILE_METHOD,
+            "std": analysis.STD_METHOD,
+            "missing": analysis.MISSING_RULE,
+            "mean_vs_overall": analysis.MEAN_VS_OVERALL,
+        },
+    )
+
+
+@app.route("/statistics/download")
+def statistics_download():
+    """
+    The statistics as CSV or Excel, with reproducibility metadata.
+    what=summary (overall statistics), groups (grouped table) or dataset (every record
+    with every derived indicator).
+    """
+    choices, filters, result, frame = statistics_request()
+    what = request.args.get("what", "summary")
+    file_format = "xlsx" if request.args.get("format") == "xlsx" else "csv"
+    variable = choices["variable"]
+    labels = selection_labels(filters, result)
+    explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+
+    if what == "dataset":
+        columns, rows = analysis.dataset_table(frame)
+        lines = analysis.metadata("Analytical dataset with derived indicators", frame, labels, explore_url)
+        name_parts = ["analysis-dataset"]
+    elif what == "groups" and choices["group"]:
+        groups = analysis.describe_groups(frame, variable, choices["group"], choices["gsort"])
+        columns, rows = analysis.groups_table(variable, choices["group"], groups)
+        lines = analysis.metadata("Grouped descriptive statistics", frame, labels, explore_url,
+                                  key=variable, group=choices["group"])
+        name_parts = ["statistics", variable, "by", choices["group"]]
+    else:
+        stats = analysis.describe(frame, variable, choices["percentiles"])
+        columns, rows = analysis.summary_table(variable, stats)
+        lines = analysis.metadata("Descriptive statistics", frame, labels, explore_url,
+                                  key=variable, percentiles=choices["percentiles"])
+        name_parts = ["statistics", variable]
+
+    content, mimetype, extension = analysis.export_file(columns, rows, lines, file_format)
+    return Response(
+        content,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f'attachment; filename="{file_name(name_parts, extension)}"'},
+    )
 
 
 if __name__ == "__main__":

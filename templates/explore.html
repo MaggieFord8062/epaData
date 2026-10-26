@@ -115,6 +115,7 @@
                 {% if result.total %}
                 <a class="btn btn-primary btn-small" href="/download-explore?{{ query_string }}" download>Download CSV</a>
                 <a class="btn-link" href="/download-explore?{{ query_string }}{{ '&' if query_string else '' }}format=xlsx" download>Excel</a>
+                <a class="btn-link" href="/statistics{{ '?' if query_string else '' }}{{ query_string }}">Statistics</a>
                 {% endif %}
             </div>
         </div>
