@@ -274,6 +274,119 @@ def facility_detail(facility_id):
             .filter(Unit.epa_facility_id == facility_id)
             .group_by(Unit.internal_unit_key).order_by(Unit.epa_unit_id).all()
         )
+        
+        # Records used by the facility's data-quality summary
+        annual_records = (
+            session.query(AnnualRecord)
+            .filter(AnnualRecord.epa_facility_id == facility_id)
+            .all()
+        )
+
+        unit_records = (
+            session.query(Unit)
+            .filter(Unit.epa_facility_id == facility_id)
+            .order_by(Unit.epa_unit_id)
+            .all()
+        )
+        hourly_records = (
+            session.query(HourlyRecord)
+            .join(Unit, HourlyRecord.internal_unit_key == Unit.internal_unit_key)
+            .filter(Unit.epa_facility_id == facility_id)
+            .all()
+        )
+
+        # Variables shown in the summary.
+        # Each entry is (display label, model attribute).
+        variable_definitions = {
+            "Facility": [
+                ("Facility ID", "epa_facility_id"),
+                ("Facility Name", "facility_name"),
+                ("State", "state"),
+                ("County", "county"),
+                ("Source Category", "source_category"),
+                ("Latitude", "latitude"),
+                ("Longitude", "longitude"),
+            ],
+            "Unit": [
+                ("Unit ID", "epa_unit_id"),
+                ("Unit Type", "unit_type"),
+                ("Primary Fuel", "primary_fuel"),
+                ("Secondary Fuel", "secondary_fuel"),
+                ("Operating Date", "operating_date"),
+                ("Retirement Date", "retirement_date"),
+            ],
+            "Annual": [
+                ("Reporting Year", "year"),
+                ("Operating Time", "operating_time"),
+                ("Gross Load", "gross_load"),
+                ("Steam Load", "steam_load"),
+                ("Heat Input", "heat_input"),
+                ("CO2 Mass", "co2_mass"),
+                ("SO2 Mass", "so2_mass"),
+                ("NOx Mass", "nox_mass"),
+                ("SO2 Controls", "so2_control_info"),
+                ("NOx Controls", "nox_control_info"),
+                ("PM Controls", "pm_control_info"),
+            ],
+            "Hourly": [
+                ("Timestamp", "timestamp"),
+                ("Operating Time", "operating_time"),
+                ("Gross Load", "gross_load"),
+                ("Heat Input", "heat_input"),
+                ("CO2 Mass", "co2_mass"),
+                ("SO2 Mass", "so2_mass"),
+                ("NOx Mass", "nox_mass"),
+                ("Mercury Mass", "hg_mass"),
+            ],
+        }
+
+        records_by_group = {
+            "Facility": [facility],
+            "Unit": unit_records,
+            "Annual": annual_records,
+            "Hourly": hourly_records,
+        }
+
+        available_variables = {}
+        missing_summary = {}
+
+        for group, definitions in variable_definitions.items():
+            available_variables[group] = []
+            missing_summary[group] = []
+
+            records = records_by_group[group]
+            total = len(records)
+
+            for label, attribute in definitions:
+                values = [
+                    getattr(record, attribute, None)
+                    for record in records
+                ]
+
+                missing = sum(
+                    value is None or (
+                        isinstance(value, str) and not value.strip()
+                    )
+                    for value in values
+                )
+
+                available_variables[group].append({
+                    "name": label,
+                    "usable": any(
+                        value is not None and (
+                            not isinstance(value, str) or value.strip()
+                        )
+                        for value in values
+                    ),
+                })
+
+                missing_summary[group].append({
+                    "name": label,
+                    "missing": missing,
+                    "total": total,
+                    "percent": (missing / total * 100) if total else None,
+                })
+
         yearly = (
             session.query(AnnualRecord.year,
                           func.count(AnnualRecord.annual_record_id).label("units"),
@@ -325,7 +438,8 @@ def facility_detail(facility_id):
         return render_template("facility.html", facility=facility, units=units, yearly=yearly,
                                sources=sources, max_co2=max_co2, hourly_choices=hourly_choices,
                                selected_hourly_choice=selected, selected_hourly_date=selected_date,
-                               hourly_records=hourly_records, hourly_total=hourly_total)
+                               hourly_records=hourly_records, hourly_total=hourly_total, annual_records=annual_records,
+                                available_variables=available_variables, missing_summary=missing_summary)
     finally:
         session.close()
 
@@ -394,6 +508,94 @@ def unit_detail(unit_key):
         .order_by(AnnualRecord.year.desc())
         .all()
     )
+        # Count annual records for this unit only.
+    annual_record_count = len(history)
+
+    # All hourly records currently stored for this unit.
+    hourly_records_for_summary = (
+        session.query(HourlyRecord)
+        .filter(HourlyRecord.internal_unit_key == unit_key)
+        .all()
+    )
+
+    # Variables to display in the Unit Data Summary.
+    variable_definitions = {
+        "Facility": [
+            ("Facility ID", "epa_facility_id"),
+            ("Facility Name", "facility_name"),
+            ("State", "state"),
+            ("County", "county"),
+            ("Source Category", "source_category"),
+            ("Latitude", "latitude"),
+            ("Longitude", "longitude"),
+        ],
+        "Unit": [
+            ("Unit ID", "epa_unit_id"),
+            ("Unit Type", "unit_type"),
+            ("Primary Fuel", "primary_fuel"),
+            ("Secondary Fuel", "secondary_fuel"),
+            ("Operating Date", "operating_date"),
+            ("Retirement Date", "retirement_date"),
+        ],
+        "Annual": [
+            ("Reporting Year", "year"),
+            ("Operating Time", "operating_time"),
+            ("Gross Load", "gross_load"),
+            ("Steam Load", "steam_load"),
+            ("Heat Input", "heat_input"),
+            ("CO2 Mass", "co2_mass"),
+            ("SO2 Mass", "so2_mass"),
+            ("NOx Mass", "nox_mass"),
+            ("SO2 Controls", "so2_control_info"),
+            ("NOx Controls", "nox_control_info"),
+            ("PM Controls", "pm_control_info"),
+        ],
+        "Hourly": [
+            ("Timestamp", "timestamp"),
+            ("Operating Time", "operating_time"),
+            ("Gross Load", "gross_load"),
+            ("Heat Input", "heat_input"),
+            ("CO2 Mass", "co2_mass"),
+            ("SO2 Mass", "so2_mass"),
+            ("NOx Mass", "nox_mass"),
+            ("Mercury Mass", "hg_mass"),
+        ],
+    }
+
+    # Match each category to the records used to calculate availability.
+    records_by_group = {
+        "Facility": [facility] if facility else [],
+        "Unit": [unit],
+        "Annual": [record for record, dataset in history],
+        "Hourly": hourly_records_for_summary,
+    }
+
+    available_variables = {}
+    missing_summary = {}
+
+    for group, variables in variable_definitions.items():
+        records = records_by_group[group]
+        total = len(records)
+        available_variables[group] = []
+        missing_summary[group] = []
+
+        for label, field in variables:
+            missing = sum(
+                getattr(record, field, None) in (None, "")
+                for record in records
+            )
+
+            available_variables[group].append({
+                "name": label,
+                "usable": total > 0 and missing < total,
+            })
+
+            missing_summary[group].append({
+                "name": label,
+                "missing": missing,
+                "total": total,
+                "percent": (missing / total * 100) if total else None,
+            })
 
     # Other units at the same facility, for quick switching
     siblings = (
@@ -416,6 +618,9 @@ def unit_detail(unit_key):
         latest=latest,
         siblings=siblings,
         max_co2=max_co2,
+        annual_record_count=annual_record_count,
+        available_variables=available_variables,
+        missing_summary=missing_summary,
     )
 
 
@@ -522,48 +727,44 @@ def explore():
     variable_groups = {
         "Facility": ["Facility", "Facility ID", "State"],
         "Unit": ["Unit", "Unit Type", "Primary Fuel"],
-        "Annual": [
-            "Year",
-            "Gross Load (MWh)",
-            "CO2 (tons)",
-            "SO2 (tons)",
-            "NOx (tons)",
-        ],
+        "Annual": ["Year", "Gross Load (MWh)", "CO2 (tons)", "SO2 (tons)", "NOx (tons)"],
+        "Hourly": ["Timestamp", "Operating Time", "Gross Load", "Heat Input", 
+                   "CO2 Mass", "SO2 Mass", "NOx Mass", "Hg Mass"],
     }
 
-    available_variables = []
+    available_variables = {}
     missing_summary = []
 
-    if all_rows:
-        columns = [
-            key for key in all_rows[0]
-            if not key.startswith("_")
-        ]
+    total = len(all_rows)
 
-        for group, labels in variable_groups.items():
-            for label in labels:
-                if label not in columns:
-                    continue
+    for group, labels in variable_groups.items():
+        available_variables[group] = []
 
-                missing = sum(
-                    row.get(label) in (None, "")
-                    for row in all_rows
-                )
-                total = len(all_rows)
+    for label in labels:
+        exists = bool(all_rows) and label in all_rows[0]
 
-                available_variables.append({
-                    "group": group,
-                    "name": label,
-                    "usable": missing < total,
-                })
+        if exists:
+            missing = sum(
+                row.get(label) in (None, "")
+                for row in all_rows
+            )
+            usable = missing < total
+        else:
+            missing = total
+            usable = False
 
-                missing_summary.append({
-                    "group": group,
-                    "name": label,
-                    "missing": missing,
-                    "total": total,
-                    "percent": (missing / total * 100) if total else 0,
-                })
+        available_variables[group].append({
+            "name": label,
+            "usable": usable,
+        })
+
+        missing_summary.append({
+            "group": group,
+            "name": label,
+            "missing": missing,
+            "total": total,
+            "percent": (missing / total * 100) if total else 0,
+        })
 
     q = params.get("q", "")
 

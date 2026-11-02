@@ -43,8 +43,86 @@
         </dd>
     </div>
     <div class="fact"><dt>Units</dt><dd>{{ units|length }}</dd></div>
+    <div class="fact"><dt>Annual records</dt><dd>{{ annual_records|length }}</dd></div>
     <div class="fact"><dt>Years reported</dt><dd>{% if yearly %}{{ yearly[-1].year }}–{{ yearly[0].year }}{% else %}—{% endif %}</dd></div>
 </dl>
+
+<section class="facility-summary">
+    <h2>Facility Data Summary</h2>
+
+    <div class="summary-variables">
+        <h3>Variables Available for Analysis</h3>
+        <p class="summary-description">
+            These variables can be used for analysis, visualizations and comparisons.
+        </p>
+
+        {% for group, variables in available_variables.items() %}
+            <h4>{{ group }} variables</h4>
+            <div class="variable-pills">
+                {% for variable in variables %}
+                    <span class="variable-pill {% if not variable.usable %}unusable{% endif %}"
+                          title="{% if not variable.usable %}No usable values in this record group{% else %}Available for analysis{% endif %}">
+                        {{ variable.name }}
+                        {% if not variable.usable %}
+                            <span class="variable-status">(no usable values)</span>
+                        {% endif %}
+                    </span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="missing-summary">
+        <h3>Missing-Value Summary</h3>
+        <p class="summary-description">
+            Shows how many records are missing for each variable in each record group.
+        </p>
+
+        {% for group, variables in missing_summary.items() %}
+            <details class="missing-group" {% if group == "Facility" %}open{% endif %}>
+                <summary>
+                    <span>{{ group }}</span>
+                    <span class="variable-count">
+                        {{ variables|length }} variables
+                    </span>
+                </summary>
+
+                <div class="missing-table-wrap">
+                    <table class="missing-table">
+                        <thead>
+                            <tr>
+                                <th>Variable</th>
+                                <th>Missing values</th>
+                                <th>Missing (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for variable in variables %}
+                                <tr>
+                                    <td>{{ variable.name }}</td>
+                                    <td>
+                                        {% if variable.total %}
+                                            {{ variable.missing }} / {{ variable.total }}
+                                        {% else %}
+                                            No records
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if variable.percent is not none %}
+                                            {{ "%.1f"|format(variable.percent) }}%
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        {% endfor %}
+    </div>
+</section>
 
 <section class="section">
     <h2 class="section-title">Units</h2>
@@ -143,6 +221,60 @@
     {% if selected_hourly_choice %}
         {% if hourly_total %}
         <p class="section-intro">Showing {{ hourly_records|length }} of {{ hourly_total }} stored hourly records for {{ selected_hourly_date }}.</p>
+        
+        <section class="hourly-missing-summary">
+            <h3>Hourly Missing-Value Summary</h3>
+            <p class="summary-description">
+                Missing values across the {{ hourly_total }} stored hourly records for this day.
+            </p>
+
+            <details class="missing-group" open>
+                <summary>
+                    <span>Hourly records</span>
+                    <span class="variable-count">8 variables</span>
+                </summary>
+
+                <div class="missing-table-wrap">
+                    <table class="missing-table">
+                        <thead>
+                            <tr>
+                                <th>Variable</th>
+                                <th>Missing values</th>
+                                <th>Missing (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for label, attribute in [
+                                ("Timestamp", "timestamp"),
+                                ("Operating time", "operating_time"),
+                                ("Gross load", "gross_load"),
+                                ("Heat input", "heat_input"),
+                                ("CO₂ mass", "co2_mass"),
+                                ("SO₂ mass", "so2_mass"),
+                                ("NOx mass", "nox_mass"),
+                                ("Hg mass", "hg_mass")
+                            ] %}
+                                {% set ns = namespace(missing=0) %}
+                                {% for row in hourly_records %}
+                                    {% set value = row|attr(attribute) %}
+                                    {% if value is none or (value is string and not value.strip()) %}
+                                        {% set ns.missing = ns.missing + 1 %}
+                                    {% endif %}
+                                {% endfor %}
+                                <tr>
+                                    <td>{{ label }}</td>
+                                    <td>{{ ns.missing }} / {{ hourly_total }}</td>
+                                    <td>
+                                        {{ "%.1f"|format(ns.missing / hourly_total * 100) }}%
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        </section>
+
         <div class="table-wrap"><table class="data">
             <thead><tr><th>Timestamp</th><th class="num">Operating time</th><th class="num">Gross load</th><th class="num">Heat input</th><th class="num">CO₂ mass</th><th class="num">SO₂ mass</th><th class="num">NOx mass</th><th class="num">Hg mass</th></tr></thead>
             <tbody>{% for row in hourly_records %}

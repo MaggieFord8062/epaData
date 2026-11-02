@@ -32,6 +32,7 @@
         <div class="fact"><dt>Unit type</dt><dd>{{ unit.unit_type or "—" }}</dd></div>
         <div class="fact"><dt>Operating date</dt><dd>{{ unit.operating_date or "—" }}</dd></div>
         <div class="fact"><dt>Status</dt><dd>{% if unit.retirement_date %}<span class="status retired">Retired {{ unit.retirement_date }}</span>{% else %}<span class="status">Operating</span>{% endif %}</dd></div>
+        <div class="fact"><dt>Annual records</dt><dd>{{ annual_record_count }}</dd></div>
         <div class="fact"><dt>Years reported</dt><dd>{% if history %}{{ history[-1][0].year }}–{{ history[0][0].year }} ({{ history|length }}){% else %}—{% endif %}</dd></div>
     </dl>
 </section>
@@ -47,6 +48,82 @@
         <div class="fact"><dt>PM controls</dt><dd>{{ latest.pm_control_info|controls if latest and latest.pm_control_info else "None reported" }}</dd></div>
         <div class="fact"><dt>Programs</dt><dd>{{ latest.program_code if latest and latest.program_code else "—" }}</dd></div>
     </dl>
+</section>
+
+<section class="section">
+    <h2 class="section-title">Unit Data Summary</h2>
+    <p class="section-intro">
+        Variable availability and missing values for this unit's stored records.
+    </p>
+
+    <div class="summary-variables">
+        <h3>Variables available</h3>
+        <p class="section-intro">
+            These variables can be used for analysis, visualizations, and comparisons.
+        </p>
+
+        {% for group, variables in available_variables.items() %}
+        <h4>{{ group }} variables</h4>
+        <div class="variable-pills">
+            {% for variable in variables %}
+            <span class="variable-pill {% if not variable.usable %}unusable{% endif %}"
+                  title="{% if not variable.usable %}No usable values in this unit's stored records{% else %}Available for analysis{% endif %}">
+                {{ variable.name }}
+                {% if not variable.usable %}
+                <span class="variable-status">(no usable values)</span>
+                {% endif %}
+            </span>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="missing-summary">
+        <h3>Missing-Value Summary</h3>
+        <p class="section-intro">
+            Shows how many records are missing for each variable in this unit's record groups.
+        </p>
+
+        {% for group in ["Unit", "Annual"] %}
+        <details class="missing-group">
+            <summary>
+                <span>{{ group }}</span>
+                <span class="missing-count">
+                    {{ missing_summary[group]|length }} variables
+                </span>
+            </summary>
+
+            <div class="table-wrap">
+                <table class="data">
+                    <thead>
+                        <tr>
+                            <th>Variable</th>
+                            <th class="num">Missing records</th>
+                            <th class="num">Total records</th>
+                            <th class="num">Missing (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in missing_summary[group] %}
+                        <tr>
+                            <td>{{ item.name }}</td>
+                            <td class="num">{{ item.missing }}</td>
+                            <td class="num">{{ item.total }}</td>
+                            <td class="num">
+                                {% if item.percent is not none %}
+                                    {{ "%.1f"|format(item.percent) }}%
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+        {% endfor %}
+    </div>
 </section>
 
 <section class="section">
