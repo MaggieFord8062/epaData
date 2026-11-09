@@ -54,7 +54,8 @@
 </figure>
 {%- endmacro %}
 
+{# Plotly.js 2.35.2 (MIT license) and the U.S. map outline are kept in static/vendor, so charts work offline. #}
 {% macro chart_scripts() -%}
-<script src="{{ url_for('static', filename='plotly.min.js') }}" defer></script>
-<script src="{{ url_for('static', filename='charts.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plotly-2.35.2.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='charts.js') }}" data-topojson="{{ url_for('static', filename='vendor/topojson/') }}" defer></script>
 {%- endmacro %}

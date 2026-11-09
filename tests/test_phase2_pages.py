@@ -223,3 +223,17 @@ def test_comparison_pages(client):
     assert "Welch's t-test: p-value" in text
     for what in ("indicators", "groups"):
         assert client.get(f"/comparison/download?cmp=period&what={what}&format=xlsx").status_code == 200
+
+
+def test_charts_load_plotly_from_the_project(client):
+    """Charts must not depend on the internet: Plotly and the map outline are served from static/vendor."""
+    page = client.get("/dashboard").get_data(as_text=True)
+    assert "/static/vendor/plotly-2.35.2.min.js" in page
+    assert 'data-topojson="/static/vendor/topojson/"' in page
+    assert "cdnjs" not in page
+    script = client.get("/static/vendor/plotly-2.35.2.min.js")
+    assert script.status_code == 200 and b"plotly.js v2.35.2" in script.data[:200]
+    script.close()
+    outline = client.get("/static/vendor/topojson/usa_110m.json")
+    assert outline.status_code == 200
+    outline.close()

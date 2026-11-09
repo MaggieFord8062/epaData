@@ -267,6 +267,7 @@ epaData/
 ├── .env.example         Template for .env (copy it, then add your EPA API key)
 ├── tests/               Automated tests (pytest) with a small fixture database
 ├── static/charts.js     Draws the dashboard charts in the browser with Plotly.js
+├── static/vendor/       Plotly.js 2.35.2 and the U.S. map outline, so charts work offline
 ├── static/
 │   ├── style.css        The one stylesheet
 │   ├── suggest.js       Search suggestions as you type
@@ -327,7 +328,7 @@ Indexes cover every commonly searched column: state, county, fuel, unit type, ye
 - **U.S. EPA Clean Air Markets Program Data (CAMPD)**, CAM API: annual and hourly apportioned emissions, MATS hourly mercury, facility attributes. https://campd.epa.gov · https://www.epa.gov/power-sector/cam-api-portal
 - **U.S. EPA TRACI** characterization factors (to be used in Phase 2). https://www.epa.gov/chemical-research/tool-reduction-and-assessment-chemicals-and-other-environmental-impacts-traci
 - EPA TRACI 2.2 (Tool for the Reduction and Assessment of Chemicals and other environmental Impacts), updated 3/2/2022: https://www.epa.gov/traci
-- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, SciPy, pytest; Plotly.js 2.35.2 (loaded in the browser from cdnjs).
+- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, SciPy, pytest; Plotly.js 2.35.2 (MIT license, included in `static/vendor/` with its U.S. map outline).
 - **Generative AI disclosure:** Claude (Anthropic) was used as a coding assistant for parts of the implementation, debugging and documentation. All code was reviewed, run and tested by the team.
 
 ---
@@ -392,7 +393,7 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 | State map | The variable by state |
 | Facility map | Facility locations colored by the variable (needs latitude and longitude from `python ingest.py --attributes-only`) |
 
-Every chart has a title, units, a legend where there is more than one series, and tooltips. **PNG image** saves the chart, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Charts load Plotly.js from cdnjs, so they need an internet connection; the tables work without one.
+Every chart has a title, units, a legend where there is more than one series, and tooltips. **PNG image** saves the chart, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Plotly.js 2.35.2 and the U.S. map outline are kept in `static/vendor/`, so the charts and maps work without an internet connection (useful for a demo).
 
 ### 12.4 Comparative analysis (proposal 4.5)
 
@@ -440,4 +441,4 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 
-Expected result: all 63 tests pass.
+Expected result: all 64 tests pass.

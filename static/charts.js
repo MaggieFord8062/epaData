@@ -6,6 +6,10 @@
 (function () {
     "use strict";
 
+    // Where the U.S. map outline is stored (static/vendor/topojson), so maps don't need the internet
+    var script = document.currentScript;
+    var topojsonURL = script ? script.getAttribute("data-topojson") : null;
+
     function specFor(id) {
         var block = document.getElementById("spec-" + id);
         if (!block) {
@@ -15,12 +19,16 @@
     }
 
     function configFor(spec) {
-        return {
+        var config = {
             displaylogo: false,
             responsive: true,
             modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d", "toggleSpikelines"],
             toImageButtonOptions: { format: "png", scale: 2, filename: spec.filename }
         };
+        if (topojsonURL) {
+            config.topojsonURL = topojsonURL;
+        }
+        return config;
     }
 
     function showMessage(node, message) {
@@ -35,8 +43,8 @@
 
     if (!window.Plotly) {
         for (var i = 0; i < plots.length; i++) {
-            showMessage(plots[i], "The chart library (Plotly) didn't load. Charts need an internet connection; "
-                + "the numbers are in the table below.");
+            showMessage(plots[i], "The chart library (static/vendor/plotly-2.35.2.min.js) didn't load. "
+                + "The numbers are in the table below.");
         }
         return;
     }
