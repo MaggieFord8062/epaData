@@ -4,7 +4,7 @@
 
 epaData is a Flask + SQLite web application for the U.S. EPA's Clean Air Markets Program Data (CAMPD). It pulls annual and hourly emissions for every covered power-plant unit through the EPA CAM API, validates every record, stores it in a relational database with full provenance, and lets users search, rank, compare and download the data. Users can also upload their own CSV or Excel files, which go through the same validation before anything is saved.
 
-Phase 1 of the WKU course project (Data Management Website), now being extended in Phase 2 into a data analysis and decision-support system (descriptive statistics and derived indicators so far; see section 12).
+Phase 1 of the WKU course project (Data Management Website), extended in Phase 2 into a data analysis and decision-support system: descriptive statistics and derived indicators, an interactive dashboard, comparative analysis, and EPA TRACI 2.2 impact indicators (section 12).
 Team: **Danny Rios** and **Maggie Ford**.
 
 ---
@@ -22,7 +22,7 @@ Team: **Danny Rios** and **Maggie Ford**.
 9. [Database schema](#9-database-schema)
 10. [Troubleshooting](#10-troubleshooting)
 11. [Data sources and acknowledgments](#11-data-sources-and-acknowledgments)
-12. [Phase 2: statistics and derived indicators](#12-phase-2-statistics-and-derived-indicators)
+12. [Phase 2: analysis](#12-phase-2-analysis)
 13. [Run the automated tests](#13-run-the-automated-tests)
 
 ---
@@ -127,6 +127,18 @@ python ingest.py --attributes-only    # only refresh county, location, source ca
 
 Running it again is safe: records already in the database are skipped, never duplicated.
 
+### TRACI 2.2 impact factors (Phase 2)
+
+The Impacts page needs EPA's TRACI 2.2 characterization factors for CO2, SO2 and NOx. A small extract of the official file is in `data/traci_2_2_campd_factors.csv`, and the website loads it automatically the first time the Impacts page opens. To load it yourself, or straight from the official workbook:
+
+```bash
+python traci.py import                      # from the extract in data/
+python traci.py import traci_2_2.xlsx       # from EPA's workbook (download link in section 12.5)
+python traci.py show                        # list the factors in the database
+```
+
+Each import is recorded on the Datasets page, like an EPA pull.
+
 **No API key?** You can still run the website. Start it (step 4) and either use the **Retrieve** page later, or load data through the **Upload** page with a CSV or Excel file (section 7).
 
 ---
@@ -166,6 +178,13 @@ After step 3, each of these should work exactly as described.
 | 15 | On that page choose **Group by: Year** and variable **CO₂ mass** | One row per year with the total CO₂ for Kentucky coal units, oldest first |
 | 16 | Choose variable **CO₂ mass % change from previous year** | Year-over-year change per unit; units without a record for the previous year are counted as missing |
 | 17 | **Download CSV** in the analytical dataset section | Every selected record with all derived indicators, with the filters, definitions and software version at the top of the file |
+| 18 | Explore sidebar → **NOx control: None reported**, **Emissions program: ARP**, **Reporting years 2020 to 2025** | Only ARP units without a NOx control from 2020 on; **Variables available for analysis** lists every variable with its missing values |
+| 19 | Explore `coal` → **Analyze: Dashboard** | Indexed trend of CO2, SO2, NOx and gross load, bar chart by state, distribution, scatter, correlation heat map, highest and lowest facilities, and two maps |
+| 20 | On the dashboard choose **Variable: CO2 intensity** and **Compare by: Primary fuel** | Charts switch to overall CO2 intensity; hover any chart for values, **PNG image** saves it, **Data CSV** saves its numbers with metadata |
+| 21 | **Compare** → **Reporting periods**, A = 2015 to 2017, B = 2023 to 2025, tick **Only units with records in both periods** | Summary statistics for both periods, differences, every normalized indicator, Welch's t-test and Mann–Whitney results in plain language, and every year ranked |
+| 22 | **Compare** → **With vs. without an SO2 control**, variable **SO2 intensity** | Units without an SO2 control against units with one |
+| 23 | **Impacts** | Potential global warming, acidification, particulate matter and smog totals, per MWh, with each pollutant's share and the TRACI factors used |
+| 24 | On Impacts, **Group by: Facility**, then **Show per MWh** | Facilities ranked by potential impact per MWh of generation |
 
 ---
 
@@ -176,6 +195,9 @@ After step 3, each of these should work exactly as described.
 | Overview | `/` | Project introduction, data sources, current data coverage, navigation |
 | Explore | `/explore` | Description-based search: type a sentence, get filters, results, refinements with counts, did-you-mean |
 | Statistics | `/statistics` | Descriptive statistics and derived indicators for the Explore selection, overall or grouped (Phase 2) |
+| Dashboard | `/dashboard` | Interactive Plotly charts: trends, comparisons, distributions, relationships, rankings, maps (Phase 2) |
+| Compare | `/comparison` | Two groups side by side: periods, states, fuels, unit types, control vs none, facilities, units; tests in plain language (Phase 2) |
+| Impacts | `/impacts` | EPA TRACI 2.2 potential-impact indicators for CO2, SO2 and NOx, totals, per MWh and by group (Phase 2) |
 | All tools | `/search` | Basic and multi-criteria search on every field, with range and comparison operators |
 | Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state) |
 | Compare | `/compare` | Up to four facilities side by side |
@@ -236,9 +258,15 @@ epaData/
 ├── search.py            Filtered search, rankings, comparison, history queries
 ├── smart_search.py      Description-based search: parsing, typo correction, relevance, facets
 ├── analysis.py          Phase 2: derived indicators, descriptive statistics, exports with metadata
+├── dashboard.py         Phase 2: every dashboard chart (Plotly figure + the table behind it)
+├── comparison.py        Phase 2: two-group comparisons, statistical tests, group rankings
+├── traci.py             Phase 2: TRACI 2.2 import (exact matching) and impact calculation
+├── data/
+│   └── traci_2_2_campd_factors.csv   The 6 TRACI 2.2 factors used, extracted from EPA's workbook
 ├── requirements.txt     Python packages
 ├── .env.example         Template for .env (copy it, then add your EPA API key)
 ├── tests/               Automated tests (pytest) with a small fixture database
+├── static/charts.js     Draws the dashboard charts in the browser with Plotly.js
 ├── static/
 │   ├── style.css        The one stylesheet
 │   ├── suggest.js       Search suggestions as you type
@@ -274,6 +302,7 @@ facility ──► unit ──► annual_records         uploaded_file      hour
 | `dataset` | `dataset_id` | name, source, reporting year, retrieval/upload date, original filename, query parameters (JSON), raw and accepted counts, notes |
 | `uploaded_file` | `upload_id` | original filename, stored path, type, size, upload time, status (pending / imported / cancelled), rows read / ready / rejected, dataset key |
 | `hourly_records` | `hourly_records_id` | unit and dataset keys; timestamp; operating time, gross load, steam load, heat input; CO₂, SO₂, NOx, mercury mass |
+| `traci_factor` | `traci_factor_id` | TRACI version, CAMPD pollutant, TRACI substance, CAS number, match rule, medium, impact category, factor value and unit, source file, SHA-256, sheet, row and column, import time, dataset key. **Unique on (version, pollutant, medium, category)** (Phase 2) |
 
 Indexes cover every commonly searched column: state, county, fuel, unit type, year, source category and the emission and load amounts.
 
@@ -297,12 +326,21 @@ Indexes cover every commonly searched column: state, county, fuel, unit type, ye
 
 - **U.S. EPA Clean Air Markets Program Data (CAMPD)**, CAM API: annual and hourly apportioned emissions, MATS hourly mercury, facility attributes. https://campd.epa.gov · https://www.epa.gov/power-sector/cam-api-portal
 - **U.S. EPA TRACI** characterization factors (to be used in Phase 2). https://www.epa.gov/chemical-research/tool-reduction-and-assessment-chemicals-and-other-environmental-impacts-traci
-- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, pytest.
+- EPA TRACI 2.2 (Tool for the Reduction and Assessment of Chemicals and other environmental Impacts), updated 3/2/2022: https://www.epa.gov/traci
+- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, SciPy, pytest; Plotly.js 2.35.2 (loaded in the browser from cdnjs).
 - **Generative AI disclosure:** Claude (Anthropic) was used as a coding assistant for parts of the implementation, debugging and documentation. All code was reviewed, run and tested by the team.
 
 ---
 
-## 12. Phase 2: statistics and derived indicators
+## 12. Phase 2: analysis
+
+Every analysis page works on **exactly the records the Explore page shows**. Search or refine in Explore, then use the **Analyze** links next to the download buttons (Statistics, Dashboard, Compare, Impacts). The Explore filters travel in the URL, the tabs at the top of each analysis page keep them, and every choice on a page is also in the URL, so any analysis can be bookmarked, shared and reopened.
+
+### 12.1 Analytical dataset builder (proposal 4.1)
+
+The Explore sidebar selects the records: reporting-year range or a single year, state, county, facility, unit, primary fuel, unit type, operating status, **SO2, NOx and PM control technology** (or "None reported"), **emissions program** (ARP, CSNOX, RGGI…, matched as a whole code), and minimums or maximums for operating time, gross load, heat input and each pollutant. Above the results, **Selected dataset** shows the number of records, facilities, units and years; **Variables available for analysis** lists every facility, unit, annual and derived variable (marking any with no usable values) and the hourly records stored for those units; **Missing-Value Summary** counts the missing values in each.
+
+### 12.2 Descriptive statistics and derived indicators (proposal 4.2 and 4.3)
 
 The **Statistics** page (`/statistics`) analyzes exactly the records the **Explore** page shows. Search or refine in Explore, then click **Statistics** next to the download buttons; every Explore filter carries over in the URL, so any analysis can be bookmarked, shared and reopened.
 
@@ -335,7 +373,55 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 
 **Mean versus overall ratio.** For a ratio, the *mean* averages each record's own ratio (every unit counts equally), while the *overall ratio* divides one total by the other over the same records (large units count more). Both are shown because they answer different questions.
 
-**Downloads** (CSV or Excel): the overall statistics, the grouped table, and the analytical dataset (every selected record with all derived indicators). Each file starts with its metadata: analysis date, data source, dataset identifier, a selection fingerprint (a short code that changes if the selected unit-years change), the selected filters and the Explore link that reopens them, the variable and its definition, the percentile and standard-deviation methods, the missing-value rule, and the software version (analysis version, Git commit, pandas and NumPy versions). In Excel the metadata is on its own sheet; in CSV it is a block of lines starting with `#`, which pandas skips with `pd.read_csv(path, comment="#")`.
+**Downloads** (CSV or Excel): the overall statistics, the grouped table, and the analytical dataset (every selected record with all derived indicators). Each file starts with its metadata: analysis date, data source, dataset identifier, a selection fingerprint (a short code that changes if the selected unit-years change), the selected filters and the Explore link that reopens them, the variable and its definition, the percentile and standard-deviation methods, the missing-value rule, and the software version (analysis version, Git commit, pandas, NumPy and SciPy versions). In Excel the metadata is on its own sheet; in CSV it is a block of lines starting with `#`, which pandas skips with `pd.read_csv(path, comment="#")`. Dashboard, comparison and impact downloads use the same format.
+
+### 12.3 Interactive dashboard (proposal 4.4)
+
+`/dashboard` draws, for the selection:
+
+| Chart | What it shows |
+|---|---|
+| Emissions and generation over time | CO2, SO2, NOx and gross load totals by year, each indexed to its first year = 100, so measures with different units share one axis |
+| Variable over time | The chosen variable by year (total, or overall ratio for intensities), optionally one line per fuel family or per control group |
+| Bar chart | The chosen variable by state, fuel, unit type, year, facility or control group |
+| Box plots | The spread of the variable within the largest groups |
+| Histogram | The distribution of the variable (log scale by default, because a few plants emit most of the total) |
+| Scatter plot | Any variable against any other, one color per fuel family, with Spearman and Pearson correlations over all records |
+| Correlation heat map | Spearman or Pearson correlations between 11 measured and derived variables |
+| Highest and lowest | The 10 facilities or units at each end (ratios only rank those above a minimum gross load, 10,000 MWh by default) |
+| State map | The variable by state |
+| Facility map | Facility locations colored by the variable (needs latitude and longitude from `python ingest.py --attributes-only`) |
+
+Every chart has a title, units, a legend where there is more than one series, and tooltips. **PNG image** saves the chart, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Charts load Plotly.js from cdnjs, so they need an internet connection; the tables work without one.
+
+### 12.4 Comparative analysis (proposal 4.5)
+
+`/comparison` compares two groups of the selection on one variable: two **reporting periods** (optionally only the units that report in both), two **states**, **fuels** or **unit types**, units **with and without an SO2 or NOx control**, or two **facilities** or **units**. It shows each group's summary statistics with absolute and percentage differences (B − A, and (B − A) ÷ |A| × 100); the same comparison for every **normalized indicator** (totals for amounts, overall ratios for intensities, heat rate and utilization); **Welch's t-test** with a 95% confidence interval for the difference in means and the **Mann–Whitney test** with the chance that a B record is higher, each explained in a sentence; box plots, a chart of the indicator differences and a yearly trend; and **every group ranked**, with one-way ANOVA and Kruskal–Wallis tests of whether the groups differ at all. The page lists the assumptions: unit-year records are not fully independent, so p-values are approximate, and differences are associations, not proven causes. Results download as CSV or Excel with metadata.
+
+### 12.5 Environmental and health impact indicators (proposal 4.6)
+
+`/impacts` turns the selection's CO2, SO2 and NOx into potential-impact indicators with **EPA TRACI 2.2** (updated 3/2/2022):
+
+```
+mass (kg)              = mass (short tons) × 907.18474
+impact in category c   = Σ over pollutants (mass in kg × TRACI factor for c)
+impact per MWh         = impact ÷ gross load of the same records
+```
+
+| CAMPD pollutant | TRACI row and how it is matched | Category | Factor |
+|---|---|---|---|
+| CO2 | CARBON DIOXIDE, CAS 124-38-9 | Global warming | 1 kg CO2 eq / kg |
+| SO2 | SULFUR DIOXIDE, CAS 7446-09-5 | Acidification | 1 kg SO2 eq / kg |
+| SO2 | SULFUR DIOXIDE, CAS 7446-09-5 | Human health: particulate matter | 0.0611 kg PM2.5 eq / kg |
+| NOx | NITROGEN OXIDES, exact name (TRACI lists no CAS number) | Acidification | 0.7 kg SO2 eq / kg |
+| NOx | NITROGEN OXIDES, exact name | Human health: particulate matter | 0.00722 kg PM2.5 eq / kg |
+| NOx | NITROGEN OXIDES, exact name | Smog formation | 24.79 kg O3 eq / kg |
+
+There is no approximate name matching: TRACI also lists NITROGEN DIOXIDE and NITRIC OXIDE with different factors, and they are never used. If a rule finds no row or more than one, the import stops with an error. Each category keeps its own unit and categories are never added together. A record missing a pollutant that a category needs is left out of that category, never counted as 0. The `traci_factor` table stores the TRACI version, CAMPD pollutant, TRACI substance, CAS number, match rule, medium, impact category, factor, unit, source file, its SHA-256, and the sheet, row and column each factor came from; every impact export repeats them.
+
+The page shows totals and per-MWh values for the selection, each pollutant's share of each category, results by state, fuel, unit type, year, facility, unit or control group, and the factors used. These are **potential** impacts for comparison; they do not measure actual illness, local exposure or proven environmental damage. TRACI 2.2 removed its eutrophication factors (EPA moved them to a separate spatial dataset), so eutrophication is not included.
+
+The official workbook: https://www.epa.gov/system/files/documents/2024-01/traci_2_2.xlsx (the extract in `data/` was made from the identical copy in EPA's GitHub repository, https://github.com/USEPA/TRACI, file `TraciTool/TRACI_2_2.xlsx`, with `python traci.py extract`).
 
 ---
 
@@ -345,4 +431,13 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 python -m pytest
 ```
 
-The tests build a small fixture database (3 facilities, 4 units, 8 annual records) in a temporary folder, so they never touch your real `epaData.db`. The fixture values are chosen so the expected statistics can be checked by hand; the arithmetic is written out at the top of `tests/test_analysis.py`. Expected result: all tests pass.
+The tests build a small fixture database (3 facilities, 4 units, 8 annual records, 3 hourly records) in a temporary folder, so they never touch your real `epaData.db`. The fixture values are chosen so every expected result can be checked by hand; the arithmetic is written out at the top of each test file.
+
+| File | What it checks |
+|---|---|
+| `tests/test_analysis.py` | Derived indicators, missing and zero-denominator handling, descriptive statistics, grouping |
+| `tests/test_statistics_page.py` | The Statistics page and its CSV/Excel exports with metadata |
+| `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
+| `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
+
+Expected result: all 63 tests pass.

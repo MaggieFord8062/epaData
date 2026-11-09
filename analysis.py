@@ -30,7 +30,7 @@ import pandas as pd
 from search import connect
 
 # Change this whenever a calculation changes, so exported files say which version made them
-PIPELINE_VERSION = "2.1"
+PIPELINE_VERSION = "2.2"
 
 POUNDS_PER_SHORT_TON = 2000
 
@@ -545,8 +545,14 @@ def git_commit():
 
 
 def pipeline_version():
-    return ("epaData analysis " + PIPELINE_VERSION + "; Git commit " + git_commit()
+    text = ("epaData analysis " + PIPELINE_VERSION + "; Git commit " + git_commit()
             + "; pandas " + pd.__version__ + "; NumPy " + np.__version__)
+    try:
+        import scipy
+        text += "; SciPy " + scipy.__version__
+    except ImportError:
+        pass
+    return text
 
 
 def database_state():
@@ -760,3 +766,143 @@ def format_number(value):
     if size >= 1:
         return "{:,.2f}".format(number)
     return "{:.4g}".format(number)
+
+
+def format_compact(value):
+    """Large numbers in words: 16,312,000,000 -> "16.3 billion". Smaller numbers as format_number."""
+    if value is None:
+        return "—"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if np.isnan(number):
+        return "—"
+    for limit, word in ((1e12, "trillion"), (1e9, "billion"), (1e6, "million")):
+        if abs(number) >= limit:
+            return "{:.3g} {}".format(number / limit, word)
+    return format_number(number)
+
+
+# ---------- Variables available in a selection (proposal 4.1) ----------
+
+AVAILABILITY_GROUPS = [
+    ("Facility", [("facility_name", "Facility name"), ("facility_id", "Facility ID"), ("state", "State"),
+                  ("county", "County")]),
+    ("Unit", [("unit_id", "Unit ID"), ("unit_type", "Unit type"), ("primary_fuel", "Primary fuel"),
+              ("secondary_fuel", "Secondary fuel")]),
+    ("Annual", [("year", "Reporting year"), ("operating_time", "Operating time (hours)"),
+                ("gross_load", "Gross load (MWh)"), ("steam_load", "Steam load (1000 lb)"),
+                ("heat_input", "Heat input (mmBtu)"), ("co2_mass", "CO2 mass (short tons)"),
+                ("so2_mass", "SO2 mass (short tons)"), ("nox_mass", "NOx mass (short tons)"),
+                ("so2_controls", "SO2 controls"), ("nox_controls", "NOx controls"),
+                ("pm_controls", "PM controls"), ("programs", "Emissions programs")]),
+]
+
+# Blank in these means "none reported", not an unknown value
+BLANK_MEANS_NONE = {"so2_controls", "nox_controls", "pm_controls", "secondary_fuel"}
+
+
+def blank_mask(series):
+    """True where a value is missing or an empty string."""
+    if series.dtype == object:
+        return series.isna() | (series.astype(str).str.strip() == "")
+    return series.isna()
+
+
+def variable_availability(frame):
+    """
+    Every variable the selection offers, grouped (facility, unit, annual, derived), with how many
+    records have no value. Returns (available, missing): available is {group: [{name, usable, note}]},
+    missing is a list of {group, name, missing, total, percent, note}.
+    """
+    total = int(len(frame))
+    groups = list(AVAILABILITY_GROUPS)
+    groups.append(("Derived indicators", [(key, variable_title(key)) for key, item in VARIABLES.items()
+                                          if item["group"] != "Measured"]))
+    available = {}
+    missing = []
+    for group, items in groups:
+        available[group] = []
+        for column, label in items:
+            count = int(blank_mask(frame[column]).sum()) if column in frame.columns else total
+            note = "Blank means none reported" if column in BLANK_MEANS_NONE else ""
+            available[group].append({"name": label, "usable": total > 0 and count < total, "note": note})
+            missing.append({"group": group, "name": label, "missing": count, "total": total,
+                            "percent": (count / total * 100) if total else 0.0, "note": note})
+    return available, missing
+
+
+# ---------- Fuel families and facility locations (dashboard, comparisons) ----------
+
+# Three families, so scatter plots and maps never need more than three colors
+FUEL_FAMILIES = ["Coal", "Gas", "Oil and other"]
+
+
+def fuel_family(fuel):
+    text = str(fuel or "").lower()
+    if "coal" in text:
+        return "Coal"
+    if "gas" in text:
+        return "Gas"
+    return "Oil and other"
+
+
+def facility_locations(facility_ids):
+    """{facility ID: (latitude, longitude)} for facilities that have a location."""
+    ids = sorted({int(value) for value in facility_ids if pd.notna(value)})
+    if not ids:
+        return {}
+    connection = connect()
+    found = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        rows = connection.execute(
+            "SELECT epa_facility_id, latitude, longitude FROM facility WHERE epa_facility_id IN ("
+            + ",".join("?" * len(chunk)) + ") AND latitude IS NOT NULL AND longitude IS NOT NULL",
+            chunk,
+        ).fetchall()
+        for row in rows:
+            found[int(row[0])] = (float(row[1]), float(row[2]))
+    connection.close()
+    return found
+
+
+def unit_labels(frame):
+    """'Alpha Station (KY) unit 1' for each record."""
+    names = frame["facility_name"].fillna(NOT_REPORTED).astype(str)
+    states = frame["state"].fillna("").astype(str)
+    units = frame["unit_id"].fillna("?").astype(str)
+    return names + " (" + states + ") unit " + units
+
+
+def aggregate(frame, key, labels):
+    """
+    One value per group for a variable: the total for amounts that add up, the overall ratio
+    (total ÷ total) for ratios, otherwise the mean. Returns a DataFrame indexed by group with
+    columns value, records, count.
+    """
+    variable = VARIABLES[key]
+    data = pd.DataFrame({"group": labels, "value": frame[key]})
+    if variable["ratio"]:
+        data["num"] = frame["_num_" + key]
+        data["den"] = frame["_den_" + key]
+    grouped = data.groupby("group", sort=False)
+    table = pd.DataFrame({"records": grouped.size(), "count": grouped["value"].count()})
+    if variable["ratio"]:
+        scale = frame["_scale_" + key].iloc[0] if len(frame) else 1.0
+        table["value"] = safe_ratio(grouped["num"].sum(min_count=1), grouped["den"].sum(min_count=1)) * scale
+    elif variable["additive"]:
+        table["value"] = grouped["value"].sum(min_count=1)
+    else:
+        table["value"] = grouped["value"].mean()
+    return table
+
+
+def aggregate_label(key):
+    """What aggregate() returns for this variable, in words."""
+    if VARIABLES[key]["ratio"]:
+        return "Overall ratio"
+    if VARIABLES[key]["additive"]:
+        return "Total"
+    return "Mean"

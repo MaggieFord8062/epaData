@@ -1,0 +1,27 @@
+{# What every analysis page is analyzing, and links between the analysis pages (they keep the selection). #}
+<nav class="analysis-tabs" aria-label="Analysis pages">
+    {% for path, label, href in analysis_pages %}
+    <a href="{{ href }}" {% if request.path == path %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+</nav>
+
+<div class="understood">
+    <span class="lead">Analyzing</span>
+    {% if labels %}
+        {% for label in labels %}
+        <span class="chip static">{{ label }}</span>
+        {% endfor %}
+    {% else %}
+        <span class="chip static">Every record in the database</span>
+    {% endif %}
+    <span class="dim selection-count">
+        {{ "{:,}".format(selection.records) }} records, {{ "{:,}".format(selection.facilities) }} facilities,
+        {{ "{:,}".format(selection.units) }} units{% if selection.first_year is not none %},
+        {% if selection.first_year == selection.last_year %}{{ selection.first_year }}{% else %}{{ selection.first_year }}–{{ selection.last_year }}{% endif %}{% endif %}
+    </span>
+    <a class="btn-link clear" href="{{ explore_url }}">Change the selection in Explore</a>
+</div>
+
+{% if partial %}
+<p class="notice">No record matched every word, so this selection includes records that match some of them. Refine it in Explore for a precise analysis.</p>
+{% endif %}

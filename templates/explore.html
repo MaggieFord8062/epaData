@@ -78,10 +78,16 @@
         {% endfor %}
 
         <form class="refine-group" action="/explore" method="GET">
-            <h3>Amounts</h3>
-            {% for key, value in params.items() if not key.endswith("_min") and not key.endswith("_max") and key != "page" %}
+            <h3>Years and amounts</h3>
+            {% for key, value in params.items() if not key.endswith("_min") and not key.endswith("_max") and key not in ("page", "year_from", "year_to") %}
             <input type="hidden" name="{{ key }}" value="{{ value }}">
             {% endfor %}
+            <p class="range-label">Reporting years</p>
+            <div class="range-row">
+                <input class="control" type="text" inputmode="numeric" name="year_from" value="{{ params.get('year_from', '') }}" placeholder="From" aria-label="First reporting year">
+                <input class="control" type="text" inputmode="numeric" name="year_to" value="{{ params.get('year_to', '') }}" placeholder="To" aria-label="Last reporting year">
+            </div>
+            <p class="range-hint">A single year in the Year list above replaces this range.</p>
             {% for field, label, units in range_fields %}
             {% set low, high = result.ranges.get(field, (none, none)) %}
             <p class="range-label">{{ label }} <span class="dim">({{ units }})</span></p>
@@ -91,7 +97,7 @@
             </div>
             <p class="range-hint">{% if low is not none %}{{ "{:,.0f}".format(low) }} to {{ "{:,.0f}".format(high) }} in these results{% else %}No values in these results{% endif %}</p>
             {% endfor %}
-            <button class="btn btn-quiet btn-small" type="submit">Apply amounts</button>
+            <button class="btn btn-quiet btn-small" type="submit">Apply</button>
         </form>
     </aside>
 
@@ -115,7 +121,13 @@
                 {% if result.total %}
                 <a class="btn btn-primary btn-small" href="/download-explore?{{ query_string }}" download>Download CSV</a>
                 <a class="btn-link" href="/download-explore?{{ query_string }}{{ '&' if query_string else '' }}format=xlsx" download>Excel</a>
-                <a class="btn-link" href="/statistics{{ '?' if query_string else '' }}{{ query_string }}">Statistics</a>
+                {% set aq = ('?' ~ analysis_query) if analysis_query else '' %}
+                <span class="analyze-links">Analyze:
+                    <a class="btn-link" href="/statistics{{ aq }}">Statistics</a>
+                    <a class="btn-link" href="/dashboard{{ aq }}">Dashboard</a>
+                    <a class="btn-link" href="/comparison{{ aq }}">Compare</a>
+                    <a class="btn-link" href="/impacts{{ aq }}">Impacts</a>
+                </span>
                 {% endif %}
             </div>
         </div>
@@ -154,27 +166,34 @@
         </div>
 
         <details class="analysis-details">
-            <summary>Variables Available for Analysis</summary>
-            {% for group in ["Facility", "Unit", "Annual"] %}
+            <summary>Variables available for analysis</summary>
+            {% for group, variables in available_variables.items() %}
                 <h3>{{ group }}</h3>
-                <ul>
-                    {% for variable in available_variables if variable.group == group %}
+                <ul class="variable-list">
+                    {% for variable in variables %}
                         <li>
                             {{ variable.name }}
                             {% if not variable.usable %}
-                                <span class="dim">— No usable values in this selection</span>
+                                <span class="dim">— no usable values in this selection</span>
                             {% endif %}
                         </li>
                     {% endfor %}
                 </ul>
             {% endfor %}
+            <h3>Hourly</h3>
+            {% if hourly.records %}
+            <p>{{ "{:,}".format(hourly.records) }} hourly records are stored for {{ "{:,}".format(hourly.units) }} of these units ({{ "{:,}".format(hourly.unit_days) }} unit-days, {{ hourly.first[:10] }} to {{ hourly.last[:10] }}): operating time, gross load, heat input, CO2, SO2, NOx and mercury. Their missing values are in the table below.</p>
+            {% else %}
+            <p class="dim">No hourly records are stored for these units. Hourly data is imported one day at a time from a facility page.</p>
+            {% endif %}
         </details>
 
         <details class="analysis-details">
             <summary>Missing-Value Summary</summary>
             <p>
                 Missing counts are calculated across
-                {{ "{:,}".format(dataset_summary.records) }} selected annual records.
+                {{ "{:,}".format(dataset_summary.records) }} selected annual records{% if hourly.records %}, and across the {{ "{:,}".format(hourly.records) }} stored hourly records for the hourly variables{% endif %}.
+                A derived indicator is missing when an input is missing or its denominator is 0.
             </p>
 
             <div class="table-wrap">
@@ -188,10 +207,10 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in missing_summary %}
+                        {% for item in missing_summary + hourly.missing %}
                         <tr>
                             <td>{{ item.group }}</td>
-                            <td>{{ item.name }}</td>
+                            <td>{{ item.name }}{% if item.note %} <span class="dim">({{ item.note|lower }})</span>{% endif %}</td>
                             <td class="num">{{ item.missing }} / {{ item.total }}</td>
                             <td class="num">{{ "%.1f"|format(item.percent) }}%</td>
                         </tr>

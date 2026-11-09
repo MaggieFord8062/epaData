@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
+
+{% block title %}Dashboard - epaData{% endblock %}
+
+{% block head %}{{ chart_scripts() }}{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Dashboard</h1>
+    <p>Interactive charts for any selection from Explore: trends, comparisons, distributions, relationships, rankings and maps. Hover for values, drag to zoom, and download any chart as an image or its numbers as a file.</p>
+</div>
+
+{% include "_selection.html" %}
+
+<form class="panel space-top" method="GET" action="/dashboard" id="dashboard-form">
+    {{ hidden_filters(filters) }}
+    <div class="form-grid dashboard-controls">
+        <div class="field wide">
+            <label for="variable">Variable</label>
+            <select class="control" id="variable" name="variable" onchange="this.form.submit()">
+                {% for heading, items in variable_menu %}
+                <optgroup label="{{ heading }}">
+                    {% for key, item in items %}
+                    <option value="{{ key }}" {% if key == choices.variable %}selected{% endif %}>{{ item.label }} ({{ item.unit }})</option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="group">Compare by</label>
+            <select class="control" id="group" name="group" onchange="this.form.submit()">
+                {% for key, label in group_options.items() %}
+                <option value="{{ key }}" {% if key == choices.group %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="split">Trend lines</label>
+            <select class="control" id="split" name="split" onchange="this.form.submit()">
+                {% for key, label in splits.items() %}
+                <option value="{{ key }}" {% if key == choices.split %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="scale">Distribution scale</label>
+            <select class="control" id="scale" name="scale" onchange="this.form.submit()">
+                {% for key, label in scales.items() %}
+                <option value="{{ key }}" {% if key == choices.scale %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="x">Scatter: across</label>
+            <select class="control" id="x" name="x" onchange="this.form.submit()">
+                {% for key, label in scatter_variables %}
+                <option value="{{ key }}" {% if key == choices.x %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="y">Scatter: up</label>
+            <select class="control" id="y" name="y" onchange="this.form.submit()">
+                {% for key, label in scatter_variables %}
+                <option value="{{ key }}" {% if key == choices.y %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="corr">Correlation</label>
+            <select class="control" id="corr" name="corr" onchange="this.form.submit()">
+                {% for key, label in correlation_methods.items() %}
+                <option value="{{ key }}" {% if key == choices.corr %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="level">Rank</label>
+            <select class="control" id="level" name="level" onchange="this.form.submit()">
+                {% for key, label in rank_levels.items() %}
+                <option value="{{ key }}" {% if key == choices.level %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="min_load">Minimum load for ratios (MWh)</label>
+            <input class="control" type="text" inputmode="decimal" id="min_load" name="min_load" value="{{ '{:g}'.format(choices.min_load) }}" autocomplete="off">
+        </div>
+    </div>
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Update charts</button>
+        <span class="dim">The page address saves every choice, so you can bookmark or share this dashboard.</span>
+    </div>
+</form>
+
+{% if selection.records == 0 %}
+
+<div class="empty">
+    <h3>No records in this selection</h3>
+    <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
+    <a class="btn btn-quiet" href="{{ explore_url }}">Back to Explore</a>
+</div>
+
+{% else %}
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Over time</h2>
+            <p class="section-intro">How the selection's emissions and generation changed from year to year, and the chosen variable's own trend.</p>
+        </div>
+    </div>
+    <div class="chart-grid">
+        {{ chart_card(charts.indexed, data_base) }}
+        {{ chart_card(charts.trend, data_base) }}
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Compared by {{ group_options[choices.group]|lower }}</h2>
+            <p class="section-intro">{{ info.label }} for each group, and how the values spread out within the largest groups.</p>
+        </div>
+    </div>
+    <div class="chart-grid">
+        {{ chart_card(charts.bars, data_base) }}
+        {{ chart_card(charts.box, data_base) }}
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Distribution</h2>
+            <p class="section-intro">How many records fall at each value of {{ info.label }}.</p>
+        </div>
+    </div>
+    {{ chart_card(charts.histogram, data_base, wide=true) }}
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Relationships</h2>
+            <p class="section-intro">Whether two measurements rise and fall together, for one pair in detail and for every pair at once.</p>
+        </div>
+    </div>
+    <div class="chart-grid">
+        {{ chart_card(charts.scatter, data_base) }}
+        {{ chart_card(charts.correlation, data_base) }}
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Highest and lowest</h2>
+            <p class="section-intro">The {{ rank_levels[choices.level]|lower }} at each end of {{ info.label }}.</p>
+        </div>
+    </div>
+    <div class="chart-grid">
+        {{ chart_card(charts.rank_high, data_base) }}
+        {{ chart_card(charts.rank_low, data_base) }}
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Maps</h2>
+            <p class="section-intro">{{ info.label }} by state, and where the facilities are.</p>
+        </div>
+    </div>
+    <div class="chart-grid">
+        {{ chart_card(charts.state_map, data_base) }}
+        {{ chart_card(charts.facility_map, data_base) }}
+    </div>
+</section>
+
+<section class="section">
+    <details class="analysis-details">
+        <summary>How to read these charts</summary>
+        <h3>Totals and ratios</h3>
+        <p>Amounts that add up (emissions, gross load, heat input) are shown as totals. Ratios such as CO2 intensity and heat rate are shown as overall ratios, the total of one divided by the total of the other, so large units count more than small ones.</p>
+        <h3>Colors</h3>
+        <p>Each color always means the same thing on every chart: CO2, coal and group A are blue; SO2, gas and group B are orange; NOx and oil and other fuels are green. Maps use one blue from light (low) to dark (high).</p>
+        <h3>Log scales</h3>
+        <p>A few very large plants emit far more than most units, so distributions and scatter plots use a log scale by default, where each gridline is ten times the one before. Values of 0 can't be shown on a log scale and are counted in the chart notes.</p>
+        <h3>Correlation</h3>
+        <p>Correlation shows whether two measurements tend to move together. It does not show that one causes the other.</p>
+    </details>
+</section>
+
+{% endif %}
+
+{% endblock %}

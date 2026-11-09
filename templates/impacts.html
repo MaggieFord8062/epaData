@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
+
+{% block title %}Impacts - epaData{% endblock %}
+
+{% block head %}{{ chart_scripts() }}{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Impacts</h1>
+    <p>Potential environmental and health impacts of the selection's CO2, SO2 and NOx emissions, using EPA's TRACI 2.2 characterization factors. Each impact category keeps its own unit, and categories are never added together.</p>
+</div>
+
+{% include "_selection.html" %}
+
+<p class="notice">{{ disclaimer }}</p>
+
+{% if not factors %}
+
+<div class="empty">
+    <h3>No TRACI factors are loaded</h3>
+    <p>Run <code>python traci.py import</code> in the project folder to load them, then reload this page.</p>
+</div>
+
+{% elif selection.records == 0 %}
+
+<div class="empty">
+    <h3>No records in this selection</h3>
+    <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
+    <a class="btn btn-quiet" href="{{ explore_url }}">Back to Explore</a>
+</div>
+
+{% else %}
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Totals for the selection</h2>
+            <p class="section-intro">Emissions in short tons × {{ short_ton_kg }} = kilograms, then kilograms × the TRACI factor for each category. Per MWh divides by the gross load of the same records.</p>
+        </div>
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=totals" download>Download CSV</a>
+            <a class="btn-link" href="{{ download_base }}&what=totals&format=xlsx" download>Excel</a>
+        </div>
+    </div>
+
+    <div class="impact-tiles">
+        {% for item in totals %}
+        <article class="impact-tile">
+            <h3>{{ item.name }}</h3>
+            <p class="impact-value" title="{{ item.total|stat }} {{ item.unit }}">{{ item.total|compact }}</p>
+            <p class="impact-unit">{{ item.unit }}</p>
+            <p class="impact-intensity">{{ item.intensity|stat }} <span class="dim">{{ item.unit }} per MWh</span></p>
+            <p class="dim impact-records">
+                From {% for part in item.contributions %}{{ part.label }}{{ ", " if not loop.last else "" }}{% endfor %}.
+                {{ "{:,}".format(item.used) }} records{% if item.missing %}; {{ "{:,}".format(item.missing) }} missing a pollutant and left out{% endif %}.
+            </p>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="section">
+    {{ chart_card(charts.impact_shares, wide=true) }}
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">By {{ group_options[choices.by]|lower }}</h2>
+            <p class="section-intro">
+                {{ "{:,}".format(group_count) }} group{{ "" if group_count == 1 else "s" }}, sorted by {{ (categories|selectattr(0, "equalto", choices.isort)|first)[1] }}{{ " per MWh" if choices.per_mwh else "" }}.
+                {% if group_count > group_limit %}The first {{ group_limit }} are shown; the download has all of them.{% endif %}
+                Click a category heading to sort by it.
+            </p>
+        </div>
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
+            <a class="btn-link" href="{{ download_base }}&what=groups&format=xlsx" download>Excel</a>
+        </div>
+    </div>
+
+    <form class="inline-form" method="GET" action="/impacts">
+        {{ hidden_filters(filters) }}
+        <input type="hidden" name="isort" value="{{ choices.isort }}">
+        {% if choices.per_mwh %}<input type="hidden" name="per_mwh" value="1">{% endif %}
+        <label for="by">Group by</label>
+        <select class="control" id="by" name="by" onchange="this.form.submit()">
+            {% for key, label in group_options.items() %}
+            <option value="{{ key }}" {% if key == choices.by %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <a class="btn btn-quiet btn-small" href="{{ per_mwh_link }}">{{ "Show totals" if choices.per_mwh else "Show per MWh" }}</a>
+        <noscript><button class="btn btn-quiet btn-small" type="submit">Apply</button></noscript>
+    </form>
+
+    <div class="space-top">
+        {{ chart_card(charts.impact_groups, wide=true) }}
+    </div>
+
+    <div class="table-wrap space-top">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>{{ group_options[choices.by] }}</th>
+                    <th class="num">Records</th>
+                    {% for key, name, unit in categories %}
+                    <th class="num"><a href="{{ sort_links[key] }}" class="{{ 'is-sorted' if key == choices.isort else '' }}">{{ name }}{% if key == choices.isort %} ↓{% endif %}</a><br><span class="dim">{{ unit }}{{ " per MWh" if choices.per_mwh else "" }}</span></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td class="name">{{ row.group }}</td>
+                    <td class="num">{{ "{:,}".format(row.records) }}</td>
+                    {% for key, name, unit in categories %}
+                    {% set item = row.get(key, {}) %}
+                    {% if choices.per_mwh %}
+                    <td class="num">{{ item.intensity|stat }}</td>
+                    {% else %}
+                    <td class="num" title="{{ item.total|stat }}">{{ item.total|compact }}</td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">TRACI factors used</h2>
+            <p class="section-intro">Every factor, where it came from, and how its TRACI row was matched to the CAMPD pollutant. No approximate name matching is used.</p>
+        </div>
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=factors" download>Download CSV</a>
+            <a class="btn-link" href="{{ download_base }}&what=records" download>Every record's impacts</a>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>CAMPD</th>
+                    <th>TRACI substance</th>
+                    <th>CAS</th>
+                    <th>Impact category</th>
+                    <th class="num">Factor</th>
+                    <th>Unit</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for factor in factors %}
+                <tr>
+                    <td class="name">{{ pollutants[factor.campd_pollutant].label }}</td>
+                    <td>{{ factor.substance_name }}</td>
+                    <td>{{ factor.cas_number or "None listed" }}</td>
+                    <td>{{ factor.impact_category_name }}</td>
+                    <td class="num">{{ "%.6g"|format(factor.factor_value) }}</td>
+                    <td>{{ factor.factor_unit }}</td>
+                    <td class="dim">{{ factor.source_file }}, {{ factor.source_sheet }} row {{ factor.source_row }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="note">{{ factors[0].traci_version }}. Official file: <a href="{{ official_url }}" target="_blank" rel="noopener">traci_2_2.xlsx</a> (<a href="{{ traci_page }}" target="_blank" rel="noopener">EPA TRACI page</a>). Source file SHA-256 <code>{{ factors[0].source_sha256[:16] }}…</code></p>
+
+    <details class="analysis-details space-top">
+        <summary>Method and limitations</summary>
+        <h3>How it's calculated</h3>
+        <p>For each record, each pollutant's mass is converted from short tons to kilograms (1 short ton = {{ short_ton_kg }} kg) and multiplied by its TRACI factor. A category's result is the sum over the pollutants that have a factor in that category. If a record is missing any pollutant a category needs, that record is left out of the category rather than counted as 0. Per MWh results divide the category total by the gross load of the same records.</p>
+        <h3>Matching CAMPD to TRACI</h3>
+        {% for key in ["co2_mass", "so2_mass", "nox_mass"] %}
+        <p>{{ pollutants[key].label }}: {{ factors|selectattr("campd_pollutant", "equalto", key)|map(attribute="match_rule")|first }}.</p>
+        {% endfor %}
+        <h3>Limitations</h3>
+        {% for limitation in limitations %}
+        <p>{{ limitation }}</p>
+        {% endfor %}
+    </details>
+</section>
+
+{% endif %}
+
+{% endblock %}

@@ -291,6 +291,48 @@ class HourlyRecord(Base):
 
 
 # ---------------------------------------------------------
+# TRACI characterization factors (Phase 2)
+# ---------------------------------------------------------
+
+class TraciFactor(Base):
+    """
+    One EPA TRACI characterization factor matched to a CAMPD pollutant: how much one kilogram
+    of the substance emitted to air contributes to one impact category. Stored with the TRACI
+    version, the substance as TRACI names it, and where in the source file it came from, so
+    every impact result can be traced back and reproduced.
+    """
+    __tablename__ = "traci_factor"
+
+    traci_factor_id = Column(Integer, primary_key=True)
+
+    traci_version = Column(String, nullable=False, index=True)   # e.g. "TRACI 2.2 (updated 3/2/2022)"
+    campd_pollutant = Column(String, nullable=False, index=True)  # co2_mass, so2_mass or nox_mass
+    substance_name = Column(String, nullable=False)               # as TRACI names it, e.g. "NITROGEN OXIDES"
+    cas_number = Column(String)                                   # e.g. "124-38-9" (TRACI lists none for NOx)
+    match_rule = Column(String)                                   # how the TRACI row was matched
+    medium = Column(String, nullable=False)                       # "air"
+    impact_category = Column(String, nullable=False, index=True)  # e.g. "acidification"
+    impact_category_name = Column(String)                         # e.g. "Acidification"
+    factor_value = Column(Float, nullable=False)
+    factor_unit = Column(String, nullable=False)                  # e.g. "kg SO2 eq / kg substance"
+
+    source_file = Column(String)
+    source_sha256 = Column(String)
+    source_sheet = Column(String)
+    source_row = Column(Integer)
+    source_column = Column(String)
+    imported_at = Column(String)
+
+    # Provenance: the import that loaded this factor
+    dataset_id = Column(Integer, ForeignKey("dataset.dataset_id"), index=True)
+
+    __table_args__ = (
+        UniqueConstraint("traci_version", "campd_pollutant", "medium", "impact_category",
+                         name="uq_traci_factor"),
+    )
+
+
+# ---------------------------------------------------------
 # QA Tests
 # ---------------------------------------------------------
 

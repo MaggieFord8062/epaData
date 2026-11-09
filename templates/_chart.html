@@ -1,0 +1,60 @@
+{# A chart drawn by static/charts.js from the figure in the JSON block, with downloads and the numbers behind it. #}
+
+{% macro hidden_filters(filters, skip=()) -%}
+{% for key, value in filters.items() if key not in skip %}
+<input type="hidden" name="{{ key }}" value="{{ value }}">
+{% endfor %}
+{%- endmacro %}
+
+{% macro chart_card(spec, data_base=none, wide=false) -%}
+<figure class="chart-card{{ ' wide' if wide else '' }}" id="chart-{{ spec.id }}">
+    {% if spec.empty %}
+    <h3 class="chart-title">{{ spec.title }}</h3>
+    <p class="chart-empty">{{ spec.empty }}</p>
+    {% else %}
+    <div class="chart-plot" data-chart="{{ spec.id }}" role="img" aria-label="{{ spec.title }}" style="min-height: {{ spec.layout.height or 400 }}px"></div>
+    <script type="application/json" id="spec-{{ spec.id }}">{{ spec|tojson }}</script>
+    <figcaption>
+        {% if spec.note %}<p class="chart-note">{{ spec.note }}</p>{% endif %}
+        <div class="chart-actions">
+            <button type="button" class="btn-link" data-png="{{ spec.id }}">PNG image</button>
+            {% if data_base %}
+            <a class="btn-link" href="{{ data_base }}&chart={{ spec.id }}" download>Data CSV</a>
+            <a class="btn-link" href="{{ data_base }}&chart={{ spec.id }}&format=xlsx" download>Excel</a>
+            {% endif %}
+        </div>
+    </figcaption>
+    {% if spec.table.columns %}
+    <details class="chart-table">
+        <summary>Show the numbers</summary>
+        <div class="table-wrap">
+            <table class="data">
+                <thead>
+                    <tr>
+                        {% for column in spec.table.columns %}<th>{{ column }}</th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in spec.table.rows[:100] %}
+                    <tr>
+                        {% for value in row %}
+                        <td class="{{ 'num' if value is number else '' }}">{{ value|cell(spec.table.columns[loop.index0]) }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if spec.table.rows|length > 100 %}
+        <p class="note">The first 100 of {{ "{:,}".format(spec.table.rows|length) }} rows. The download has all of them.</p>
+        {% endif %}
+    </details>
+    {% endif %}
+    {% endif %}
+</figure>
+{%- endmacro %}
+
+{% macro chart_scripts() -%}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js" defer></script>
+<script src="{{ url_for('static', filename='charts.js') }}" defer></script>
+{%- endmacro %}

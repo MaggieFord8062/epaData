@@ -66,6 +66,13 @@ CONTROL_FILTERS = {
     "pm_control": "annual_records.pm_control_info",
 }
 
+# The program list as ",ARP,CSNOX," so one code can be matched exactly
+# (CAMPD separates codes with commas, "|" or "<br>")
+PROGRAM_LIST_SQL = (
+    "(',' || UPPER(REPLACE(REPLACE(REPLACE(COALESCE(annual_records.program_code, ''),"
+    " ' ', ''), '<br>', ','), '|', ',')) || ',')"
+)
+
 # Partial-match filters used by the smart search: field -> database column(s).
 # "coal" matches "Coal" and "Coal Refuse"; "turbine" matches "Combustion turbine".
 LIKE_FILTERS = {
@@ -173,8 +180,18 @@ def build_where(filters, exclude=()):
     for field, column in CONTROL_FILTERS.items():
         value = str(filters.get(field) or "").strip()
         if value and field not in exclude:
-            clauses.append(f"{column} LIKE ?")
-            parameters.append(f"%{value}%")
+            if value.lower() == "none":
+                # Units that reported no control of this kind
+                clauses.append(f"COALESCE({column}, '') = ''")
+            else:
+                clauses.append(f"{column} LIKE ?")
+                parameters.append(f"%{value}%")
+
+    # One emissions program (e.g. ARP), matched as a whole code in the program list
+    program = str(filters.get("program") or "").strip().upper()
+    if program and "program" not in exclude:
+        clauses.append(f"{PROGRAM_LIST_SQL} LIKE ?")
+        parameters.append(f"%,{program},%")
 
     for field, columns in LIKE_FILTERS.items():
         value = str(filters.get(field) or "").strip()

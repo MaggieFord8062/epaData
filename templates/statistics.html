@@ -13,21 +13,7 @@
     <p>Summary statistics and derived indicators for any set of records you can find in Explore, for the whole selection or broken down by state, fuel, unit type, year, facility or pollution control.</p>
 </div>
 
-<div class="understood">
-    <span class="lead">Analyzing</span>
-    {% if labels %}
-        {% for label in labels %}
-        <span class="chip static">{{ label }}</span>
-        {% endfor %}
-    {% else %}
-        <span class="chip static">Every record in the database</span>
-    {% endif %}
-    <a class="btn-link clear" href="{{ explore_url }}">Change the selection in Explore</a>
-</div>
-
-{% if result.partial %}
-<p class="notice">No record matched every word, so this selection includes records that match some of them. Refine it in Explore for a precise analysis.</p>
-{% endif %}
+{% include "_selection.html" %}
 
 <form class="panel space-top" method="GET" action="/statistics" id="statistics-form">
     {% for key, value in filters.items() %}

@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
+
+{% block title %}Compare - epaData{% endblock %}
+
+{% block head %}{{ chart_scripts() }}{% endblock %}
+
+{% macro signed(value, suffix="") -%}
+{%- if value is none -%}—{%- else -%}{{ "+" if value > 0 else ("−" if value < 0 else "") }}{{ (value|abs)|stat }}{{ suffix }}{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Compare</h1>
+    <p>Put two groups of records side by side: two periods, two states, fuels or unit types, units with and without a pollution control, or two facilities or units. You get summary statistics, differences, every normalized indicator, statistical tests explained in plain language, and a ranking of every group.</p>
+</div>
+
+{% include "_selection.html" %}
+
+<form class="panel space-top" method="GET" action="/comparison" id="comparison-form">
+    {{ hidden_filters(filters) }}
+    <div class="form-grid">
+        <div class="field">
+            <label for="cmp">Compare</label>
+            <select class="control" id="cmp" name="cmp" onchange="this.form.submit()">
+                {% for key, label in dimensions.items() %}
+                <option value="{{ key }}" {% if key == definition.dimension %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field wide">
+            <label for="variable">Variable</label>
+            <select class="control" id="variable" name="variable" onchange="this.form.submit()">
+                {% for heading, items in variable_menu %}
+                <optgroup label="{{ heading }}">
+                    {% for key, item in items %}
+                    <option value="{{ key }}" {% if key == variable %}selected{% endif %}>{{ item.label }} ({{ item.unit }})</option>
+                    {% endfor %}
+                </optgroup>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="scale">Box plot scale</label>
+            <select class="control" id="scale" name="scale" onchange="this.form.submit()">
+                <option value="log" {% if scale == "log" %}selected{% endif %}>Log scale</option>
+                <option value="linear" {% if scale == "linear" %}selected{% endif %}>Linear scale</option>
+            </select>
+        </div>
+    </div>
+
+    {% if definition.dimension == "period" %}
+    <div class="form-grid space-top">
+        <div class="field">
+            <label for="pa_from">Period A from</label>
+            <select class="control" id="pa_from" name="pa_from">
+                {% for year in definition.years %}<option value="{{ year }}" {% if year == definition.a.from %}selected{% endif %}>{{ year }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="pa_to">Period A to</label>
+            <select class="control" id="pa_to" name="pa_to">
+                {% for year in definition.years %}<option value="{{ year }}" {% if year == definition.a.to %}selected{% endif %}>{{ year }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="pb_from">Period B from</label>
+            <select class="control" id="pb_from" name="pb_from">
+                {% for year in definition.years %}<option value="{{ year }}" {% if year == definition.b.from %}selected{% endif %}>{{ year }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field">
+            <label for="pb_to">Period B to</label>
+            <select class="control" id="pb_to" name="pb_to">
+                {% for year in definition.years %}<option value="{{ year }}" {% if year == definition.b.to %}selected{% endif %}>{{ year }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="field wide">
+            <label class="check">
+                <input type="checkbox" name="matched" value="1" {% if definition.matched %}checked{% endif %}>
+                Only units with records in both periods
+            </label>
+        </div>
+    </div>
+    {% elif definition.options %}
+    <div class="form-grid space-top">
+        <div class="field wide">
+            <label for="a">Group A</label>
+            <select class="control" id="a" name="a">
+                {% for value, name, records in definition.options %}
+                <option value="{{ value }}" {% if value == definition.a_value %}selected{% endif %}>{{ name }} ({{ "{:,}".format(records) }} records)</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="field wide">
+            <label for="b">Group B</label>
+            <select class="control" id="b" name="b">
+                {% for value, name, records in definition.options %}
+                <option value="{{ value }}" {% if value == definition.b_value %}selected{% endif %}>{{ name }} ({{ "{:,}".format(records) }} records)</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    {% elif definition.dimension in ("so2_control", "nox_control") %}
+    <p class="dim space-top">A is units that reported no control of this kind; B is units with one. Choose a specific technology in Explore's sidebar to narrow B.</p>
+    {% endif %}
+
+    <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Compare</button>
+        <span class="dim">Differences are always B minus A. Want two facilities' full profiles? <a href="/compare">Side-by-side facility profiles</a>.</span>
+    </div>
+</form>
+
+{% if selection.records == 0 %}
+
+<div class="empty">
+    <h3>No records in this selection</h3>
+    <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
+    <a class="btn btn-quiet" href="{{ explore_url }}">Back to Explore</a>
+</div>
+
+{% elif definition.same %}
+
+<div class="empty">
+    <h3>Choose two different groups</h3>
+    <p>Group A and group B are the same{% if not definition.options and definition.dimension != "period" %}, or this selection has only one group to compare{% endif %}. Pick another group for B{% if definition.dimension == "period" %} or another period{% endif %}.</p>
+</div>
+
+{% else %}
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">{{ info.label }} <span class="dim">({{ info.unit }})</span></h2>
+            <p class="section-intro">{{ info.definition }}</p>
+        </div>
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=summary" download>Download CSV</a>
+            <a class="btn-link" href="{{ download_base }}&what=summary&format=xlsx" download>Excel</a>
+        </div>
+    </div>
+
+    <div class="compare-groups">
+        {% for group in outcome.groups %}
+        <article class="compare-group side-{{ group.side|lower }}">
+            <span class="compare-side">{{ group.side }}</span>
+            <h3>{{ group.label }}</h3>
+            <p class="dim">{{ "{:,}".format(group.summary.records) }} records, {{ "{:,}".format(group.summary.facilities) }} facilities, {{ "{:,}".format(group.summary.units) }} units, {{ group.summary.years }}</p>
+        </article>
+        {% endfor %}
+    </div>
+
+    <div class="table-wrap space-top">
+        <table class="data compare-table">
+            <thead>
+                <tr>
+                    <th>Statistic</th>
+                    <th class="num">A: {{ outcome.groups[0].label }}</th>
+                    <th class="num">B: {{ outcome.groups[1].label }}</th>
+                    <th class="num">Difference (B − A)</th>
+                    <th class="num">% difference</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in outcome.rows %}
+                <tr class="{{ 'key-row' if row.headline else '' }}">
+                    <td class="name">{{ row.label }}</td>
+                    {% if row.key in ("count", "missing") %}
+                    <td class="num">{{ "{:,}".format(row.a|int) }}</td>
+                    <td class="num">{{ "{:,}".format(row.b|int) }}</td>
+                    <td class="num">{% if row.change is none %}—{% else %}{{ "+" if row.change > 0 else ("−" if row.change < 0 else "") }}{{ "{:,}".format(row.change|abs|int) }}{% endif %}</td>
+                    {% else %}
+                    <td class="num">{{ row.a|stat }}</td>
+                    <td class="num">{{ row.b|stat }}</td>
+                    <td class="num">{{ signed(row.change) }}</td>
+                    {% endif %}
+                    <td class="num">{% if row.percent is not none %}{{ signed(row.percent, "%") }}{% else %}<span class="dim">—</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="note">All values in {{ info.unit }}, except counts. Missing values are left out of every statistic.</p>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">What the tests say</h2>
+            <p class="section-intro">Two standard tests of whether the difference could be chance: Welch's t-test for the averages, and the Mann–Whitney test, which only uses the order of the values and is less affected by a few very large units.</p>
+        </div>
+    </div>
+    <div class="test-results">
+        {% for sentence in outcome.tests.sentences %}
+        <p>{{ sentence }}</p>
+        {% endfor %}
+    </div>
+    {% if outcome.tests.welch or outcome.tests.mann_whitney %}
+    <dl class="facts space-top">
+        {% if outcome.tests.welch %}
+        <div class="fact"><dt>Difference in means</dt><dd>{{ signed(outcome.tests.welch.difference) }}</dd></div>
+        <div class="fact"><dt>95% confidence interval</dt><dd>{{ signed(outcome.tests.welch.low) }} to {{ signed(outcome.tests.welch.high) }}</dd></div>
+        <div class="fact"><dt>Welch's t (degrees of freedom)</dt><dd>{{ "%.2f"|format(outcome.tests.welch.t) }} ({{ "%.0f"|format(outcome.tests.welch.df) }})</dd></div>
+        <div class="fact"><dt>Welch's p-value</dt><dd>{{ outcome.tests.welch.p|pvalue }}</dd></div>
+        {% endif %}
+        {% if outcome.tests.mann_whitney %}
+        <div class="fact"><dt>Chance a B record is higher</dt><dd>{{ "%.0f"|format(outcome.tests.mann_whitney.superiority * 100) }}%</dd></div>
+        <div class="fact"><dt>Mann–Whitney p-value</dt><dd>{{ outcome.tests.mann_whitney.p|pvalue }}</dd></div>
+        {% endif %}
+    </dl>
+    {% endif %}
+    <details class="analysis-details space-top">
+        <summary>Assumptions and limits</summary>
+        {% for caveat in caveats %}
+        <p>{{ caveat }}</p>
+        {% endfor %}
+        <p>A p-value below 0.05 is the usual signal that a difference is unlikely to be chance alone. It says nothing about whether the difference is large enough to matter; look at the size of the difference for that.</p>
+    </details>
+</section>
+
+<section class="section">
+    <div class="chart-grid">
+        {% for spec in outcome.charts[:2] %}
+        {{ chart_card(spec) }}
+        {% endfor %}
+    </div>
+    <div class="space-top">
+        {{ chart_card(outcome.charts[2], wide=true) }}
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Every normalized indicator</h2>
+            <p class="section-intro">Totals for amounts that add up, and overall ratios (total ÷ total) for intensities, heat rate and utilization.</p>
+        </div>
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=indicators" download>Download CSV</a>
+            <a class="btn-link" href="{{ download_base }}&what=indicators&format=xlsx" download>Excel</a>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Indicator</th>
+                    <th>Measure</th>
+                    <th class="num">A: {{ outcome.groups[0].label }}</th>
+                    <th class="num">B: {{ outcome.groups[1].label }}</th>
+                    <th class="num">Difference (B − A)</th>
+                    <th class="num">% difference</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in outcome.indicators %}
+                <tr>
+                    <td class="name">{{ row.label }} <span class="dim">({{ row.unit }})</span></td>
+                    <td>{{ row.measure }}</td>
+                    <td class="num">{{ row.a|stat }}</td>
+                    <td class="num">{{ row.b|stat }}</td>
+                    <td class="num">{{ signed(row.change) }}</td>
+                    <td class="num">{% if row.percent is not none %}{{ signed(row.percent, "%") }}{% else %}<span class="dim">—</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Every {{ "year" if definition.dimension == "period" else "group" }} ranked</h2>
+            <p class="section-intro">
+                {{ outcome.ranking.measure }} of {{ info.label }} for every {{ "year" if definition.dimension == "period" else "group in " ~ definition.name|lower }}, highest first,
+                {% if info.additive %}with each one's share of the selection total.{% else %}with its difference from the whole selection ({{ outcome.ranking.overall|stat }} {{ info.unit }}).{% endif %}
+                {% if outcome.ranking.rows|length > ranking_limit %}The first {{ ranking_limit }} of {{ "{:,}".format(outcome.ranking.rows|length) }} are shown; the download has all of them.{% endif %}
+            </p>
+        </div>
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
+            <a class="btn-link" href="{{ download_base }}&what=groups&format=xlsx" download>Excel</a>
+        </div>
+    </div>
+    {% if outcome.ranking.test %}
+    <p class="test-results">{{ outcome.ranking.test.sentence }}</p>
+    {% endif %}
+    <div class="table-wrap space-top">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th class="num">Rank</th>
+                    <th>{{ "Year" if definition.dimension == "period" else "Group" }}</th>
+                    <th class="num">Records</th>
+                    <th class="num">{{ outcome.ranking.measure }}</th>
+                    <th class="num">Mean</th>
+                    <th class="num">Median</th>
+                    {% if info.additive %}
+                    <th class="num">Share of total</th>
+                    {% else %}
+                    <th class="num">vs. selection</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in outcome.ranking.rows[:ranking_limit] %}
+                <tr>
+                    <td class="num">{{ row.rank }}</td>
+                    <td class="name">{{ row.group }}</td>
+                    <td class="num">{{ "{:,}".format(row.records) }}</td>
+                    <td class="num">{{ row.value|stat }}</td>
+                    <td class="num">{{ row.mean|stat }}</td>
+                    <td class="num">{{ row.median|stat }}</td>
+                    {% if info.additive %}
+                    <td class="num">{% if row.share is not none %}{{ "%.1f"|format(row.share) }}%{% else %}—{% endif %}</td>
+                    {% else %}
+                    <td class="num">{% if row.percent is not none %}{{ signed(row.percent, "%") }}{% else %}—{% endif %}</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% endif %}
+
+{% endblock %}

@@ -16,8 +16,11 @@ from client import CAMPDClient, CAMPDError
 from dotenv import load_dotenv
 from models import Facility, Unit, AnnualRecord, HourlyRecord, Dataset, UploadedFile
 import analysis
+import comparison
+import dashboard
 import retrieval_jobs
 import smart_search
+import traci
 import uploads
 from retrieval import retrieve_hourly_records
 from search import (search_data, advance_search, find_facilities, compare_facilities,
@@ -653,6 +656,7 @@ REFINEMENT_LABELS = {
     "state": "State", "reporting_year": "Year", "primary_fuel": "Fuel", "unit_type": "Unit type",
     "county": "County", "source_category": "Source", "status": "Status", "year_from": "From",
     "year_to": "To", "epa_facility_id": "Facility ID", "epa_unit_id": "Unit",
+    "so2_control": "SO2 control", "nox_control": "NOx control", "pm_control": "PM control", "program": "Program",
 }
 
 
@@ -677,6 +681,8 @@ def facet_label(key, value):
         return f"{name} ({value})" if name else value
     if key == "status":
         return "Retired" if value == "retired" else "Operating"
+    if key in smart_search.LIST_FACETS and value == smart_search.NO_VALUE:
+        return "None reported"
     return value
 
 
@@ -723,49 +729,11 @@ def explore():
         "last_year": max(years) if years else None,
     }
 
-    # Variables currently represented in the Explore result rows.
-    # Ignore internal columns used only for links or application logic.
-    variable_groups = {
-        "Facility": ["Facility", "Facility ID", "State"],
-        "Unit": ["Unit", "Unit Type", "Primary Fuel"],
-        "Annual": ["Year", "Gross Load (MWh)", "CO2 (tons)", "SO2 (tons)", "NOx (tons)"],
-        "Hourly": ["Timestamp", "Operating Time", "Gross Load", "Heat Input", 
-                   "CO2 Mass", "SO2 Mass", "NOx Mass", "Hg Mass"],
-    }
-
-    available_variables = {}
-    missing_summary = []
-
-    total = len(all_rows)
-
-    for group, labels in variable_groups.items():
-        available_variables[group] = []
-
-    for label in labels:
-        exists = bool(all_rows) and label in all_rows[0]
-
-        if exists:
-            missing = sum(
-                row.get(label) in (None, "")
-                for row in all_rows
-            )
-            usable = missing < total
-        else:
-            missing = total
-            usable = False
-
-        available_variables[group].append({
-            "name": label,
-            "usable": usable,
-        })
-
-        missing_summary.append({
-            "group": group,
-            "name": label,
-            "missing": missing,
-            "total": total,
-            "percent": (missing / total * 100) if total else 0,
-        })
+    # Variables available for analysis and their missing values (proposal 4.1), including the
+    # derived indicators, plus the hourly records stored for these units
+    frame = analysis.build_frame(all_rows)
+    available_variables, missing_summary = analysis.variable_availability(frame)
+    hourly = smart_search.hourly_summary(params)
 
     q = params.get("q", "")
 
@@ -809,6 +777,8 @@ def explore():
         dataset_summary=dataset_summary,
         available_variables=available_variables,
         missing_summary=missing_summary,
+        hourly=hourly,
+        analysis_query=urlencode(analysis_filters(download_params)),
     )
 
 
@@ -1440,28 +1410,111 @@ def download_provenance():
     return file_response(results, ["provenance"], file_format)
 
 
-# ---------- Phase 2: descriptive statistics and derived indicators ----------
+# ---------- Phase 2: shared selection for every analysis page ----------
+#
+# Every analysis page (Statistics, Dashboard, Compare, Impacts) analyzes exactly the records the
+# Explore page shows: the Explore filters travel in the URL, and each page adds its own choices.
+# These are the URL parameters that are page choices; everything else is an Explore filter.
 
-# URL parameters that belong to the Statistics page. Everything else in the URL is an
-# Explore filter, so the Statistics page analyzes exactly the records Explore shows.
-STATISTICS_PARAMS = {"variable", "group", "pct", "gsort", "what", "format", "page", "per_page", "order"}
+ANALYSIS_PARAMS = {
+    # paging and sorting on Explore, and file downloads
+    "page", "per_page", "order", "what", "format", "chart",
+    # Statistics
+    "variable", "group", "pct", "gsort",
+    # Dashboard
+    "split", "x", "y", "scale", "corr", "level", "min_load",
+    # Compare
+    "cmp", "a", "b", "pa_from", "pa_to", "pb_from", "pb_to", "matched",
+    # Impacts
+    "by", "isort", "per_mwh",
+}
+
+ANALYSIS_PAGES = [
+    ("/statistics", "Statistics"),
+    ("/dashboard", "Dashboard"),
+    ("/comparison", "Compare"),
+    ("/impacts", "Impacts"),
+]
 
 app.add_template_filter(analysis.format_number, "stat")
+app.add_template_filter(analysis.format_compact, "compact")
+
+
+@app.template_filter("cell")
+def table_cell(value, column=""):
+    """A value in a chart's number table: years and ranks as they are, other numbers readable."""
+    if value is None:
+        return "—"
+    if isinstance(value, bool) or isinstance(value, str):
+        return value
+    name = str(column).lower()
+    if isinstance(value, int) or (isinstance(value, float) and value.is_integer() and abs(value) < 1e15):
+        if any(word in name for word in ("year", "rank", "id", "code")):
+            return str(int(value))
+        return "{:,}".format(int(value))
+    return analysis.format_number(value)
+
+
+@app.template_filter("pvalue")
+def p_value(value):
+    if value is None:
+        return "—"
+    return "< 0.001" if value < 0.001 else "{:.3f}".format(value)
+
+
+def analysis_filters(params):
+    """The Explore filters in a set of URL parameters (the page choices removed)."""
+    return {key: value for key, value in params.items() if key not in ANALYSIS_PARAMS}
+
+
+def analysis_selection():
+    """
+    The selected records for an analysis page.
+    Returns (all URL parameters, Explore filters, Explore result, analysis DataFrame).
+    """
+    params = explore_params()
+    filters = analysis_filters(params)
+    result = smart_search.explore(filters, everything=True)
+    frame = analysis.build_frame(result["rows"])
+    return params, filters, result, frame
+
+
+def chosen_variable(params, default=analysis.DEFAULT_VARIABLE, allowed=None):
+    variable = params.get("variable")
+    allowed = allowed or analysis.VARIABLES
+    return variable if variable in allowed else default
+
+
+def page_url(path, filters, **choices):
+    """A page's URL with the same selection and the given choices (blank choices are left out)."""
+    values = dict(filters)
+    for key, value in choices.items():
+        if value not in (None, ""):
+            values[key] = value
+    return path + ("?" + urlencode(values) if values else "")
+
+
+def selection_context(filters, result, frame, variable=None):
+    """What every analysis page shows about the selection, and links to the other pages."""
+    explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    return {
+        "labels": selection_labels(filters, result),
+        "selection": analysis.selection_summary(frame),
+        "explore_url": explore_url,
+        "partial": result["partial"],
+        "analysis_pages": [(path, label, page_url(path, filters, variable=variable))
+                           for path, label in ANALYSIS_PAGES],
+        "filters": filters,
+    }
 
 
 def statistics_request():
     """
-    The page's choices and the selected records.
+    The Statistics page's choices and the selected records.
     Returns (choices, Explore filters, Explore result, analysis DataFrame).
     """
-    params = explore_params()
-    filters = {key: value for key, value in params.items() if key not in STATISTICS_PARAMS}
-    result = smart_search.explore(filters, everything=True)
-    frame = analysis.build_frame(result["rows"])
-
-    variable = params.get("variable")
-    if variable not in analysis.VARIABLES:
-        variable = analysis.DEFAULT_VARIABLE
+    params, filters, result, frame = analysis_selection()
+    variable = chosen_variable(params)
     group = params.get("group") if params.get("group") in analysis.GROUPS else ""
     gsort = params.get("gsort")
     if gsort not in analysis.GROUP_SORTS:
@@ -1537,16 +1590,12 @@ def statistics():
     return render_template(
         "statistics.html",
         choices=choices,
-        filters=filters,
         result=result,
-        labels=selection_labels(filters, result),
-        selection=analysis.selection_summary(frame),
         summary=summary,
         groups=groups[:analysis.GROUP_LIMIT],
         group_count=len(groups),
         group_limit=analysis.GROUP_LIMIT,
         sort_links=sort_links,
-        explore_url="/explore" + ("?" + urlencode(filters) if filters else ""),
         download_base=download_base,
         info=analysis.VARIABLES[variable],
         variable_menu=analysis.variables_by_group(),
@@ -1559,6 +1608,7 @@ def statistics():
             "missing": analysis.MISSING_RULE,
             "mean_vs_overall": analysis.MEAN_VS_OVERALL,
         },
+        **selection_context(filters, result, frame, variable),
     )
 
 
@@ -1600,6 +1650,356 @@ def statistics_download():
         headers={"Content-Disposition": f'attachment; filename="{file_name(name_parts, extension)}"'},
     )
 
+
+
+def export_response(columns, rows, lines, name_parts, file_format):
+    content, mimetype, extension = analysis.export_file(columns, rows, lines, file_format)
+    return Response(
+        content,
+        mimetype=mimetype,
+        headers={"Content-Disposition": f'attachment; filename="{file_name(name_parts, extension)}"'},
+    )
+
+
+def requested_format():
+    return "xlsx" if request.args.get("format") == "xlsx" else "csv"
+
+
+# ---------- Phase 2: visualization dashboard (proposal 4.4) ----------
+
+DASHBOARD_DEFAULT_VARIABLE = "co2_mass"
+
+
+def dashboard_choices(params):
+    def pick(name, allowed, default):
+        value = params.get(name)
+        return value if value in allowed else default
+
+    min_load = search_to_number(params.get("min_load"))
+    return {
+        "variable": chosen_variable(params, DASHBOARD_DEFAULT_VARIABLE),
+        "group": pick("group", analysis.GROUPS, "state"),
+        "split": pick("split", dashboard.SPLITS, "none"),
+        "x": pick("x", dashboard.SCATTER_VARIABLES, "heat_input"),
+        "y": pick("y", dashboard.SCATTER_VARIABLES, "co2_mass"),
+        "scale": pick("scale", dashboard.SCALES, "log"),
+        "corr": pick("corr", dashboard.CORRELATION_METHODS, "spearman"),
+        "level": pick("level", dashboard.RANK_LEVELS, "facility"),
+        "min_load": dashboard.DEFAULT_MIN_LOAD if min_load is None or min_load < 0 else min_load,
+    }
+
+
+def search_to_number(value):
+    from search import to_number
+    return to_number(value) if value not in (None, "") else None
+
+
+def dashboard_url_choices(choices):
+    values = dict(choices)
+    values["min_load"] = "{:g}".format(choices["min_load"])
+    return values
+
+
+@app.route("/dashboard")
+def dashboard_page():
+    """
+    Interactive charts for the Explore selection: trends, comparisons across groups, distributions,
+    relationships, rankings and maps. Every choice is in the URL.
+    """
+    params, filters, result, frame = analysis_selection()
+    choices = dashboard_choices(params)
+    charts = []
+    if len(frame):
+        charts = [dashboard.json_safe(spec) for spec in dashboard.build_all(frame, choices)]
+    data_base = page_url("/dashboard/data", filters, **dashboard_url_choices(choices))
+    return render_template(
+        "dashboard.html",
+        choices=choices,
+        charts={spec["id"]: spec for spec in charts},
+        data_base=data_base,
+        variable_menu=analysis.variables_by_group(),
+        scatter_variables=[(key, analysis.variable_title(key)) for key in dashboard.SCATTER_VARIABLES],
+        group_options=analysis.GROUPS,
+        splits=dashboard.SPLITS,
+        scales=dashboard.SCALES,
+        correlation_methods=dashboard.CORRELATION_METHODS,
+        rank_levels=dashboard.RANK_LEVELS,
+        info=analysis.VARIABLES[choices["variable"]],
+        **selection_context(filters, result, frame, choices["variable"]),
+    )
+
+
+@app.route("/dashboard/data")
+def dashboard_data():
+    """The numbers behind one dashboard chart, as CSV or Excel with reproducibility metadata."""
+    params, filters, result, frame = analysis_selection()
+    choices = dashboard_choices(params)
+    spec = dashboard.build_one(frame, choices, request.args.get("chart", ""))
+    if spec is None:
+        abort(404)
+    labels = selection_labels(filters, result)
+    explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    lines = analysis.metadata("Chart data: " + spec["title"], frame, labels, explore_url, key=choices["variable"])
+    settings = ", ".join(f"{key}={value}" for key, value in dashboard_url_choices(choices).items())
+    lines.insert(2, ("Chart", spec["title"]))
+    lines.insert(3, ("Chart settings", settings))
+    if spec.get("note"):
+        lines.insert(4, ("Chart note", spec["note"]))
+    if spec.get("empty"):
+        lines.insert(4, ("Chart note", spec["empty"]))
+    return export_response(spec["table"]["columns"], spec["table"]["rows"], lines,
+                           ["chart", spec["id"], choices["variable"]], requested_format())
+
+
+# ---------- Phase 2: comparative analysis (proposal 4.5) ----------
+
+COMPARISON_DEFAULT_VARIABLE = "co2_intensity"
+
+
+def comparison_url_choices(params, definition, variable, scale):
+    values = {"cmp": definition["dimension"], "variable": variable, "scale": scale}
+    if definition["dimension"] == "period":
+        values.update({"pa_from": definition["a"]["from"], "pa_to": definition["a"]["to"],
+                       "pb_from": definition["b"]["from"], "pb_to": definition["b"]["to"]})
+        if definition["matched"]:
+            values["matched"] = "1"
+    elif definition["dimension"] not in ("so2_control", "nox_control"):
+        values.update({"a": definition.get("a_value"), "b": definition.get("b_value")})
+    return values
+
+
+def comparison_request():
+    params, filters, result, frame = analysis_selection()
+    variable = chosen_variable(params, COMPARISON_DEFAULT_VARIABLE)
+    scale = "linear" if params.get("scale") == "linear" else "log"
+    definition = comparison.choose(frame, params)
+    return params, filters, result, frame, variable, scale, definition
+
+
+@app.route("/comparison")
+def comparison_page():
+    """
+    Compare two groups of the selection (periods, states, fuels, unit types, control vs none,
+    facilities or units) on one variable and every normalized indicator.
+    """
+    params, filters, result, frame, variable, scale, definition = comparison_request()
+    outcome = None
+    if len(frame) and not definition["same"]:
+        outcome = comparison.compare(frame, variable, definition, scale)
+        outcome["charts"] = [dashboard.json_safe(spec) for spec in outcome["charts"]]
+    url_choices = comparison_url_choices(params, definition, variable, scale)
+    return render_template(
+        "comparison.html",
+        definition=definition,
+        outcome=outcome,
+        variable=variable,
+        scale=scale,
+        info=analysis.VARIABLES[variable],
+        dimensions=comparison.DIMENSIONS,
+        variable_menu=analysis.variables_by_group(),
+        caveats=comparison.CAVEATS,
+        download_base=page_url("/comparison/download", filters, **url_choices),
+        ranking_limit=comparison.RANKING_LIMIT,
+        **selection_context(filters, result, frame, variable),
+    )
+
+
+@app.route("/comparison/download")
+def comparison_download():
+    """Comparison results as CSV or Excel: what=summary, indicators or groups."""
+    params, filters, result, frame, variable, scale, definition = comparison_request()
+    if not len(frame) or definition["same"]:
+        abort(404)
+    outcome = comparison.compare(frame, variable, definition, scale)
+    what = request.args.get("what", "summary")
+    labels = selection_labels(filters, result)
+    explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    a_label = definition["a_label"]
+    b_label = definition["b_label"]
+
+    if what == "indicators":
+        columns, rows = comparison.indicators_table(outcome)
+        kind = "Comparison of normalized indicators"
+    elif what == "groups":
+        columns, rows = comparison.ranking_table(variable, definition["dimension"], outcome["ranking"])
+        kind = "Every group ranked"
+    else:
+        columns, rows = comparison.summary_table(variable, outcome)
+        kind = "Comparison summary statistics"
+    lines = analysis.metadata(kind, frame, labels, explore_url, key=variable)
+    lines.insert(2, ("Comparing", f"{definition['name']}: A = {a_label}, B = {b_label}"
+                     + (" (only units with records in both periods)" if definition["matched"] else "")))
+    lines.insert(3, ("Differences", "B − A; percentage difference = (B − A) ÷ |A| × 100"))
+    lines.insert(4, ("Tests", "Welch's t-test (unequal variances) with a 95% confidence interval; Mann–Whitney U "
+                              "(two-sided); one-way ANOVA and Kruskal–Wallis across groups (SciPy "
+                              + comparison.scipy_version() + ")"))
+    lines.insert(5, ("Caveats", " ".join(comparison.CAVEATS)))
+    return export_response(columns, rows, lines, ["comparison", definition["dimension"], variable, what],
+                           requested_format())
+
+
+# ---------- Phase 2: environmental and health impact indicators (proposal 4.6) ----------
+
+IMPACT_GROUPS = dict(analysis.GROUPS)
+IMPACT_GROUPS["unit"] = "Unit"
+
+
+def impact_labels(frame, by):
+    if by == "unit":
+        return analysis.unit_labels(frame)
+    return analysis.group_labels(frame, by)
+
+
+def impacts_request():
+    params, filters, result, frame = analysis_selection()
+    factors = traci.ensure_factors()
+    traci.add_impacts(frame, factors)
+    categories = traci.categories(factors)
+    keys = [key for key, _, _ in categories]
+    by = params.get("by") if params.get("by") in IMPACT_GROUPS else "state"
+    isort = params.get("isort") if params.get("isort") in keys else (keys[0] if keys else "")
+    per_mwh = params.get("per_mwh") == "1"
+    choices = {"by": by, "isort": isort, "per_mwh": per_mwh}
+    return params, filters, result, frame, factors, categories, choices
+
+
+def impact_group_rows(frame, factors, categories, choices):
+    """One row per group with every category's total and per-MWh value, sorted by the chosen category."""
+    labels = impact_labels(frame, choices["by"])
+    by_category = traci.summarize_groups(frame, factors, labels)
+    rows = {}
+    for key, _, _ in categories:
+        for item in by_category[key]:
+            row = rows.setdefault(item["group"], {"group": item["group"], "records": item["records"]})
+            row[key] = item
+    sort_field = "intensity" if choices["per_mwh"] else "total"
+
+    def sort_key(row):
+        value = row.get(choices["isort"], {}).get(sort_field)
+        return (value is None, -(value or 0), str(row["group"]))
+    return sorted(rows.values(), key=sort_key)
+
+
+def impact_metadata(kind, frame, filters, result, factors):
+    labels = selection_labels(filters, result)
+    explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    lines = analysis.metadata(kind, frame, labels, explore_url)
+    version = factors[0]["traci_version"] if factors else "none loaded"
+    extra = [
+        ("TRACI version", version),
+        ("TRACI source file", (f"{factors[0]['source_file']} (SHA-256 {factors[0]['source_sha256']})"
+                               if factors else "—")),
+        ("Official TRACI file", traci.OFFICIAL_URL),
+        ("Unit conversion", f"1 short ton = {traci.SHORT_TON_KG} kg"),
+        ("Formula", "Impact in category c = sum over pollutants of (mass in kg × TRACI factor for c). "
+                    "Categories are never added together. Impact per MWh = impact ÷ gross load of the same records."),
+        ("Missing values", "A record's category result is missing when any pollutant that category needs is "
+                           "missing; it is never set to 0."),
+    ]
+    for factor in factors:
+        extra.append((f"Factor: {traci.POLLUTANTS[factor['campd_pollutant']]['label']} → "
+                      f"{factor['impact_category_name']}",
+                      f"{factor['factor_value']:.10g} {factor['factor_unit']} ({factor['substance_name']}, "
+                      f"{factor['match_rule']}, {factor['source_sheet']} row {factor['source_row']})"))
+    extra.append(("Interpretation", traci.DISCLAIMER))
+    return lines[:2] + extra + lines[2:]
+
+
+@app.route("/impacts")
+def impacts():
+    """
+    Potential environmental and health impacts of the selection's CO2, SO2 and NOx, using EPA
+    TRACI 2.2 factors: totals, per-MWh intensity, pollutant contributions and results by group.
+    """
+    params, filters, result, frame, factors, categories, choices = impacts_request()
+    totals = traci.summarize(frame, factors) if len(frame) and factors else []
+    rows = impact_group_rows(frame, factors, categories, choices) if len(frame) and factors else []
+    charts = []
+    if totals:
+        charts = [dashboard.json_safe(dashboard.impact_share_chart(totals)),
+                  dashboard.json_safe(dashboard.impact_group_chart(rows, categories, choices,
+                                                                   IMPACT_GROUPS[choices["by"]]))]
+    url_choices = {"by": choices["by"], "isort": choices["isort"], "per_mwh": "1" if choices["per_mwh"] else ""}
+    sort_links = {key: page_url("/impacts", filters, **dict(url_choices, isort=key)) for key, _, _ in categories}
+    return render_template(
+        "impacts.html",
+        choices=choices,
+        totals=totals,
+        rows=rows[:analysis.GROUP_LIMIT],
+        group_count=len(rows),
+        group_limit=analysis.GROUP_LIMIT,
+        categories=categories,
+        factors=factors,
+        charts={spec["id"]: spec for spec in charts},
+        group_options=IMPACT_GROUPS,
+        pollutants=traci.POLLUTANTS,
+        disclaimer=traci.DISCLAIMER,
+        limitations=traci.LIMITATIONS,
+        short_ton_kg=traci.SHORT_TON_KG,
+        official_url=traci.OFFICIAL_URL,
+        traci_page=traci.TRACI_PAGE,
+        sort_links=sort_links,
+        per_mwh_link=page_url("/impacts", filters, **dict(url_choices, per_mwh="" if choices["per_mwh"] else "1")),
+        download_base=page_url("/impacts/download", filters, **url_choices),
+        **selection_context(filters, result, frame),
+    )
+
+
+@app.route("/impacts/download")
+def impacts_download():
+    """Impact results as CSV or Excel: what=totals, groups, records or factors."""
+    params, filters, result, frame, factors, categories, choices = impacts_request()
+    what = request.args.get("what", "totals")
+
+    if what == "factors":
+        columns, rows = traci.factors_table(factors)
+        kind = "TRACI characterization factors used"
+    elif what == "groups":
+        columns = [IMPACT_GROUPS[choices["by"]], "Records"]
+        for key, name, unit in categories:
+            columns += [f"{name} ({unit})", f"{name} per MWh ({unit}/MWh)", f"{name}: records used"]
+        rows = []
+        for row in impact_group_rows(frame, factors, categories, choices):
+            line = [row["group"], row["records"]]
+            for key, _, _ in categories:
+                item = row.get(key, {})
+                line += [item.get("total"), item.get("intensity"), item.get("used")]
+            rows.append(line)
+        kind = f"Potential impacts by {IMPACT_GROUPS[choices['by']].lower()}"
+    elif what == "records":
+        columns = ["Facility", "Facility ID", "State", "Unit", "Year", "Primary Fuel", "CO2 (short tons)",
+                   "SO2 (short tons)", "NOx (short tons)", "Gross Load (MWh)"]
+        names = ["facility_name", "facility_id", "state", "unit_id", "year", "primary_fuel", "co2_mass", "so2_mass",
+                 "nox_mass", "gross_load"]
+        for key, name, unit in categories:
+            columns.append(f"{name} ({unit})")
+            names.append(f"impact_{key}")
+        table = frame[names].astype("object").where(frame[names].notna(), None)
+        rows = table.values.tolist()
+        for row in rows:
+            for index in (1, 4):
+                if row[index] is not None:
+                    row[index] = int(row[index])
+        kind = "Potential impacts for every record"
+    else:
+        columns = ["Impact category", "Unit", "Total", "Records used", "Records missing a pollutant",
+                   "Gross load of records used (MWh)", "Impact per MWh"]
+        for pollutant in traci.POLLUTANT_ORDER:
+            label = traci.POLLUTANTS[pollutant]["label"]
+            columns += [f"From {label}", f"Share from {label} (%)"]
+        rows = []
+        for item in traci.summarize(frame, factors):
+            line = [item["name"], item["unit"], item["total"], item["used"], item["missing"], item["load_total"],
+                    item["intensity"]]
+            shares = {c["pollutant"]: c for c in item["contributions"]}
+            for pollutant in traci.POLLUTANT_ORDER:
+                part = shares.get(pollutant)
+                line += [part["amount"] if part else None, part["share"] if part else None]
+            rows.append(line)
+        kind = "Potential impact totals"
+
+    lines = impact_metadata(kind, frame, filters, result, factors)
+    return export_response(columns, rows, lines, ["impacts", what], requested_format())
 
 if __name__ == "__main__":
     app.run(debug=True)

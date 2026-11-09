@@ -547,7 +547,8 @@ METRIC_SORTS = {
 
 # Refinement filters a person can set from the sidebar (they override what the text said)
 REFINEMENTS = ["state", "reporting_year", "primary_fuel", "unit_type", "county", "source_category", "status",
-               "year_from", "year_to", "epa_facility_id", "epa_unit_id"]
+               "year_from", "year_to", "epa_facility_id", "epa_unit_id",
+               "so2_control", "nox_control", "pm_control", "program"]
 RANGE_FIELDS = ["co2_mass", "so2_mass", "nox_mass", "gross_load", "heat_input", "operating_time"]
 
 DEFAULT_ORDER = "annual_records.year DESC, annual_records.co2_mass IS NULL, annual_records.co2_mass DESC, facility.facility_name"
@@ -611,6 +612,48 @@ FACET_EXCLUDES = {
     "source_category": {"source_category", "source_like"},
     "status": {"status"},
 }
+
+# Refinements for fields that can list several values in one record ("Wet Limestone<br>Other",
+# "ARP, CSNOX"). Each value is counted separately; "none" means nothing was reported.
+# key: (label, column, separators, how many to show before "more")
+LIST_FACETS = {
+    "so2_control": ("SO2 control", "annual_records.so2_control_info", ("<br>", "|"), 6),
+    "nox_control": ("NOx control", "annual_records.nox_control_info", ("<br>", "|"), 6),
+    "pm_control": ("PM control", "annual_records.pm_control_info", ("<br>", "|"), 6),
+    "program": ("Emissions program", "annual_records.program_code", ("<br>", "|", ","), 8),
+}
+
+NO_VALUE = "none"
+
+
+def split_list(text, separators):
+    """'Wet Limestone<br>Other' -> ['Wet Limestone', 'Other']."""
+    text = str(text or "")
+    for separator in separators[1:]:
+        text = text.replace(separator, separators[0])
+    return [part.strip() for part in text.split(separators[0]) if part.strip()]
+
+
+def list_facet_items(connection, key, filters, terms, match_all):
+    """How many records have each control (or program), given all the other filters."""
+    _, column, separators, _ = LIST_FACETS[key]
+    where, values = where_for(filters, terms, match_all, exclude={key})
+    found = connection.execute(
+        f"SELECT {column} AS value, COUNT(*) AS n {BASE_JOIN} {where} GROUP BY value", values
+    ).fetchall()
+    counts = {}
+    for row in found:
+        parts = split_list(row["value"], separators)
+        if key == "program":
+            parts = [part.upper() for part in parts]
+        if not parts:
+            parts = [NO_VALUE]
+        for part in set(parts):
+            counts[part] = counts.get(part, 0) + row["n"]
+    items = [{"value": value, "count": count} for value, count in counts.items()]
+    items.sort(key=lambda item: (item["value"] == NO_VALUE, -item["count"], item["value"]))
+    return items
+
 
 PER_PAGE_CHOICES = [25, 50, 100]
 DEFAULT_PER_PAGE = 50
@@ -692,6 +735,10 @@ def explore(params, page=None, per_page=None, everything=False):
                 items.sort(key=lambda item: (-item["count"], str(item["value"])))
             facets[key] = {"label": label, "items": items, "show": show}
 
+        for key, (label, _, _, show) in LIST_FACETS.items():
+            facets[key] = {"label": label, "items": list_facet_items(connection, key, filters, terms, match_all),
+                           "show": show}
+
         for field in RANGE_FIELDS:
             column = f"annual_records.{field}"
             exclude = {f"{field}_min", f"{field}_max"}
@@ -716,6 +763,62 @@ def explore(params, page=None, per_page=None, everything=False):
         "facets": facets,
         "ranges": ranges,
     }
+
+
+HOURLY_VARIABLES = [
+    ("operating_time", "Operating time"),
+    ("gross_load", "Gross load"),
+    ("heat_input", "Heat input"),
+    ("co2_mass", "CO2 mass"),
+    ("so2_mass", "SO2 mass"),
+    ("nox_mass", "NOx mass"),
+    ("hg_mass", "Mercury mass"),
+]
+
+
+def hourly_summary(params):
+    """
+    The hourly records stored for the units in this selection (hourly data is imported a day at a
+    time from a facility page, so most units have none): how many, which units and dates, and the
+    missing values in each hourly variable.
+    """
+    parsed = parse_query(params.get("q", ""), autocorrect=params.get("exact") != "1")
+    filters = combined_filters(params, parsed)
+    terms = parsed["terms"]
+
+    connection = connect()
+    find_text_matches(connection, terms)
+    match_all = True
+    if terms and len(terms) > 1:
+        where, values = where_for(filters, terms, True)
+        if connection.execute(f"SELECT COUNT(*) {BASE_JOIN} {where}", values).fetchone()[0] == 0:
+            match_all = False
+    where, values = where_for(filters, terms, match_all)
+
+    missing_sql = ", ".join(f"SUM(hourly_record.{column} IS NULL)" for column, _ in HOURLY_VARIABLES)
+    try:
+        row = connection.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT hourly_record.internal_unit_key),"
+            f" COUNT(DISTINCT hourly_record.internal_unit_key || ' ' || substr(hourly_record.timestamp, 1, 10)),"
+            f" MIN(hourly_record.timestamp), MAX(hourly_record.timestamp), {missing_sql}"
+            f" FROM hourly_record WHERE hourly_record.internal_unit_key IN"
+            f" (SELECT DISTINCT unit.internal_unit_key {BASE_JOIN} {where})",
+            values,
+        ).fetchone()
+    except Exception:
+        row = None
+    connection.close()
+
+    if row is None or not row[0]:
+        return {"records": 0, "units": 0, "unit_days": 0, "first": None, "last": None, "missing": []}
+    total = row[0]
+    missing = []
+    for (column, label), count in zip(HOURLY_VARIABLES, row[5:]):
+        count = count or 0
+        missing.append({"group": "Hourly", "name": label, "missing": count, "total": total,
+                        "percent": count / total * 100})
+    return {"records": total, "units": row[1], "unit_days": row[2], "first": row[3], "last": row[4],
+            "missing": missing}
 
 
 # ---------- Suggestions while typing ----------

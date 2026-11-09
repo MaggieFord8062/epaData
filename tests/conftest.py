@@ -21,14 +21,25 @@ from sqlalchemy.orm import sessionmaker
 PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
-from models import Base, Dataset, Facility, Unit, AnnualRecord  # noqa: E402
+from models import Base, Dataset, Facility, Unit, AnnualRecord, HourlyRecord  # noqa: E402
 
 FACILITIES = [
-    # id, name, state
-    (1001, "Alpha Station", "KY"),
-    (1002, "Beta Plant", "KY"),
-    (2001, "Gamma Energy", "OH"),
+    # id, name, state, latitude, longitude (Gamma has no stored location)
+    (1001, "Alpha Station", "KY", 37.0, -86.4),
+    (1002, "Beta Plant", "KY", 38.2, -85.7),
+    (2001, "Gamma Energy", "OH", None, None),
 ]
+
+# Hourly records stored for unit 1 on one day (mercury missing in one hour)
+HOURLY = [
+    # timestamp, gross load, CO2, mercury
+    ("2024-07-01T00:00:00", 120.0, 110.0, 0.001),
+    ("2024-07-01T01:00:00", 118.0, 108.0, None),
+    ("2024-07-01T02:00:00", 121.0, 111.0, 0.001),
+]
+
+# Emissions programs reported by each unit (in CAMPD's comma-separated style)
+PROGRAMS = {1: "ARP, CSNOX, CSSO2G2", 2: "ARP, CSNOX", 3: "ARP, CSOSG2", 4: "CSNOX"}
 
 UNITS = [
     # unit key, facility, unit id, primary fuel, unit type
@@ -59,8 +70,9 @@ def build_fixture_database(path):
     session.add(Dataset(dataset_id=1, dataset_name="Test fixture", data_source="pytest",
                         retrieval_date="2026-10-26", num_raw_records=len(RECORDS),
                         num_accepted_records=len(RECORDS)))
-    for facility_id, name, state in FACILITIES:
-        session.add(Facility(epa_facility_id=facility_id, facility_name=name, state=state))
+    for facility_id, name, state, latitude, longitude in FACILITIES:
+        session.add(Facility(epa_facility_id=facility_id, facility_name=name, state=state,
+                             latitude=latitude, longitude=longitude))
     for key, facility_id, unit_id, fuel, unit_type in UNITS:
         session.add(Unit(internal_unit_key=key, epa_facility_id=facility_id, epa_unit_id=unit_id,
                          primary_fuel=fuel, unit_type=unit_type))
@@ -70,8 +82,11 @@ def build_fixture_database(path):
             epa_facility_id=facility_of[unit], internal_unit_key=unit, year=year, dataset_id=1,
             operating_time=hours, gross_load=load, heat_input=heat,
             co2_mass=co2, so2_mass=so2, nox_mass=nox,
-            so2_control_info=so2_control, nox_control_info=nox_control,
+            so2_control_info=so2_control, nox_control_info=nox_control, program_code=PROGRAMS[unit],
         ))
+    for timestamp, load, co2, mercury in HOURLY:
+        session.add(HourlyRecord(internal_unit_key=1, timestamp=timestamp, operating_time=1.0, gross_load=load,
+                                 heat_input=load * 10, co2_mass=co2, so2_mass=0.1, nox_mass=0.2, hg_mass=mercury))
     session.commit()
     session.close()
     engine.dispose()
