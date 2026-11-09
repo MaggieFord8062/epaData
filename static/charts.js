@@ -83,6 +83,35 @@
             continue;
         }
         Plotly.newPlot(node, spec.data, fitToWidth(spec.layout, node.offsetWidth), configFor(spec));
+        if (spec.explain) {
+            explainOnClick(node, spec.id);
+        }
+    }
+
+    // Charts whose points carry a worked calculation (the last item of customdata, a list of lines):
+    // clicking a bar shows that calculation in the panel under the chart.
+    function explainOnClick(node, id) {
+        node.on("plotly_click", function (event) {
+            var point = event.points && event.points[0];
+            var panel = document.getElementById("explain-" + id);
+            if (!point || !panel || !Array.isArray(point.customdata)) {
+                return;
+            }
+            var lines = point.customdata[point.customdata.length - 1];
+            if (!Array.isArray(lines) || lines.length === 0) {
+                return;
+            }
+            panel.textContent = "";
+            var heading = document.createElement("h4");
+            heading.textContent = lines[0];
+            panel.appendChild(heading);
+            for (var k = 1; k < lines.length; k++) {
+                var line = document.createElement("p");
+                line.textContent = lines[k];
+                panel.appendChild(line);
+            }
+            panel.hidden = false;
+        });
     }
 
     document.addEventListener("click", function (event) {

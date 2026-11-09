@@ -367,6 +367,7 @@ def summarize(frame, factors):
       and each pollutant's contribution and share.
     """
     results = []
+    lookup = factor_lookup(factors)
     for key, name, unit in categories(factors):
         column = f"impact_{key}"
         values = frame[column] if column in frame else pd.Series(dtype="float64")
@@ -385,9 +386,11 @@ def summarize(frame, factors):
             if part not in frame:
                 continue
             amount = float(frame.loc[used, part].sum()) if used.any() else None
+            tons = float(pd.to_numeric(frame.loc[used, pollutant], errors="coerce").sum()) if used.any() else None
             share = (amount / total * 100) if (total and amount is not None) else None
             contributions.append({"pollutant": pollutant, "label": POLLUTANTS[pollutant]["label"],
-                                  "amount": amount, "share": share})
+                                  "amount": amount, "share": share, "tons": tons,
+                                  "factor": lookup[key][pollutant]})
 
         results.append({
             "key": key, "name": name, "unit": unit,
@@ -400,6 +403,8 @@ def summarize(frame, factors):
             "intensity": intensity,
             "intensity_unit": unit + " per MWh",
             "contributions": contributions,
+            "calculation": calculation_lines(name, unit, contributions, total, load_total, intensity,
+                                             int(used.sum())),
         })
     return results
 
@@ -410,6 +415,7 @@ def summarize_groups(frame, factors, labels):
     Returns {category: [ {group, total, intensity, used, missing, contributions{pollutant: amount}} ]}.
     """
     output = {}
+    lookup = factor_lookup(factors)
     load = pd.to_numeric(frame["gross_load"], errors="coerce")
     for key, name, unit in categories(factors):
         column = f"impact_{key}"
@@ -423,6 +429,7 @@ def summarize_groups(frame, factors, labels):
             part = f"impact_{key}__{pollutant}"
             if part in frame:
                 data[pollutant] = frame[part].where(data["used"])
+                data["tons_" + pollutant] = pd.to_numeric(frame[pollutant], errors="coerce").where(data["used"])
                 parts.append(pollutant)
 
         grouped = data.groupby("group", sort=False)
@@ -435,6 +442,7 @@ def summarize_groups(frame, factors, labels):
         })
         for pollutant in parts:
             table[pollutant] = grouped[pollutant].sum(min_count=1)
+            table["tons_" + pollutant] = grouped["tons_" + pollutant].sum(min_count=1)
 
         rows = []
         for group, row in table.iterrows():
@@ -450,9 +458,75 @@ def summarize_groups(frame, factors, labels):
                 "total": None if pd.isna(row["total"]) else float(row["total"]),
                 "intensity": intensity,
                 "contributions": {p: (None if pd.isna(row[p]) else float(row[p])) for p in parts},
+                "tons": {p: (None if pd.isna(row["tons_" + p]) else float(row["tons_" + p])) for p in parts},
+                "factors": {p: lookup[key][p] for p in parts},
+                "load": None if pd.isna(load_used) else float(load_used),
             })
         output[key] = rows
     return output
+
+
+def number(value, decimals=1):
+    """
+    Numbers for calculation text, precise enough to redo the arithmetic by hand:
+    2202.7 -> "2,202.7", 1998255.84 -> "1,998,255.8"; trailing zeros are dropped. Values under 1
+    keep 4 significant digits.
+    """
+    if value is None:
+        return "—"
+    if value != 0 and abs(value) < 1:
+        return "{:.4g}".format(value)
+    text = "{:,.{places}f}".format(value, places=decimals)
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def plain(text):
+    return float(text.replace(",", ""))
+
+
+def calculation_lines(name, unit, parts, total, load=None, intensity=None, records=None, focus=None,
+                      heading=None):
+    """
+    The worked calculation behind one impact number, as lines of plain text, for example:
+        Acidification
+        SO2: 2,203 short tons × 907.18474 kg per short ton = 1,998,256 kg; × 1 kg SO2 eq per kg = 1,998,256 kg SO2 eq
+        NOx: 4,315 short tons × 907.18474 kg per short ton = 3,914,502 kg; × 0.7 kg SO2 eq per kg = 2,740,152 kg SO2 eq
+        Acidification = 1,998,256 + 2,740,152 = 4,738,407 kg SO2 eq
+        Per MWh: 4,738,407 kg SO2 eq ÷ 3,350,000 MWh = 1.41 kg SO2 eq per MWh
+    `parts` is a list of {label, tons, factor, amount}; `focus` names one pollutant to explain its share.
+    """
+    lines = [heading or name]
+    used_parts = [part for part in parts if part.get("amount") is not None and part.get("tons") is not None]
+    for part in used_parts:
+        kilograms = part["tons"] * SHORT_TON_KG
+        lines.append(f"{part['label']}: {number(part['tons'], 3)} short tons × {SHORT_TON_KG} kg per short ton = "
+                     f"{number(kilograms)} kg; × {part['factor']:.6g} {unit} per kg (TRACI factor) = "
+                     f"{number(part['amount'])} {unit}")
+    if total is not None:
+        if len(used_parts) > 1:
+            shown = [number(part["amount"]) for part in used_parts]
+            # "=" only when the rounded numbers on screen really add up; otherwise "≈"
+            sign = "=" if abs(sum(plain(x) for x in shown) - plain(number(total))) < 1e-6 else "≈"
+            lines.append(f"{name} = {' + '.join(shown)} {sign} {number(total)} {unit}")
+        else:
+            lines.append(f"{name} = {number(total)} {unit}")
+    if focus and len(used_parts) > 1:
+        part = next((p for p in used_parts if p["label"] == focus), None)
+        if part and total:
+            lines.append(f"{focus}'s share = {number(part['amount'])} ÷ {number(total)} = "
+                         f"{part['amount'] / total * 100:.1f}%")
+    if load and intensity is not None:
+        numerator = intensity * load
+        line = (f"Per MWh: {number(numerator)} {unit} ÷ {number(load)} MWh of gross load = "
+                f"{number(intensity, 4)} {unit} per MWh")
+        if total is not None and abs(numerator - total) > abs(total) * 1e-9:
+            line += " (records with no gross load are left out of this step)"
+        lines.append(line)
+    if records is not None:
+        lines.append(f"Uses {records:,} records that report every pollutant this category needs.")
+    return lines
 
 
 def factors_table(factors):

@@ -56,6 +56,12 @@
                 From {% for part in item.contributions %}{{ part.label }}{{ ", " if not loop.last else "" }}{% endfor %}.
                 {{ "{:,}".format(item.used) }} records{% if item.missing %}; {{ "{:,}".format(item.missing) }} missing a pollutant and left out{% endif %}.
             </p>
+            <details class="impact-calculation">
+                <summary>How this was calculated</summary>
+                {% for line in item.calculation[1:] %}
+                <p>{{ line }}</p>
+                {% endfor %}
+            </details>
         </article>
         {% endfor %}
     </div>

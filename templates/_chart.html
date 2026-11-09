@@ -14,7 +14,11 @@
     {% else %}
     <div class="chart-plot" data-chart="{{ spec.id }}" role="img" aria-label="{{ spec.title }}" style="min-height: {{ spec.layout.height or 400 }}px"></div>
     <script type="application/json" id="spec-{{ spec.id }}">{{ spec|tojson }}</script>
+    {% if spec.explain %}
+    <div class="chart-explain" id="explain-{{ spec.id }}" aria-live="polite" hidden></div>
+    {% endif %}
     <figcaption>
+        {% if spec.explain %}<p class="chart-note chart-hint">{{ spec.explain }}</p>{% endif %}
         {% if spec.note %}<p class="chart-note">{{ spec.note }}</p>{% endif %}
         <div class="chart-actions">
             <button type="button" class="btn-link" data-png="{{ spec.id }}">PNG image</button>

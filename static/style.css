@@ -2339,3 +2339,46 @@ p.test-results {
     }
 }
 
+.chart-explain {
+    margin-top: 12px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: var(--gray-1);
+    border: 1px solid var(--hairline);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.chart-explain h4 {
+    margin: 0 0 8px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.chart-explain p {
+    margin: 0 0 6px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.chart-hint {
+    color: var(--ink);
+}
+
+.impact-calculation {
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.impact-calculation summary {
+    color: var(--ink-2);
+    cursor: pointer;
+}
+
+.impact-calculation p {
+    margin: 8px 0 0;
+    color: var(--ink-2);
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}

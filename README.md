@@ -183,7 +183,7 @@ After step 3, each of these should work exactly as described.
 | 20 | On the dashboard choose **Variable: CO2 intensity** and **Compare by: Primary fuel** | Charts switch to overall CO2 intensity; hover any chart for values, **PNG image** saves it, **Data CSV** saves its numbers with metadata |
 | 21 | **Compare** → **Reporting periods**, A = 2015 to 2017, B = 2023 to 2025, tick **Only units with records in both periods** | Summary statistics for both periods, differences, every normalized indicator, Welch's t-test and Mann–Whitney results in plain language, and every year ranked |
 | 22 | **Compare** → **With vs. without an SO2 control**, variable **SO2 intensity** | Units without an SO2 control against units with one |
-| 23 | **Impacts** | Potential global warming, acidification, particulate matter and smog totals, per MWh, with each pollutant's share and the TRACI factors used |
+| 23 | **Impacts** | Potential global warming, acidification, particulate matter and smog totals, per MWh, with each pollutant's share and the TRACI factors used; click any bar, or open **How this was calculated**, to see the arithmetic |
 | 24 | On Impacts, **Group by: Facility**, then **Show per MWh** | Facilities ranked by potential impact per MWh of generation |
 
 ---
@@ -420,7 +420,7 @@ impact per MWh         = impact ÷ gross load of the same records
 
 There is no approximate name matching: TRACI also lists NITROGEN DIOXIDE and NITRIC OXIDE with different factors, and they are never used. If a rule finds no row or more than one, the import stops with an error. Each category keeps its own unit and categories are never added together. A record missing a pollutant that a category needs is left out of that category, never counted as 0. The `traci_factor` table stores the TRACI version, CAMPD pollutant, TRACI substance, CAS number, match rule, medium, impact category, factor, unit, source file, its SHA-256, and the sheet, row and column each factor came from; every impact export repeats them.
 
-The page shows totals and per-MWh values for the selection, each pollutant's share of each category, results by state, fuel, unit type, year, facility, unit or control group, and the factors used. These are **potential** impacts for comparison; they do not measure actual illness, local exposure or proven environmental damage. TRACI 2.2 removed its eutrophication factors (EPA moved them to a separate spatial dataset), so eutrophication is not included.
+Every number shows its own arithmetic: each total has a **How this was calculated** section, and clicking any bar in the impact charts opens the worked calculation behind it (tons × 907.18474 = kg, × the TRACI factor, added within the category, ÷ gross load for per MWh), using that bar's actual numbers. The page shows totals and per-MWh values for the selection, each pollutant's share of each category, results by state, fuel, unit type, year, facility, unit or control group, and the factors used. These are **potential** impacts for comparison; they do not measure actual illness, local exposure or proven environmental damage. TRACI 2.2 removed its eutrophication factors (EPA moved them to a separate spatial dataset), so eutrophication is not included.
 
 The official workbook: https://www.epa.gov/system/files/documents/2024-01/traci_2_2.xlsx (the extract in `data/` was made from the identical copy in EPA's GitHub repository, https://github.com/USEPA/TRACI, file `TraciTool/TRACI_2_2.xlsx`, with `python traci.py extract`).
 
@@ -441,4 +441,4 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 
-Expected result: all 64 tests pass.
+Expected result: all 66 tests pass.

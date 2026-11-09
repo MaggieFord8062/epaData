@@ -793,26 +793,36 @@ def impact_share_chart(totals):
     import traci
 
     title = "Where each potential impact comes from"
-    names = [item["name"] for item in totals if item["total"]]
-    if not names:
+    shown = [item for item in totals if item["total"]]
+    if not shown:
         return empty_chart("impact_shares", title, "No impact could be calculated for this selection.")
+    names = [item["name"] for item in shown]
     data = []
     for pollutant in traci.POLLUTANT_ORDER:
         label = traci.POLLUTANTS[pollutant]["label"]
         shares = []
-        amounts = []
-        for item in totals:
-            if not item["total"]:
-                continue
+        details = []
+        for item in shown:
             part = next((c for c in item["contributions"] if c["pollutant"] == pollutant), None)
-            shares.append(clean(part["share"]) if part else None)
-            amounts.append([clean(part["amount"]) if part else None, item["unit"]])
+            if part is None or part["amount"] is None:
+                shares.append(None)
+                details.append(["", "", []])
+                continue
+            shares.append(clean(part["share"]))
+            summary = f"{label}: {part['share']:.1f}% of {item['name']}"
+            short = (f"{traci.number(part['tons'], 3)} short tons × {traci.SHORT_TON_KG} × {part['factor']:.6g} = "
+                     f"{traci.number(part['amount'])} {item['unit']}")
+            lines = traci.calculation_lines(item["name"], item["unit"], item["contributions"], item["total"],
+                                            records=item["used"], focus=label,
+                                            heading=f"{item['name']}: the part from {label}")
+            details.append([summary, short, lines])
         if all(share is None for share in shares):
             continue
         data.append({
-            "type": "bar", "orientation": "h", "name": label, "x": shares, "y": names, "customdata": amounts,
+            "type": "bar", "orientation": "h", "name": label, "x": shares, "y": names, "customdata": details,
             "marker": {"color": POLLUTANT_COLORS[pollutant], "line": {"color": SURFACE, "width": 2}},
-            "hovertemplate": label + ": <b>%{x:.1f}%</b> (%{customdata[0]:,.4~g} %{customdata[1]})<extra></extra>",
+            "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
+                             "<extra></extra>",
         })
     figure = layout(title, "Share of the category total (%)", "", height=max(260, 56 * len(names) + 120),
                     barmode="stack", showlegend=True, bargap=0.35)
@@ -830,7 +840,9 @@ def impact_share_chart(totals):
         rows.append([item["name"], item["unit"], clean(item["total"])]
                     + [clean(shares.get(p)) for p in traci.POLLUTANT_ORDER])
     note = "Each bar is one impact category. Categories are never added together because their units differ."
-    return chart("impact_shares", title, data, figure, columns, rows, note)
+    spec = chart("impact_shares", title, data, figure, columns, rows, note)
+    spec["explain"] = "Click any part of a bar to see exactly how its number was calculated."
+    return spec
 
 
 IMPACT_CHART_LIMIT = 15
@@ -853,12 +865,29 @@ def impact_group_chart(rows, categories, choices, group_name):
     shown = usable[:IMPACT_CHART_LIMIT]
     names = [text(row["group"]) for row in shown]
     value_unit = unit + (" per MWh" if per_mwh else "")
+    def parts_for(item):
+        parts = []
+        for pollutant in traci.POLLUTANT_ORDER:
+            if pollutant not in item["contributions"]:
+                continue
+            parts.append({"label": traci.POLLUTANTS[pollutant]["label"], "tons": item["tons"].get(pollutant),
+                          "factor": item["factors"][pollutant], "amount": item["contributions"].get(pollutant)})
+        return parts
 
     if per_mwh:
+        details = []
+        for row in shown:
+            item = row[key]
+            lines = traci.calculation_lines(name, unit, parts_for(item), item["total"], item["load"],
+                                            item["intensity"], item["used"], heading=f"{name}: {row['group']}")
+            details.append([f"{text(row['group'])}: {traci.number(item['intensity'], 4)} {value_unit}",
+                            f"{traci.number(item['intensity'] * item['load'])} {unit} ÷ "
+                            f"{traci.number(item['load'])} MWh", lines])
         data = [{
             "type": "bar", "orientation": "h", "x": [clean(row[key]["intensity"]) for row in shown], "y": names,
-            "marker": {"color": SERIES[0]},
-            "hovertemplate": "%{y}<br><b>%{x:,.4~g} " + value_unit + "</b><extra></extra>",
+            "customdata": details, "marker": {"color": SERIES[0]},
+            "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
+                             "<extra></extra>",
         }]
         legend = False
     else:
@@ -866,11 +895,25 @@ def impact_group_chart(rows, categories, choices, group_name):
         pollutants = [p for p in traci.POLLUTANT_ORDER if p in shown[0][key]["contributions"]]
         for pollutant in pollutants:
             label = traci.POLLUTANTS[pollutant]["label"]
+            details = []
+            for row in shown:
+                item = row[key]
+                amount = item["contributions"].get(pollutant)
+                tons = item["tons"].get(pollutant)
+                if amount is None or tons is None:
+                    details.append(["", "", []])
+                    continue
+                lines = traci.calculation_lines(name, unit, parts_for(item), item["total"], records=item["used"],
+                                                focus=label, heading=f"{name}: {row['group']}, the part from {label}")
+                details.append([f"{text(row['group'])}: {label} {traci.number(amount)} {unit}",
+                                f"{traci.number(tons, 3)} short tons × {traci.SHORT_TON_KG} × "
+                                f"{item['factors'][pollutant]:.6g}", lines])
             data.append({
                 "type": "bar", "orientation": "h", "name": label, "y": names,
-                "x": [clean(row[key]["contributions"].get(pollutant)) for row in shown],
+                "x": [clean(row[key]["contributions"].get(pollutant)) for row in shown], "customdata": details,
                 "marker": {"color": POLLUTANT_COLORS[pollutant], "line": {"color": SURFACE, "width": 2}},
-                "hovertemplate": label + ": <b>%{x:,.4~g} " + unit + "</b><extra>%{y}</extra>",
+                "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
+                                 "<extra></extra>",
             })
         legend = len(pollutants) > 1
     figure = layout(title, f"{name} ({value_unit})", "", height=max(280, 34 * len(names) + 130),
@@ -886,4 +929,6 @@ def impact_group_chart(rows, categories, choices, group_name):
     note = f"The {len(shown)} highest of {len(usable)} groups."
     if not per_mwh and len(data) > 1:
         note += " Each bar is split by the pollutant it comes from."
-    return chart("impact_groups", title, data, figure, columns, table, note)
+    spec = chart("impact_groups", title, data, figure, columns, table, note)
+    spec["explain"] = "Click any bar to see exactly how its number was calculated."
+    return spec
