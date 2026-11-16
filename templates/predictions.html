@@ -1,0 +1,328 @@
+
+{% extends "base.html" %}
+
+{% block title %}Predictions - epaData{% endblock %}
+
+{% block content %}
+
+<div class="page-head">
+    <h1>Emissions Predictions</h1>
+    <p>
+        Train and evaluate prediction models using historical EPA emissions data.
+        Compare model predictions against actual emissions and explore future estimates.
+    </p>
+</div>
+
+<!-- Prediction settings -->
+<section class="section">
+    <h2 class="section-title">Prediction Settings</h2>
+
+    <p class="section-intro">
+        Annual CO2 emissions prediction using historical EPA data.
+    </p>
+
+    <div class="prediction-settings-grid">
+
+        <div class="prediction-setting">
+            <span>Target Variable</span>
+            <p>CO2 Emissions</p>
+        </div>
+
+        <div class="prediction-setting">
+            <span>Testing Year</span>
+            <p>2025</p>
+        </div>
+
+        <div class="prediction-setting">
+            <span>Training Years</span>
+            <p>2015–2022</p>
+        </div>
+
+        <div class="prediction-setting">
+            <span>Validation Years</span>
+            <p>2023–2024</p>
+        </div>
+
+    </div>
+</section>
+
+<section class="section">
+    <details>
+        <summary class="section-title">Historical CO₂ Data (1995–2025)</summary>
+
+        <p class="section-intro">
+            Annual CO₂ emissions retrieved from the epaData database.
+        </p>
+
+        <div class="table-wrap">
+            <table class="data">
+                <thead>
+                    <tr>
+                        <th>Year</th>
+                        <th class="num">Total CO₂ Emissions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for record in annual_totals %}
+                    <tr>
+                        <td>{{ record.year }}</td>
+                        <td class="num">
+                            {{ "{:,.2f}".format(record.co2_total) }}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="2">No annual CO₂ data found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+</section>
+
+
+<!-- Model predictions -->
+<section class="section">
+    <h2 class="section-title">2025 Model Predictions</h2>
+
+    <p class="section-intro">
+        Comparison of predicted and actual annual CO2 emissions.
+    </p>
+
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Model</th>
+                    <th class="num">Predicted CO2</th>
+                    <th class="num">Actual CO2</th>
+                    <th class="num">MAE</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for name, result in test_results.items() %}
+                <tr>
+                    <td>{{ name }}</td>
+                    <td class="num">
+                        {{ "{:,.2f}".format(result.predicted) }}
+                    </td>
+                    <td class="num">
+                        {{ "{:,.2f}".format(result.actual) }}
+                    </td>
+                    <td class="num">
+                        {{ "{:,.2f}".format(result.mae) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- Model evaluation -->
+<section class="section">
+    <h2 class="section-title">Model Evaluation</h2>
+
+    <p>
+        The models were evaluated using Mean Absolute Error (MAE)
+        and Root Mean Squared Error (RMSE). Lower values indicate
+        better prediction accuracy.
+    </p>
+
+    <h3>Best Performing Model</h3>
+
+    <p>
+        The Decision Tree model performed best on the 2025 test data,
+        with an MAE of approximately 27.7 million and an RMSE of
+        approximately 27.7 million.
+    </p>
+
+    <h3>Evaluation Limitations</h3>
+
+    <ul>
+        <li>The validation period only includes 2023 and 2024.</li>
+        <li>The test period only includes 2025.</li>
+        <li>The Decision Tree produces a flat forecast beyond the
+            historical training years.</li>
+    </ul>
+</section>
+
+<!-- Future predictions -->
+<section class="section">
+    <h2 class="section-title">Future Emissions Forecast</h2>
+
+    <p class="section-intro">
+        Predicted annual CO2 emissions for 2026–2030
+        using three different prediction models.
+    </p>
+
+    <div class="table-wrap">
+        <table class="data">
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th class="num">Mean Baseline</th>
+                    <th class="num">Linear Regression</th>
+                    <th class="num">Decision Tree</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for row in forecasts %}
+                <tr>
+                    <td>{{ row.year }}</td>
+
+                    <td class="num">
+                        {{ "{:,.2f}".format(row["Mean Baseline"]) }}
+                    </td>
+
+                    <td class="num">
+                        {{ "{:,.2f}".format(row["Linear Regression"]) }}
+                    </td>
+
+                    <td class="num">
+                        {{ "{:,.2f}".format(row["Decision Tree"]) }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="section">
+    <h2 class="section-title">Historical vs. Predicted CO2 Emissions</h2>
+
+    <p class="section-intro">
+        Historical annual CO2 emissions compared with model forecasts
+        for 2026–2030.
+    </p>
+
+    <div id="co2ForecastChart" style="width: 100%; height: 450px;"></div>
+    
+</section>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const historicalYears = [
+        {% for row in annual_totals %}
+            {{ row.year|tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const historicalCO2 = [
+        {% for row in annual_totals %}
+            {{ row.co2_total|tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const futureYears = [
+        {% for row in forecasts %}
+            {{ row.year|tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const actual2025 = historicalCO2[historicalYears.indexOf(2025)];
+
+    const forecastYears = [2025, ...futureYears];
+
+    const meanBaseline = [
+        actual2025,
+        {% for row in forecasts %}
+            {{ row["Mean Baseline"]|tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const linearRegression = [
+        actual2025,
+        {% for row in forecasts %}
+            {{ row["Linear Regression"]|tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const decisionTree = [
+        actual2025,
+        {% for row in forecasts %}
+            {{ row["Decision Tree"]|tojson }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const traces = [
+        {
+            x: historicalYears,
+            y: historicalCO2,
+            mode: "lines+markers",
+            name: "Historical CO2",
+            line: { width: 3 }
+        },
+        {
+            x: forecastYears,
+            y: meanBaseline,
+            mode: "lines+markers",
+            name: "Mean Baseline",
+            line: { dash: "dash" }
+        },
+        {
+            x: forecastYears,
+            y: linearRegression,
+            mode: "lines+markers",
+            name: "Linear Regression",
+            line: { dash: "dash" }
+        },
+        {
+            x: forecastYears,
+            y: decisionTree,
+            mode: "lines+markers",
+            name: "Decision Tree",
+            line: { dash: "dash" }
+        }
+    ];
+
+    const layout = {
+        title: "Annual CO2 Emissions: Historical Data and Forecast",
+
+        xaxis: {
+            title: "Year",
+            dtick: 2
+        },
+
+        yaxis: {
+            title: {
+                text: "CO2 Emissions (database units)",
+                standoff: 35
+            },
+            tickformat: ",.0f",
+            automargin: true
+        },
+
+        hovermode: "x unified",
+
+        legend: {
+            orientation: "h",
+            y: -0.25
+        },
+
+        margin: {
+            t: 60,
+            b: 100,
+            l: 140,
+            r: 30
+        }
+    };
+
+    Plotly.newPlot(
+        "co2ForecastChart",
+        traces,
+        layout,
+        { responsive: true }
+    );
+
+});
+</script>
+
+
+
+{% endblock %}

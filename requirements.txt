@@ -26,3 +26,5 @@ scipy==1.13.1; python_version < "3.10"
 scipy==1.15.3; python_version >= "3.10"
 # Phase 2: automated tests
 pytest==8.3.5
+# Phase 2: Prediction
+scikit-learn

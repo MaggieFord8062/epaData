@@ -2148,3 +2148,42 @@ p.test-results {
         padding-top: 0;
     }
 }
+
+.prediction-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px 40px;
+    margin-top: 28px;
+}
+
+.prediction-setting {
+    border-top: 1px solid #dedee5;
+    border-bottom: 1px solid #dedee5;
+    padding: 28px 0;
+}
+
+.prediction-setting span {
+    display: block;
+    color: #77777f;
+    font-size: 15px;
+    margin-bottom: 12px;
+}
+
+.prediction-setting p {
+    font-size: 23px;
+    color: #25252a;
+    margin: 0;
+    font-weight: 400;
+}
+
+@media (max-width: 900px) {
+    .prediction-settings-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 550px) {
+    .prediction-settings-grid {
+        grid-template-columns: 1fr;
+    }
+}

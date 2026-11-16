@@ -55,6 +55,6 @@
 {%- endmacro %}
 
 {% macro chart_scripts() -%}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js" defer></script>
+<script src="{{ url_for('static', filename='plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='charts.js') }}" defer></script>
 {%- endmacro %}

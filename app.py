@@ -15,6 +15,7 @@ from database import SessionLocal
 from client import CAMPDClient, CAMPDError
 from dotenv import load_dotenv
 from models import Facility, Unit, AnnualRecord, HourlyRecord, Dataset, UploadedFile
+from prediction import train_prediction_models, get_annual_co2_totals, generate_forecast
 import analysis
 import comparison
 import dashboard
@@ -2001,5 +2002,21 @@ def impacts_download():
     lines = impact_metadata(kind, frame, filters, result, factors)
     return export_response(columns, rows, lines, ["impacts", what], requested_format())
 
+# ---------- Predictions page ----------
+@app.route("/predictions")
+def predictions():
+    results = train_prediction_models()
+
+    annual_totals = get_annual_co2_totals()
+
+    forecasts = generate_forecast()
+
+    return render_template(
+        "predictions.html",
+        annual_totals=annual_totals,
+        validation_results=results["validation_results"],
+        test_results=results["test_results"],
+        forecasts=forecasts
+    )
 if __name__ == "__main__":
     app.run(debug=True)
