@@ -4,7 +4,7 @@
 
 epaData is a Flask + SQLite web application for the U.S. EPA's Clean Air Markets Program Data (CAMPD). It pulls annual and hourly emissions for every covered power-plant unit through the EPA CAM API, validates every record, stores it in a relational database with full provenance, and lets users search, rank, compare and download the data. Users can also upload their own CSV or Excel files, which go through the same validation before anything is saved.
 
-Phase 1 of the WKU course project (Data Management Website), extended in Phase 2 into a data analysis and decision-support system: descriptive statistics and derived indicators, an interactive dashboard, comparative analysis, and EPA TRACI 2.2 impact indicators (section 12).
+Phase 1 of the WKU course project (Data Management Website), extended in Phase 2 into a data analysis and decision-support system: descriptive statistics and derived indicators, an interactive dashboard, comparative analysis, EPA TRACI 2.2 impact indicators, prediction models, and sensitivity and scenario analysis (section 12).
 Team: **Danny Rios** and **Maggie Ford**.
 
 ---
@@ -184,7 +184,14 @@ After step 3, each of these should work exactly as described.
 | 21 | **Compare** → **Reporting periods**, A = 2015 to 2017, B = 2023 to 2025, tick **Only units with records in both periods** | Summary statistics for both periods, differences, every normalized indicator, Welch's t-test and Mann–Whitney results in plain language, and every year ranked |
 | 22 | **Compare** → **With vs. without an SO2 control**, variable **SO2 intensity** | Units without an SO2 control against units with one |
 | 23 | **Impacts** | Potential global warming, acidification, particulate matter and smog totals, per MWh, with each pollutant's share and the TRACI factors used; click any bar, or open **How this was calculated**, to see the arithmetic |
-| 24 | On Impacts, **Group by: Facility**, then **Show per MWh** | Facilities ranked by potential impact per MWh of generation |
+| 24 | On Impacts, **Group by: Facility**, then **Per MWh** | Facilities ranked by potential impact per MWh of generation |
+| 25 | **Statistics** → variable **CO2 intensity** → scroll to **Unusual observations** | Records outside Tukey's fences (Q1 − 1.5 × IQR, Q3 + 1.5 × IQR), the most extreme on each side, and a download of all of them |
+| 26 | **Predictions** (every record, or any Explore selection with at least three years) | The target and inputs, the excluded inputs (leakage), the train / validate / test years, and each model's MAE, RMSE, R² and weighted % error on the test year; the decision tree or linear regression is marked **Chosen** (lowest validation error) |
+| 27 | On Predictions, switch the pollutant to **SO2**, then **NOx** | The same three models trained for that pollutant; each run is saved in `trained_models/` and the `prediction_model` table and reopened on the next visit |
+| 28 | Scroll to **Year-trend forecast** | The selection's annual total with the three year-only models and their five-year forecast; the test-year scores and the forecast table |
+| 29 | **Scenarios** | A baseline unit from the test year, its inputs and prediction; the one-at-a-time curve (heat input by default, −50% to +50% in 10% steps) with the baseline marked and out-of-range values shaded; and every named scenario with its absolute and % change |
+| 30 | On Scenarios choose **Range in: Values**, From 0, To a number above the training maximum | The extra points are drawn as open circles in a shaded **Outside training range** region and flagged in the table and download |
+| 31 | **Download** on Predictions and Scenarios | CSV or Excel files whose top lines list the target, inputs, excluded inputs, training / validation / test years, every model's settings, the saved model file and its SHA-256, the baseline, what was held constant, and the software versions |
 
 ---
 
@@ -198,6 +205,8 @@ After step 3, each of these should work exactly as described.
 | Dashboard | `/dashboard` | Interactive Plotly charts: trends, comparisons, distributions, relationships, rankings, maps (Phase 2) |
 | Compare | `/comparison` | Two groups side by side: periods, states, fuels, unit types, control vs none, facilities, units; tests in plain language (Phase 2) |
 | Impacts | `/impacts` | EPA TRACI 2.2 potential-impact indicators for CO2, SO2 and NOx, totals, per MWh and by group (Phase 2) |
+| Predictions | `/predictions` | A mean baseline, linear regression and a decision tree for a unit's annual CO2, SO2 or NOx, tested chronologically; a year-trend forecast of the annual total (Phase 2) |
+| Scenarios | `/scenarios` | One-variable-at-a-time sensitivity curves and named what-if scenarios on a fitted model, with out-of-range warnings (Phase 2) |
 | All tools | `/search` | Basic and multi-criteria search on every field, with range and comparison operators |
 | Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state) |
 | Compare | `/compare` | Up to four facilities side by side |
@@ -261,22 +270,27 @@ epaData/
 ├── dashboard.py         Phase 2: every dashboard chart (Plotly figure + the table behind it)
 ├── comparison.py        Phase 2: two-group comparisons, statistical tests, group rankings
 ├── traci.py             Phase 2: TRACI 2.2 import (exact matching) and impact calculation
+├── prediction.py        Phase 2: unit models and year-trend forecast; saving models with joblib
+├── scenarios.py         Phase 2: one-variable-at-a-time sensitivity and scenario comparison
+├── model_charts.py      Phase 2: the Predictions and Scenarios charts
 ├── data/
 │   └── traci_2_2_campd_factors.csv   The 6 TRACI 2.2 factors used, extracted from EPA's workbook
 ├── requirements.txt     Python packages
 ├── .env.example         Template for .env (copy it, then add your EPA API key)
 ├── tests/               Automated tests (pytest) with a small fixture database
-├── static/charts.js     Draws the dashboard charts in the browser with Plotly.js
-├── static/vendor/       Plotly.js 2.35.2 and the U.S. map outline, so charts work offline
 ├── static/
-│   ├── style.css        The one stylesheet
+│   ├── style.css        The one stylesheet (the site's design system, section 12.8)
+│   ├── nav.js           Global nav flyouts, search panel and phone menu; local nav menu
+│   ├── charts.js        Draws every chart in the browser with Plotly.js
 │   ├── suggest.js       Search suggestions as you type
-│   └── picker.js        Facility picker for Compare and History
+│   ├── picker.js        Facility picker for Compare and History
+│   └── vendor/          Plotly.js 2.35.2 and the U.S. map outline, so charts work offline
 ├── templates/           Jinja templates (base.html plus one per page)
-└── uploads/             Original uploaded files (created automatically, not committed)
+├── uploads/             Original uploaded files (created automatically, not committed)
+└── trained_models/      Fitted prediction models saved with joblib (created automatically, not committed)
 ```
 
-Not committed (see `.gitignore`): `.env`, `.venv/`, `epaData.db`, `uploads/`, `__pycache__/`, `.idea/`.
+Not committed (see `.gitignore`): `.env`, `.venv/`, `epaData.db`, `uploads/`, `trained_models/`, `__pycache__/`, `.idea/`.
 
 ---
 
@@ -303,6 +317,7 @@ facility ──► unit ──► annual_records         uploaded_file      hour
 | `dataset` | `dataset_id` | name, source, reporting year, retrieval/upload date, original filename, query parameters (JSON), raw and accepted counts, notes |
 | `uploaded_file` | `upload_id` | original filename, stored path, type, size, upload time, status (pending / imported / cancelled), rows read / ready / rejected, dataset key |
 | `hourly_records` | `hourly_records_id` | unit and dataset keys; timestamp; operating time, gross load, steam load, heat input; CO₂, SO₂, NOx, mercury mass |
+| `prediction_model` | `prediction_model_id` | run key (shared by the three models fitted together), target, model kind and name, chosen flag, features (JSON), parameters (JSON), training / validation / test years and record counts, validation and test scores (JSON), selection fingerprint and filters, joblib file path and SHA-256, software versions. **Unique on (run key, model kind)** (Phase 2) |
 | `traci_factor` | `traci_factor_id` | TRACI version, CAMPD pollutant, TRACI substance, CAS number, match rule, medium, impact category, factor value and unit, source file, SHA-256, sheet, row and column, import time, dataset key. **Unique on (version, pollutant, medium, category)** (Phase 2) |
 
 Indexes cover every commonly searched column: state, county, fuel, unit type, year, source category and the emission and load amounts.
@@ -326,16 +341,18 @@ Indexes cover every commonly searched column: state, county, fuel, unit type, ye
 ## 11. Data sources and acknowledgments
 
 - **U.S. EPA Clean Air Markets Program Data (CAMPD)**, CAM API: annual and hourly apportioned emissions, MATS hourly mercury, facility attributes. https://campd.epa.gov · https://www.epa.gov/power-sector/cam-api-portal
-- **U.S. EPA TRACI** characterization factors (to be used in Phase 2). https://www.epa.gov/chemical-research/tool-reduction-and-assessment-chemicals-and-other-environmental-impacts-traci
+- **U.S. EPA TRACI** characterization factors. https://www.epa.gov/chemical-research/tool-reduction-and-assessment-chemicals-and-other-environmental-impacts-traci
 - EPA TRACI 2.2 (Tool for the Reduction and Assessment of Chemicals and other environmental Impacts), updated 3/2/2022: https://www.epa.gov/traci
-- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, SciPy, pytest; Plotly.js 2.35.2 (MIT license, included in `static/vendor/` with its U.S. map outline).
+- Libraries: Flask, Jinja2, Werkzeug, SQLAlchemy, requests, python-dotenv, openpyxl, pandas, NumPy, SciPy, scikit-learn, joblib, pytest; Plotly.js 2.35.2 (MIT license, included in `static/vendor/` with its U.S. map outline).
+- Pedregosa et al., *Scikit-learn: Machine Learning in Python*, JMLR 12, 2011 (linear regression, decision trees, metrics).
+- Design: the interface follows the design language of apple.com (type scale, navigation, colors, spacing). No Apple logos, images, icons or font files are included; text uses each visitor's own system font.
 - **Generative AI disclosure:** Claude (Anthropic) was used as a coding assistant for parts of the implementation, debugging and documentation. All code was reviewed, run and tested by the team.
 
 ---
 
 ## 12. Phase 2: analysis
 
-Every analysis page works on **exactly the records the Explore page shows**. Search or refine in Explore, then use the **Analyze** links next to the download buttons (Statistics, Dashboard, Compare, Impacts). The Explore filters travel in the URL, the tabs at the top of each analysis page keep them, and every choice on a page is also in the URL, so any analysis can be bookmarked, shared and reopened.
+Every analysis page works on **exactly the records the Explore page shows**. Search or refine in Explore, then use the **Analyze** links next to the download buttons (Statistics, Dashboard, Compare, Impacts, Predictions, Scenarios). The Explore filters travel in the URL, the links in the bar under the top navigation keep them, and every choice on a page is also in the URL, so any analysis can be bookmarked, shared and reopened.
 
 ### 12.1 Analytical dataset builder (proposal 4.1)
 
@@ -424,6 +441,67 @@ Every number shows its own arithmetic: each total has a **How this was calculate
 
 The official workbook: https://www.epa.gov/system/files/documents/2024-01/traci_2_2.xlsx (the extract in `data/` was made from the identical copy in EPA's GitHub repository, https://github.com/USEPA/TRACI, file `TraciTool/TRACI_2_2.xlsx`, with `python traci.py extract`).
 
+### 12.6 Prediction models (proposal 5)
+
+`/predictions` answers one clearly defined question for the chosen pollutant (CO2 by default, or SO2 or NOx):
+
+> How much does a generating unit emit in a year, given how it operated that year?
+
+| | |
+|---|---|
+| **Target** | One unit's annual CO2 (or SO2, NOx) mass in short tons; one record = one unit in one year |
+| **Inputs** | Gross load (MWh), heat input (mmBtu), operating time (hours), fuel family (coal, gas, oil and other), unit type, SO2 control reported (0/1), NOx control reported (0/1) |
+| **Not used (target leakage)** | The same year's CO2, SO2 and NOx; emission intensities (they are the target divided by load); year-over-year changes (computed from the target); facility and unit IDs (they would memorize units); the year itself |
+| **Models** | Mean baseline (predicts the training average), linear regression (ordinary least squares), decision tree (depth chosen on validation from 2, 3, 4, 6, 8, 10, 12, 16; at least 5 records per leaf) |
+| **Split** | Chronological: the most recent year is the test year, the one or two years before it validate (two when there are six or more years), every earlier year trains. With 1995–2025: train 1995–2022, validate 2023–2024, test 2025 |
+| **Procedure** | 1. Fit every model on the training years. 2. Choose the tree depth and the working model by the lowest mean absolute error on the validation years. 3. Refit every model on training + validation years and score each **once** on the test year |
+| **Metrics** | MAE, RMSE, R², weighted % error (Σ\|error\| ÷ Σ actual × 100) and mean error; MAPE (records with actual > 0) is in the downloads but not on the page, because it is undefined at zero and dominated by tiny emitters |
+
+Missing values are never filled in: a record missing the target or a numeric input (or with a negative value) is left out and counted. Gross load, heat input and operating time are standardized inside the pipeline so least squares is numerically stable; this changes no prediction, and the linear coefficients are converted back to real units (short tons per MWh, per mmBtu, per hour). Predictions below zero are set to zero.
+
+**Heat input and CO2.** EPA calculates much of the reported CO2 from heat input and a fuel-specific factor, so CO2 models that use heat input are expected to be very accurate. That is a physical relationship rather than the target leaking in, but it means the unit model describes how CO2 follows the fuel burned; it is not a forecast of the future. The page reports a leakage check (the chosen model's test error refit without heat input) and says so in plain words.
+
+The page also shows what the models learned (linear coefficients in real units, the tree's input importances and its depth search), a predicted-vs-actual chart for every test-year record, and the **biggest misses**: the test-year units the model got most wrong, which are the unusual observations worth checking.
+
+**Year-trend forecast** (Maggie's first version of the module, now on any selection): the selection's annual total, predicted from the year alone with the same three kinds of model, scored on the same kind of chronological split, and forecast five years ahead (each model refit on every year). The page warns when the number of reporting units changes a lot between years, because then the totals partly reflect coverage, not only emissions.
+
+**Saved models (proposal 8.1).** Each training run is saved with joblib in `trained_models/<run key>.joblib` and described in the `prediction_model` table (target, features, parameters, training / validation / test years and counts, scores, selection, file SHA-256, software versions). The run key is a hash of the module version, target, selection fingerprint, database state and scikit-learn version, so the same selection on the same data reopens the same models instead of retraining; a file whose SHA-256 no longer matches is not trusted and the models are trained again. Only files this app wrote are ever loaded (joblib files run code when loaded). The newest 30 runs are kept.
+
+Downloads (CSV or Excel): model evaluation (validation and test scores for every model), every test-year prediction, the tree depth search, the year-trend forecast, and every chart's numbers. Each file starts with the target, inputs, excluded inputs, years, every model's parameters, the saved model file and the software versions.
+
+### 12.7 Sensitivity and scenario analysis (proposal 6)
+
+`/scenarios` uses a fitted unit model (the one chosen on validation, or the other candidate) and a **baseline**: one unit's actual inputs in the test year (a large unit by default, the 90th percentile of the pollutant; any test-year unit can be chosen). It shows the baseline prediction next to the unit's actual value.
+
+**One variable at a time.** Choose gross load, heat input or operating time and a range, either as % of the baseline (default −50% to +50% in 10% steps) or as values in the input's own unit, up to 201 points. Every other input stays at the baseline value. Each point reports the input value, the input's % change, the prediction, and the absolute and % change from the baseline prediction. The chart marks the baseline point with reference lines through it, shades the region outside the training range, and draws those points as open circles.
+
+**Scenarios**, each compared with the baseline:
+
+| Scenario | What changes |
+|---|---|
+| Gross load +10% | Only gross load |
+| Heat input −5% | Only heat input (the same electricity from 5% less fuel) |
+| Runs 10% more | Gross load, heat input and operating time all +10% (operating time capped at the hours in the year) |
+| Fuel changed | Coal → gas, gas → coal, oil and other → gas |
+| Control added or removed | The control that matters for the pollutant (SO2 control for CO2 and SO2, NOx control for NOx) |
+| High efficiency (combined) | Gross load +10% and heat input −5% together |
+| Your scenario | Any mix of % changes, a fuel and controls from the form |
+
+```
+absolute change = scenario prediction − baseline prediction
+% change        = (scenario prediction − baseline prediction) ÷ baseline prediction × 100   (undefined when the baseline is 0)
+```
+
+A warning appears whenever an input is outside the training range (minimum to maximum of the training and validation records), operating time exceeds the hours in the year, or a fuel and unit-type combination (or a control on a fuel) never appears in training. Bad form values (text, a zero step, an end below the start, too many points, a unit with no test-year record) fall back to safe defaults with a message instead of an error. These are **model-response** results: they show how the fitted model reacts, not what would happen at a real plant, where inputs move together. Downloads list the model and its settings, the baseline unit and inputs, the range, and what was held constant.
+
+### 12.8 Interface design
+
+The interface follows apple.com's design language: a translucent 44 px global navigation with flyout menus, a search panel and a phone menu; a sticky local navigation for each section with a blue pill for its main download; centered heroes; full-width bands alternating white and #f5f5f7, with black bands for headline numbers; white cards with 18 px corners; pill buttons in #0071e3; blue text links; two-tone section headlines; and the gray footer with its directory. Text uses the visitor's own system font (San Francisco on Apple devices) with Apple's type scale and letter spacing, and the layout follows Apple's breakpoints (1068 px and 734 px). Charts use the same fonts and grays, and a four-color palette tuned to Apple's blue and orange (CO2, coal and group A `#0071e3`; SO2, gas and group B `#f56300`; NOx and oil `#00a86b`; gross load `#eda100`) that passed a color-blind separation check; no purple is used.
+
+### 12.9 Unusual observations (proposal goal 5)
+
+The Statistics page lists the records whose value of the chosen variable lies outside Tukey's fences, Q1 − 1.5 × IQR and Q3 + 1.5 × IQR (the same rule the box plots use), with the most extreme on each side, how far past the fence each one is in IQRs, and a download of all of them. Emissions are skewed, so large plants often sit above the upper fence: unusual is not the same as wrong. The Predictions page adds the test-year units the model missed by the most.
+
 ---
 
 ## 13. Run the automated tests
@@ -440,5 +518,7 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_statistics_page.py` | The Statistics page and its CSV/Excel exports with metadata |
 | `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
+| `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
+| `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
 
-Expected result: all 66 tests pass.
+Expected result: all 85 tests pass.
