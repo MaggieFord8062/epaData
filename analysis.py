@@ -423,6 +423,69 @@ def describe(frame, key, percentiles=None):
     return result
 
 
+# ---------- Unusual observations (proposal goal 5) ----------
+
+UNUSUAL_RULE = ("A value is unusual when it is more than 1.5 × the interquartile range (IQR) below the first "
+                "quartile or above the third quartile: Tukey's fences, the same rule the box plots use for "
+                "their whiskers.")
+UNUSUAL_NOTE = ("Unusual is not the same as wrong. Emissions are skewed, so the largest plants often sit above the "
+                "upper fence; a value far beyond it, or any ratio that is physically implausible, is worth checking "
+                "against the facility's own records.")
+UNUSUAL_LIMIT = 10
+
+
+def unusual(frame, key, limit=UNUSUAL_LIMIT):
+    """
+    Records whose value of the variable lies outside Tukey's fences (Q1 − 1.5 × IQR, Q3 + 1.5 × IQR).
+    Returns None when fewer than four values are present. "highest" and "lowest" hold the most
+    extreme records on each side (up to `limit`); "records" holds every unusual record, for the download.
+    Distance is how far past its fence a value is, in IQRs (missing when the IQR is 0).
+    """
+    if key not in frame.columns:
+        return None
+    values = frame[key]
+    present = values.dropna()
+    if present.size < 4:
+        return None
+    q1 = float(present.quantile(0.25))
+    q3 = float(present.quantile(0.75))
+    spread = q3 - q1
+    low = q1 - 1.5 * spread
+    high = q3 + 1.5 * spread
+    labels = unit_labels(frame)
+
+    def describe_rows(mask, side, ascending):
+        part = frame[mask].copy()
+        part["_value"] = values[mask]
+        part = part.sort_values("_value", ascending=ascending)
+        fence = low if side == "below" else high
+        rows = []
+        for index, row in part.iterrows():
+            value = float(row["_value"])
+            rows.append({
+                "label": labels[index],
+                "facility_id": None if pd.isna(row["facility_id"]) else int(row["facility_id"]),
+                "unit_key": None if pd.isna(row["unit_key"]) else int(row["unit_key"]),
+                "year": None if pd.isna(row["year"]) else int(row["year"]),
+                "primary_fuel": row["primary_fuel"] if isinstance(row["primary_fuel"], str) else NOT_REPORTED,
+                "value": value,
+                "side": side,
+                "distance": abs(value - fence) / spread if spread > 0 else None,
+            })
+        return rows
+
+    above = describe_rows(values > high, "above", False)
+    below = describe_rows(values < low, "below", True)
+    return {
+        "q1": q1, "q3": q3, "iqr": spread, "low": low, "high": high,
+        "count": int(present.size),
+        "above": len(above), "below": len(below),
+        "share": (len(above) + len(below)) / present.size * 100,
+        "highest": above[:limit], "lowest": below[:limit],
+        "records": above + below,
+    }
+
+
 def group_labels(frame, group):
     """The group each record belongs to, as text. Records with no value go in "Not reported"."""
     if group == "facility":

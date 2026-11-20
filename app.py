@@ -1604,6 +1604,9 @@ def statistics():
         group_options=analysis.GROUPS,
         group_sorts=analysis.GROUP_SORTS,
         percentile_label=analysis.percentile_label,
+        unusual=analysis.unusual(frame, variable),
+        unusual_rule=analysis.UNUSUAL_RULE,
+        unusual_note=analysis.UNUSUAL_NOTE,
         methods={
             "percentiles": analysis.PERCENTILE_METHOD,
             "std": analysis.STD_METHOD,
@@ -1632,6 +1635,20 @@ def statistics_download():
         columns, rows = analysis.dataset_table(frame)
         lines = analysis.metadata("Analytical dataset with derived indicators", frame, labels, explore_url)
         name_parts = ["analysis-dataset"]
+    elif what == "unusual":
+        found = analysis.unusual(frame, variable)
+        records = found["records"] if found else []
+        columns = ["Facility and unit", "Facility ID", "Unit key", "Year", "Primary fuel",
+                   analysis.variable_title(variable), "Side", "Distance past the fence (IQRs)"]
+        rows = [[row["label"], row["facility_id"], row["unit_key"], row["year"], row["primary_fuel"], row["value"],
+                 "Above the upper fence" if row["side"] == "above" else "Below the lower fence", row["distance"]]
+                for row in records]
+        lines = analysis.metadata("Unusual observations", frame, labels, explore_url, key=variable)
+        lines.insert(2, ("Rule", analysis.UNUSUAL_RULE))
+        if found:
+            lines.insert(3, ("Fences", f"below {found['low']:.6g} or above {found['high']:.6g} "
+                                       f"(Q1 {found['q1']:.6g}, Q3 {found['q3']:.6g}, IQR {found['iqr']:.6g})"))
+        name_parts = ["unusual", variable]
     elif what == "groups" and choices["group"]:
         groups = analysis.describe_groups(frame, variable, choices["group"], choices["gsort"])
         columns, rows = analysis.groups_table(variable, choices["group"], groups)

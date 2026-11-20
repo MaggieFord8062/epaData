@@ -202,6 +202,48 @@
 <section class="section">
     <div class="section-head">
         <div>
+            <h2 class="section-title">Unusual observations</h2>
+            <p class="section-intro">
+                {{ unusual_rule }}
+                {% if unusual %}
+                For {{ info.label }} that means below {{ unusual.low|stat }} or above {{ unusual.high|stat }} {{ info.unit }}:
+                {{ "{:,}".format(unusual.below + unusual.above) }} of {{ "{:,}".format(unusual.count) }} values ({{ "%.1f"|format(unusual.share) }}%).
+                {% endif %}
+            </p>
+        </div>
+        {% if unusual and (unusual.above or unusual.below) %}
+        <div class="results-tools">
+            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=unusual" download>Download all</a>
+            <a class="btn-link" href="{{ download_base }}&what=unusual&format=xlsx" download>Excel</a>
+        </div>
+        {% endif %}
+    </div>
+    {% if unusual and (unusual.above or unusual.below) %}
+    <div class="table-wrap">
+        <table class="data">
+            <thead><tr><th>Unit</th><th>Year</th><th class="num">{{ info.unit }}</th><th>Side</th><th class="num">Past the fence</th></tr></thead>
+            <tbody>
+                {% for row in unusual.highest + unusual.lowest %}
+                <tr>
+                    <td class="name">{% if row.unit_key %}<a href="/unit/{{ row.unit_key }}">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}</td>
+                    <td>{{ row.year or "—" }}</td>
+                    <td class="num">{{ row.value|stat }}</td>
+                    <td>{{ "Above" if row.side == "above" else "Below" }}</td>
+                    <td class="num">{% if row.distance is not none %}{{ "%.1f"|format(row.distance) }} × IQR{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% elif unusual %}
+    <p class="notice">Every value lies inside the fences.</p>
+    {% endif %}
+    <p class="note">{{ unusual_note }}</p>
+</section>
+
+<section class="section">
+    <div class="section-head">
+        <div>
             <h2 class="section-title">Analytical dataset</h2>
             <p class="section-intro">Every selected record with its measured values and every derived indicator, plus the filters, definitions and software version needed to reproduce it.</p>
         </div>
