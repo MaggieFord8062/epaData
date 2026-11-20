@@ -207,6 +207,7 @@ After step 3, each of these should work exactly as described.
 | Impacts | `/impacts` | EPA TRACI 2.2 potential-impact indicators for CO2, SO2 and NOx, totals, per MWh and by group (Phase 2) |
 | Predictions | `/predictions` | A mean baseline, linear regression and a decision tree for a unit's annual CO2, SO2 or NOx, tested chronologically; a year-trend forecast of the annual total (Phase 2) |
 | Scenarios | `/scenarios` | One-variable-at-a-time sensitivity curves and named what-if scenarios on a fitted model, with out-of-range warnings (Phase 2) |
+| Sensitivity | `/sensitivity` | For one unit, change gross load and heat input by paired percentages (and optionally the fuel type) and see the predicted CO2 from linear regression or a decision tree, with absolute and % change and a range check (Phase 2) |
 | All tools | `/search` | Basic and multi-criteria search on every field, with range and comparison operators |
 | Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state) |
 | Compare | `/compare` | Up to four facilities side by side |
@@ -526,4 +527,4 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
 | `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
 
-Expected result: all 90 tests pass.
+Expected result: all 91 tests pass.

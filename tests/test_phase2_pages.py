@@ -190,6 +190,12 @@ def test_statistics_explain_the_numbers(client):
     assert "What the numbers say" in page
 
 
+def test_sensitivity_page_is_in_the_app(client):
+    page = client.get("/sensitivity").get_data(as_text=True)
+    assert "Sensitivity Analysis" in page
+    assert 'href="/sensitivity"' in page          # linked from the global navigation
+
+
 def test_short_numbers():
     assert dashboard.short_number(1_260_000_000) == "1.26B"
     assert dashboard.short_number(999_600) == "1M"
