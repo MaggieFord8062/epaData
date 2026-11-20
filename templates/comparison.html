@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
+{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Compare - epaData{% endblock %}
 
@@ -9,16 +10,25 @@
 {%- if value is none -%}—{%- else -%}{{ "+" if value > 0 else ("−" if value < 0 else "") }}{{ (value|abs)|stat }}{{ suffix }}{%- endif -%}
 {%- endmacro %}
 
-{% block content %}
+{% block localnav %}
+{{ analysis_nav(analysis_pages, request.path, request.full_path,
+                (download_base ~ "&what=summary", "Download") if selection.records and not definition.same else (dataset_url, "Download data")) }}
+{% endblock %}
 
-<div class="page-head">
-    <h1>Compare</h1>
-    <p>Put two groups of records side by side: two periods, two states, fuels or unit types, units with and without a pollution control, or two facilities or units. You get summary statistics, differences, every normalized indicator, statistical tests explained in plain language, and a ranking of every group.</p>
-</div>
+{% block main %}
 
-{% include "_selection.html" %}
+<section class="hero">
+    <div class="hero-inner">
+        <h1>Compare</h1>
+        <p class="subhead">Two groups. One clear answer.</p>
+        <p class="lede">Put two groups of records side by side: two periods, two states, fuels or unit types, units with and without a pollution control, or two facilities or units. Summary statistics, differences, every normalized indicator, statistical tests in plain language, and a ranking of every group.</p>
+        {% include "_selection.html" %}
+    </div>
+</section>
 
-<form class="panel space-top" method="GET" action="/comparison" id="comparison-form">
+<section class="band tight">
+<div class="container wide">
+<form class="controls-card" method="GET" action="/comparison" id="comparison-form">
     {{ hidden_filters(filters) }}
     <div class="form-grid">
         <div class="field">
@@ -107,36 +117,43 @@
     {% endif %}
 
     <div class="form-actions">
-        <button class="btn btn-primary" type="submit">Compare</button>
+        <button class="btn" type="submit">Compare</button>
         <span class="dim">Differences are always B minus A. Want two facilities' full profiles? <a href="/compare">Side-by-side facility profiles</a>.</span>
     </div>
 </form>
+</div>
+</section>
 
 {% if selection.records == 0 %}
 
+<section class="band flush-top"><div class="container wide">
 <div class="empty">
     <h3>No records in this selection</h3>
     <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
-    <a class="btn btn-quiet" href="{{ explore_url }}">Back to Explore</a>
+    <a class="btn" href="{{ explore_url }}">Back to Explore</a>
 </div>
+</div></section>
 
 {% elif definition.same %}
 
+<section class="band flush-top"><div class="container wide">
 <div class="empty">
     <h3>Choose two different groups</h3>
     <p>Group A and group B are the same{% if not definition.options and definition.dimension != "period" %}, or this selection has only one group to compare{% endif %}. Pick another group for B{% if definition.dimension == "period" %} or another period{% endif %}.</p>
 </div>
+</div></section>
 
 {% else %}
 
-<section class="section">
+<section class="band flush-top">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">{{ info.label }} <span class="dim">({{ info.unit }})</span></h2>
+            <h2 class="section-title">{{ info.label }}. <span class="gray">{{ info.unit }}.</span></h2>
             <p class="section-intro">{{ info.definition }}</p>
         </div>
         <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=summary" download>Download CSV</a>
+            <a class="btn btn-small" href="{{ download_base }}&what=summary" download>Download CSV</a>
             <a class="btn-link" href="{{ download_base }}&what=summary&format=xlsx" download>Excel</a>
         </div>
     </div>
@@ -151,7 +168,8 @@
         {% endfor %}
     </div>
 
-    <div class="table-wrap space-top">
+    <div class="table-card space-top">
+    <div class="table-wrap">
         <table class="data compare-table">
             <thead>
                 <tr>
@@ -181,16 +199,20 @@
             </tbody>
         </table>
     </div>
+    </div>
     <p class="note">All values in {{ info.unit }}, except counts. Missing values are left out of every statistic.</p>
+</div>
 </section>
 
-<section class="section">
+<section class="band alt">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">What the tests say</h2>
+            <h2 class="section-title">What the tests say. <span class="gray">Could it be chance?</span></h2>
             <p class="section-intro">Two standard tests of whether the difference could be chance: Welch's t-test for the averages, and the Mann–Whitney test, which only uses the order of the values and is less affected by a few very large units.</p>
         </div>
     </div>
+    <div class="card">
     <div class="test-results">
         {% for sentence in outcome.tests.sentences %}
         <p>{{ sentence }}</p>
@@ -217,30 +239,36 @@
         {% endfor %}
         <p>A p-value below 0.05 is the usual signal that a difference is unlikely to be chance alone. It says nothing about whether the difference is large enough to matter; look at the size of the difference for that.</p>
     </details>
+    </div>
+</div>
 </section>
 
-<section class="section">
+<section class="band">
+<div class="container wide">
+    <h2 class="section-title">See the difference. <span class="gray">Spread, indicators and trend.</span></h2>
+    <p class="section-intro">Group A is always blue and group B orange.</p>
     <div class="chart-grid">
         {% for spec in outcome.charts[:2] %}
         {{ chart_card(spec) }}
         {% endfor %}
-    </div>
-    <div class="space-top">
         {{ chart_card(outcome.charts[2], wide=true) }}
     </div>
+</div>
 </section>
 
-<section class="section">
+<section class="band alt">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">Every normalized indicator</h2>
+            <h2 class="section-title">Every normalized indicator. <span class="gray">Totals and overall ratios.</span></h2>
             <p class="section-intro">Totals for amounts that add up, and overall ratios (total ÷ total) for intensities, heat rate and utilization.</p>
         </div>
         <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=indicators" download>Download CSV</a>
+            <a class="btn btn-small" href="{{ download_base }}&what=indicators" download>Download CSV</a>
             <a class="btn-link" href="{{ download_base }}&what=indicators&format=xlsx" download>Excel</a>
         </div>
     </div>
+    <div class="table-card">
     <div class="table-wrap">
         <table class="data">
             <thead>
@@ -267,12 +295,15 @@
             </tbody>
         </table>
     </div>
+    </div>
+</div>
 </section>
 
-<section class="section">
+<section class="band">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">Every {{ "year" if definition.dimension == "period" else "group" }} ranked</h2>
+            <h2 class="section-title">Every {{ "year" if definition.dimension == "period" else "group" }} ranked. <span class="gray">Highest first.</span></h2>
             <p class="section-intro">
                 {{ outcome.ranking.measure }} of {{ info.label }} for every {{ "year" if definition.dimension == "period" else "group in " ~ definition.name|lower }}, highest first,
                 {% if info.additive %}with each one's share of the selection total.{% else %}with its difference from the whole selection ({{ outcome.ranking.overall|stat }} {{ info.unit }}).{% endif %}
@@ -280,14 +311,15 @@
             </p>
         </div>
         <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
+            <a class="btn btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
             <a class="btn-link" href="{{ download_base }}&what=groups&format=xlsx" download>Excel</a>
         </div>
     </div>
     {% if outcome.ranking.test %}
     <p class="test-results">{{ outcome.ranking.test.sentence }}</p>
     {% endif %}
-    <div class="table-wrap space-top">
+    <div class="table-card space-top">
+    <div class="table-wrap">
         <table class="data">
             <thead>
                 <tr>
@@ -323,6 +355,8 @@
             </tbody>
         </table>
     </div>
+    </div>
+</div>
 </section>
 
 {% endif %}

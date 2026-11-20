@@ -12,33 +12,37 @@
 <a href="{{ url_with(params, order=target) }}" class="{{ 'is-sorted' if current in (ascending, descending) else '' }}">{{ label }}{% if current == ascending %} ↑{% elif current == descending %} ↓{% endif %}</a>
 {%- endmacro %}
 
-{% block content %}
+{% block main %}
 
-<div class="page-head">
-    <h1>Explore</h1>
-    <p>Search the way you'd describe it. Names, places, fuels, years, controls and amounts all work, in any order.</p>
-</div>
-
-<form class="searchbar" action="/explore" method="GET" role="search">
-    <div class="field-wrap">
-        <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <circle cx="10.5" cy="10.5" r="7"/>
-            <line x1="21" y1="21" x2="15.6" y2="15.6"/>
-        </svg>
-        <input class="control" type="text" name="q" id="q" value="{{ q }}" autocomplete="off"
-               placeholder="Try coal Kentucky 2025, or Mill Creek" aria-label="Search">
-        <ul class="suggest" id="q-suggest" hidden></ul>
+<section class="hero">
+    <div class="hero-inner">
+        <h1>Explore</h1>
+        <p class="subhead">Every unit. Every year. One search.</p>
+        <p class="lede">Search the way you'd describe it. Names, places, fuels, years, controls and amounts all work, in any order.</p>
+        <form class="searchbar" action="/explore" method="GET" role="search" style="max-width: 720px; margin: 30px auto 0; text-align: left">
+            <div class="field-wrap">
+                <svg class="icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                    <circle cx="10.5" cy="10.5" r="7"/>
+                    <line x1="21" y1="21" x2="15.6" y2="15.6"/>
+                </svg>
+                <input class="control" type="text" name="q" id="q" value="{{ q }}" autocomplete="off"
+                       placeholder="Try coal Kentucky 2025, or Mill Creek" aria-label="Search">
+                <ul class="suggest" id="q-suggest" hidden></ul>
+            </div>
+            <button class="btn" type="submit">Search</button>
+        </form>
+        <p class="search-examples">
+            Try
+            <a href="/explore?q=coal+kentucky+2025+co2+over+500000">coal Kentucky 2025 CO2 over 500,000</a>,
+            <a href="/explore?q=biggest+so2+emitters+in+ohio">biggest SO2 emitters in Ohio</a>,
+            <a href="/explore?q=gas+turbines+texas">gas turbines Texas</a> or
+            <a href="/explore?q=scrubber+coal+2015-2025">scrubber coal 2015–2025</a>
+        </p>
     </div>
-    <button class="btn btn-primary" type="submit">Search</button>
-</form>
-<p class="search-examples">
-    Examples:
-    <a href="/explore?q=coal+kentucky+2025+co2+over+500000">coal Kentucky 2025 CO2 over 500,000</a>,
-    <a href="/explore?q=biggest+so2+emitters+in+ohio">biggest SO2 emitters in Ohio</a>,
-    <a href="/explore?q=gas+turbines+texas">gas turbines Texas</a>,
-    <a href="/explore?q=scrubber+coal+2015-2025">scrubber coal 2015–2025</a>
-</p>
+</section>
 
+<section class="band tight">
+<div class="container wide">
 <div class="explore">
 
     <aside class="refine" aria-label="Refine results">
@@ -127,6 +131,8 @@
                     <a class="btn-link" href="/dashboard{{ aq }}">Dashboard</a>
                     <a class="btn-link" href="/comparison{{ aq }}">Compare</a>
                     <a class="btn-link" href="/impacts{{ aq }}">Impacts</a>
+                    <a class="btn-link" href="/predictions{{ aq }}">Predictions</a>
+                    <a class="btn-link" href="/scenarios{{ aq }}">Scenarios</a>
                 </span>
                 {% endif %}
             </div>
@@ -135,7 +141,7 @@
     
     {% if dataset_summary.records %}
     <section class="dataset-summary" aria-label="Dataset summary">
-        <h2>Selected dataset</h2>
+        <h2 class="card-title">Selected dataset</h2>
 
         <div class="summary-cards">
             <article class="summary-card">
@@ -321,6 +327,9 @@
 
     </section>
 </div>
+
+</div>
+</section>
 
 {% endblock %}
 

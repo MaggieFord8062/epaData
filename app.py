@@ -15,12 +15,14 @@ from database import SessionLocal
 from client import CAMPDClient, CAMPDError
 from dotenv import load_dotenv
 from models import Facility, Unit, AnnualRecord, HourlyRecord, Dataset, UploadedFile
-from prediction import train_prediction_models, get_annual_co2_totals, generate_forecast
 from sensitivity import run_sensitivity_analysis
 import analysis
 import comparison
 import dashboard
+import model_charts
+import prediction
 import retrieval_jobs
+import scenarios
 import smart_search
 import traci
 import uploads
@@ -160,9 +162,58 @@ def home():
         .all()
     )
 
+    yearly = (
+        session.query(AnnualRecord.year, func.sum(AnnualRecord.co2_mass))
+        .filter(AnnualRecord.co2_mass.isnot(None), AnnualRecord.year.isnot(None))
+        .group_by(AnnualRecord.year)
+        .order_by(AnnualRecord.year)
+        .all()
+    )
     session.close()
 
-    return render_template("home.html", stats=stats, top_emitters=top_emitters)
+    totals = [{"year": int(year), "total": float(total)} for year, total in yearly if total is not None]
+    art = home_art(totals)
+    return render_template("home.html", stats=stats, top_emitters=top_emitters, art=art)
+
+
+def spark_points(values, width, height, pad, low=None, high=None):
+    """Scale values into SVG coordinates (y grows downward), left to right."""
+    low = min(values) if low is None else low
+    high = max(values) if high is None else high
+    span = (high - low) or 1.0
+    step = (width - 2 * pad) / max(len(values) - 1, 1)
+    return [(pad + index * step, height - pad - (value - low) / span * (height - 2 * pad))
+            for index, value in enumerate(values)]
+
+
+def home_art(totals):
+    """
+    The small line drawings on the home page tiles: annual CO2 for every record in the database, and the
+    same line with the year-trend model's linear forecast (the Predictions page's method) dashed after it.
+    """
+    if len(totals) < 2:
+        return None
+    width, height, pad = 460, 190, 10
+    values = [row["total"] for row in totals]
+    line = spark_points(values, width, height, pad, low=0)
+    art = {
+        "width": width, "height": height,
+        "line": " ".join(f"{x:.1f},{y:.1f}" for x, y in line),
+        "area": f"{line[0][0]:.1f},{height - pad} " + " ".join(f"{x:.1f},{y:.1f}" for x, y in line)
+                + f" {line[-1][0]:.1f},{height - pad}",
+        "first": totals[0]["year"], "last": totals[-1]["year"],
+    }
+    trend = prediction.train_prediction_models(totals) if len(totals) >= 3 else {"error": "too few years"}
+    if "error" not in trend:
+        # The forecast of the year-trend model that did best on the validation years, as on the Predictions page
+        forecast = prediction.generate_forecast(totals)["rows"]
+        combined = values + [row[trend["chosen"]] for row in forecast]
+        points = spark_points(combined, width, height, pad, low=0)
+        art["history"] = " ".join(f"{x:.1f},{y:.1f}" for x, y in points[:len(values)])
+        art["forecast"] = " ".join(f"{x:.1f},{y:.1f}" for x, y in points[len(values) - 1:])
+        art["forecast_last"] = forecast[-1]["year"]
+        art["forecast_model"] = prediction.MODELS[trend["chosen"]]["name"].lower()
+    return art
 
 
 @app.route("/explorer")
@@ -1429,6 +1480,9 @@ ANALYSIS_PARAMS = {
     "cmp", "a", "b", "pa_from", "pa_to", "pb_from", "pb_to", "matched",
     # Impacts
     "by", "isort", "per_mwh",
+    # Predictions and Scenarios
+    "target", "model", "unit", "input", "mode", "low", "high", "step",
+    "c_load", "c_heat", "c_time", "c_fuel", "c_so2", "c_nox",
 }
 
 ANALYSIS_PAGES = [
@@ -1436,6 +1490,8 @@ ANALYSIS_PAGES = [
     ("/dashboard", "Dashboard"),
     ("/comparison", "Compare"),
     ("/impacts", "Impacts"),
+    ("/predictions", "Predictions"),
+    ("/scenarios", "Scenarios"),
 ]
 
 app.add_template_filter(analysis.format_number, "stat")
@@ -1455,6 +1511,26 @@ def table_cell(value, column=""):
             return str(int(value))
         return "{:,}".format(int(value))
     return analysis.format_number(value)
+
+
+@app.template_filter("signed")
+def signed_number(value):
+    """+1,234 / −1,234 / 0, with a true minus sign; a dash when missing."""
+    if value is None:
+        return "—"
+    if abs(value) < 5e-10:
+        return "0"
+    return ("+" if value > 0 else "−") + analysis.format_number(abs(value))
+
+
+@app.template_filter("signed_pct")
+def signed_percent(value, decimals=1):
+    """+12.3% / −4.5% / 0%, with a true minus sign; a dash when missing."""
+    if value is None:
+        return "—"
+    if abs(value) < 0.5 * 10 ** -decimals:
+        return "0%"
+    return ("+" if value > 0 else "−") + "{:,.{}f}%".format(abs(value), decimals)
 
 
 @app.template_filter("pvalue")
@@ -1496,16 +1572,18 @@ def page_url(path, filters, **choices):
     return path + ("?" + urlencode(values) if values else "")
 
 
-def selection_context(filters, result, frame, variable=None):
-    """What every analysis page shows about the selection, and links to the other pages."""
+def selection_context(filters, result, frame, variable=None, keep=None):
+    """What every analysis page shows about the selection, and links to the other pages (keeping `keep` choices)."""
     explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    keep = keep or {}
     return {
         "labels": selection_labels(filters, result),
         "selection": analysis.selection_summary(frame),
         "explore_url": explore_url,
         "partial": result["partial"],
-        "analysis_pages": [(path, label, page_url(path, filters, variable=variable))
+        "analysis_pages": [(path, label, page_url(path, filters, variable=variable, **keep))
                            for path, label in ANALYSIS_PAGES],
+        "dataset_url": page_url("/statistics/download", filters, what="dataset"),
         "filters": filters,
     }
 
@@ -1588,6 +1666,7 @@ def statistics():
         key: statistics_url(filters, choices, gsort=key) for key in analysis.GROUP_SORTS
     }
     download_base = statistics_url(filters, choices).replace("/statistics?", "/statistics/download?", 1)
+    unusual = analysis.unusual(frame, variable)
 
     return render_template(
         "statistics.html",
@@ -1604,6 +1683,10 @@ def statistics():
         group_options=analysis.GROUPS,
         group_sorts=analysis.GROUP_SORTS,
         percentile_label=analysis.percentile_label,
+        unusual=unusual,
+        findings=analysis.interpret(summary, variable, groups, unusual),
+        unusual_rule=analysis.UNUSUAL_RULE,
+        unusual_note=analysis.UNUSUAL_NOTE,
         methods={
             "percentiles": analysis.PERCENTILE_METHOD,
             "std": analysis.STD_METHOD,
@@ -1632,6 +1715,20 @@ def statistics_download():
         columns, rows = analysis.dataset_table(frame)
         lines = analysis.metadata("Analytical dataset with derived indicators", frame, labels, explore_url)
         name_parts = ["analysis-dataset"]
+    elif what == "unusual":
+        found = analysis.unusual(frame, variable)
+        records = found["records"] if found else []
+        columns = ["Facility and unit", "Facility ID", "Unit key", "Year", "Primary fuel",
+                   analysis.variable_title(variable), "Side", "Distance past the fence (IQRs)"]
+        rows = [[row["label"], row["facility_id"], row["unit_key"], row["year"], row["primary_fuel"], row["value"],
+                 "Above the upper fence" if row["side"] == "above" else "Below the lower fence", row["distance"]]
+                for row in records]
+        lines = analysis.metadata("Unusual observations", frame, labels, explore_url, key=variable)
+        lines.insert(2, ("Rule", analysis.UNUSUAL_RULE))
+        if found:
+            lines.insert(3, ("Fences", f"below {found['low']:.6g} or above {found['high']:.6g} "
+                                       f"(Q1 {found['q1']:.6g}, Q3 {found['q3']:.6g}, IQR {found['iqr']:.6g})"))
+        name_parts = ["unusual", variable]
     elif what == "groups" and choices["group"]:
         groups = analysis.describe_groups(frame, variable, choices["group"], choices["gsort"])
         columns, rows = analysis.groups_table(variable, choices["group"], groups)
@@ -1714,9 +1811,19 @@ def dashboard_page():
     if len(frame):
         charts = [dashboard.json_safe(spec) for spec in dashboard.build_all(frame, choices)]
     data_base = page_url("/dashboard/data", filters, **dashboard_url_choices(choices))
+    glance = None
+    if len(frame):
+        glance = {
+            "co2": analysis.clean(frame["co2_mass"].sum(min_count=1)),
+            "so2": analysis.clean(frame["so2_mass"].sum(min_count=1)),
+            "nox": analysis.clean(frame["nox_mass"].sum(min_count=1)),
+            "load": analysis.clean(frame["gross_load"].sum(min_count=1)),
+            "intensity": analysis.overall_ratio(frame, "co2_intensity"),
+        }
     return render_template(
         "dashboard.html",
         choices=choices,
+        glance=glance,
         charts={spec["id"]: spec for spec in charts},
         data_base=data_base,
         variable_menu=analysis.variables_by_group(),
@@ -1952,8 +2059,20 @@ def impacts_download():
     """Impact results as CSV or Excel: what=totals, groups, records or factors."""
     params, filters, result, frame, factors, categories, choices = impacts_request()
     what = request.args.get("what", "totals")
+    chart_id = request.args.get("chart")
 
-    if what == "factors":
+    if chart_id:
+        totals = traci.summarize(frame, factors) if len(frame) and factors else []
+        if chart_id == "impact_shares" and totals:
+            spec = dashboard.impact_share_chart(totals)
+        elif chart_id == "impact_groups" and totals:
+            rows = impact_group_rows(frame, factors, categories, choices)
+            spec = dashboard.impact_group_chart(rows, categories, choices, IMPACT_GROUPS[choices["by"]])
+        else:
+            abort(404)
+        columns, rows = spec["table"]["columns"], spec["table"]["rows"]
+        kind, what = f"Chart data: {spec['title']}", chart_id
+    elif what == "factors":
         columns, rows = traci.factors_table(factors)
         kind = "TRACI characterization factors used"
     elif what == "groups":
@@ -2003,22 +2122,339 @@ def impacts_download():
     lines = impact_metadata(kind, frame, filters, result, factors)
     return export_response(columns, rows, lines, ["impacts", what], requested_format())
 
-# ---------- Predictions page ----------
+# ---------- Phase 2: prediction models (proposal section 5) ----------
+
+def prediction_request():
+    """
+    The selected records and the fitted unit models for the chosen target (CO2, SO2 or NOx).
+    Returns (all URL parameters, Explore filters, Explore result, analysis DataFrame, target, models).
+    """
+    params = explore_params()
+    filters = analysis_filters(params)
+    result = smart_search.explore(filters, everything=True)
+    frame = analysis.build_frame(result["rows"], with_changes=False)
+    target = params.get("target") if params.get("target") in prediction.TARGETS else prediction.DEFAULT_TARGET
+    if len(frame) == 0:
+        models = {"error": "No records match this selection. Change the search in Explore, then come back."}
+    else:
+        models = prediction.fitted_models(frame, target, selection_labels(filters, result))
+    return params, filters, result, frame, target, models
+
+
+def prediction_charts(models, trend, target):
+    charts = []
+    if "error" not in models:
+        charts += [model_charts.model_errors(models), model_charts.predicted_actual(models)]
+    if "error" not in trend:
+        charts.append(model_charts.trend_forecast(trend, target))
+    return {spec["id"]: dashboard.json_safe(spec) for spec in charts}
+
+
+def largest_misses(models, limit=10):
+    """The test-year records the chosen model missed by the most: unusual units worth a closer look."""
+    tested = models["tested"]
+    ordered = tested.reindex(tested["error"].abs().sort_values(ascending=False).index).head(limit)
+    rows = []
+    for row in ordered.itertuples():
+        rows.append({
+            "label": row.label, "unit_key": int(row.unit_key), "fuel": row.fuel_family, "unit_type": row.unit_type,
+            "actual": float(row.actual), "predicted": float(getattr(row, "predicted_" + models["chosen"])),
+            "error": float(row.error), "error_pct": float(row.error / row.actual * 100) if row.actual > 0 else None,
+        })
+    return rows
+
+
+def prediction_metadata(kind, frame, filters, result, models, target):
+    """Reproducibility lines for prediction and scenario exports: target, inputs, split, models, versions."""
+    labels = selection_labels(filters, result)
+    explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    lines = analysis.metadata(kind, frame, labels, explore_url)
+    inputs = [f"{item['label']} ({item['unit']})" for item in
+              list(prediction.NUMERIC_INPUTS.values()) + list(prediction.CATEGORY_INPUTS.values())
+              + list(prediction.FLAG_INPUTS.values())]
+    extra = [
+        ("Prediction target", f"{prediction.TARGETS[target]['name']} of one generating unit "
+                              f"({prediction.TARGET_UNIT})"),
+        ("Inputs (features)", "; ".join(inputs)),
+        ("Not used as inputs (target leakage)", "; ".join(f"{name}: {why}" for name, why in prediction.EXCLUDED_INPUTS)),
+    ]
+    if "error" not in models:
+        split, counts = models["split"], models["counts"]
+        extra += [
+            ("Evaluation", "Chronological: train on earlier years, choose on the validation years, test once on "
+                           "the most recent year"),
+            ("Training years", f"{prediction.period(split['train'])} ({counts['train']:,} records)"),
+            ("Validation years", f"{prediction.period(split['validation'])} ({counts['validation']:,} records)"),
+            ("Test year", f"{prediction.period(split['test'])} ({counts['test']:,} records)"),
+            ("Records left out", f"{models['left_out']:,} missing the target or an input, or negative (never filled in)"),
+            ("Chosen model", f"{prediction.MODELS[models['chosen']]['name']} (lowest mean absolute error on the "
+                             f"validation years)"),
+        ]
+        for model_kind, item in prediction.MODELS.items():
+            extra.append((f"Model: {item['name']}", json.dumps(models["parameters"][model_kind])))
+        extra += [
+            ("Saved models", f"{models['file_path']} (SHA-256 {models['file_sha256']})"),
+            ("Model run", f"{models['run_key']}, trained {models['trained_at']}"),
+            ("Models trained with", models["software"]),
+        ]
+        for name, definition in prediction.METRICS.values():
+            extra.append((f"Metric: {name}", definition))
+    extra.append(("Interpretation", "Predictions describe associations in past CAMPD data. They are not evidence "
+                                    "that changing an input causes the predicted change."))
+    return lines[:2] + extra + lines[2:]
+
+
 @app.route("/predictions")
 def predictions():
-    results = train_prediction_models()
-
-    annual_totals = get_annual_co2_totals()
-
-    forecasts = generate_forecast()
-
+    """
+    Prediction models for the selection (proposal 5): a mean baseline, linear regression and a decision tree
+    for one unit's annual emissions, tested chronologically, plus a year-trend forecast of the annual total.
+    """
+    params, filters, result, frame, target, models = prediction_request()
+    trend = prediction.trend(frame, target) if len(frame) else {"error": models["error"], "totals": []}
+    url_choices = {"target": target}
     return render_template(
         "predictions.html",
-        annual_totals=annual_totals,
-        validation_results=results["validation_results"],
-        test_results=results["test_results"],
-        forecasts=forecasts
+        target=target,
+        targets=prediction.TARGETS,
+        models=models,
+        trend=trend,
+        model_info=prediction.MODELS,
+        metrics=prediction.METRICS,
+        numeric_inputs=prediction.NUMERIC_INPUTS,
+        category_inputs=prediction.CATEGORY_INPUTS,
+        flag_inputs=prediction.FLAG_INPUTS,
+        excluded=prediction.EXCLUDED_INPUTS,
+        heat_note=prediction.HEAT_INPUT_NOTE,
+        estimation_note=prediction.ESTIMATION_NOTE,
+        mape_note=prediction.MAPE_NOTE,
+        limitations=prediction.LIMITATIONS,
+        small_test=prediction.SMALL_TEST,
+        period=prediction.period,
+        charts=prediction_charts(models, trend, target),
+        misses=largest_misses(models) if "error" not in models else [],
+        saved=prediction.saved_models(models["run_key"]) if "run_key" in models else [],
+        target_links={key: page_url("/predictions", filters, target=key) for key in prediction.TARGETS},
+        scenarios_url=page_url("/scenarios", filters, **url_choices),
+        download_base=page_url("/predictions/download", filters, **url_choices),
+        **selection_context(filters, result, frame, keep=url_choices),
     )
+
+
+@app.route("/predictions/download")
+def predictions_download():
+    """Prediction results as CSV or Excel: what=evaluation, predictions, depths or trend; or one chart's numbers."""
+    params, filters, result, frame, target, models = prediction_request()
+    trend = prediction.trend(frame, target) if len(frame) else {"error": "No records"}
+    what = request.args.get("what", "evaluation")
+    chart_id = request.args.get("chart")
+
+    if chart_id:
+        spec = prediction_charts(models, trend, target).get(chart_id)
+        if spec is None:
+            abort(404)
+        columns, rows = spec["table"]["columns"], spec["table"]["rows"]
+        kind, what = f"Chart data: {spec['title']}", chart_id
+    elif "error" in models and what != "trend":
+        abort(404)
+    elif what == "predictions":
+        tested = models["tested"]
+        columns = ["Facility and unit", "Unit key", "Year", "Primary fuel", "Fuel family", "Unit type",
+                   "Gross load (MWh)", "Heat input (mmBtu)", "Operating time (hours)", "SO2 control", "NOx control",
+                   "Actual (short tons)"] + [f"{item['name']} prediction (short tons)"
+                                             for item in prediction.MODELS.values()] + \
+                  [f"Miss of chosen model, {prediction.MODELS[models['chosen']]['name']} (short tons)"]
+        rows = []
+        for row in tested.itertuples():
+            rows.append([row.label, int(row.unit_key), int(row.year), row.primary_fuel, row.fuel_family, row.unit_type,
+                         row.gross_load, row.heat_input, row.operating_time, int(row.so2_control),
+                         int(row.nox_control), row.actual]
+                        + [getattr(row, "predicted_" + model_kind) for model_kind in prediction.MODELS] + [row.error])
+        kind = f"Test-year predictions ({prediction.period(models['split']['test'])})"
+    elif what == "depths":
+        columns = ["Tree depth", "Validation MAE (short tons)", "Validation RMSE (short tons)", "Chosen"]
+        rows = [[item["depth"], item["mae"], item["rmse"], "Yes" if item["depth"] == models["tree_depth"] else ""]
+                for item in models["depth_search"]]
+        kind = "Decision-tree depth chosen on the validation years"
+    elif what == "trend":
+        if "error" in trend:
+            abort(404)
+        spec = model_charts.trend_forecast(trend, target)
+        columns, rows = spec["table"]["columns"], spec["table"]["rows"]
+        kind = "Year-trend forecast of the annual total"
+        lines = prediction_metadata(kind, frame, filters, result, models, target)
+        lines += [("Trend training years", prediction.period(trend["split"]["train"])),
+                  ("Trend validation years", prediction.period(trend["split"]["validation"])),
+                  ("Trend test year", prediction.period(trend["split"]["test"])),
+                  ("Trend models", "Mean baseline; linear regression on the year; decision tree on the year "
+                                   f"(max_depth {prediction.TREND_TREE_DEPTH}). Forecasts refit on every year.")]
+        for model_kind, item in prediction.MODELS.items():
+            lines.append((f"Trend test score: {item['name']}",
+                          f"MAE {trend['test'][model_kind]['mae']:.6g}; MAPE {trend['test'][model_kind]['mape']:.3g}%"
+                          if trend["test"][model_kind]["mape"] is not None else
+                          f"MAE {trend['test'][model_kind]['mae']:.6g}"))
+        return export_response(columns, rows, lines, ["predictions", "trend"], requested_format())
+    else:
+        columns = ["Model", "Stage", "Years", "Records", "MAE (short tons)", "RMSE (short tons)", "R²",
+                   "Weighted % error", "MAPE (%)", "Records in MAPE", "Mean error (short tons)",
+                   "Actual total (short tons)", "Predicted total (short tons)", "Chosen"]
+        rows = []
+        for model_kind, item in prediction.MODELS.items():
+            for stage, years in (("Validation", models["split"]["validation"]), ("Test", models["split"]["test"])):
+                score = models["validation" if stage == "Validation" else "test"][model_kind]
+                rows.append([item["name"], stage, prediction.period(years), score["n"], score["mae"], score["rmse"],
+                             score["r2"], score["wape"], score["mape"], score["mape_records"], score["bias"],
+                             score["actual_total"], score["predicted_total"],
+                             "Yes" if model_kind == models["chosen"] else ""])
+        kind = "Model evaluation"
+
+    lines = prediction_metadata(kind, frame, filters, result, models, target)
+    return export_response(columns, rows, lines, ["predictions", target, what], requested_format())
+
+
+# ---------- Phase 2: sensitivity and scenario analysis (proposal section 6) ----------
+
+def scenario_request(params, models, target):
+    """Everything the Scenarios page shows, from its URL choices; problems with the choices become messages."""
+    if "error" in models:
+        return {"error": models["error"]}
+    kind, pipeline = scenarios.chosen_model(models, params.get("model"))
+    units = scenarios.unit_choices(models)
+    problems = []
+    try:
+        unit_key = int(params.get("unit", ""))
+    except ValueError:
+        unit_key = None
+    if unit_key not in {key for key, _ in units}:
+        if params.get("unit"):
+            problems.append(f"That unit has no {prediction.period(models['split']['test'])} record in this selection, "
+                            f"so the page starts from a large unit instead.")
+        unit_key = scenarios.default_unit(models)
+    baseline = scenarios.baseline_record(models, unit_key)
+    variable = params.get("input") if params.get("input") in prediction.NUMERIC_INPUTS else "heat_input"
+    settings, points, sweep_problems = scenarios.read_sweep(params, baseline["inputs"][variable], models["ranges"],
+                                                            variable)
+    problems += sweep_problems
+    if settings["mode"] == "pct" and baseline["inputs"][variable] == 0:
+        problems.append(f"This unit's {prediction.NUMERIC_INPUTS[variable]['label'].lower()} is 0, so percentage "
+                        f"changes leave it at 0. Choose values instead to try other amounts.")
+    base_prediction, sweep_rows = scenarios.one_at_a_time(pipeline, models["ranges"], baseline, variable, points)
+    custom = scenarios.read_custom(params)
+    problems += custom[1]
+    _, scenario_rows = scenarios.run_scenarios(pipeline, models["ranges"], baseline, target, custom)
+    return {
+        "kind": kind, "units": units, "unit_key": unit_key, "baseline": baseline, "variable": variable,
+        "settings": settings, "sweep": sweep_rows, "base_prediction": base_prediction, "scenarios": scenario_rows,
+        "check": scenarios.baseline_check(pipeline, baseline), "problems": problems, "custom": custom,
+        "baseline_warnings": scenarios.warnings_for(baseline["inputs"], models["ranges"], baseline["year"]),
+        "outside_count": sum(1 for row in sweep_rows if row["outside"]),
+    }
+
+
+def scenario_charts(context, models, target):
+    if "error" in context:
+        return {}
+    charts = [
+        model_charts.sensitivity(context["sweep"], context["baseline"], context["variable"], target, context["kind"],
+                                 models["ranges"], context["base_prediction"]),
+        model_charts.scenario_bars(context["scenarios"], target, context["base_prediction"]),
+    ]
+    return {spec["id"]: dashboard.json_safe(spec) for spec in charts}
+
+
+SCENARIO_CHOICES = ["target", "model", "unit", "input", "mode", "low", "high", "step",
+                    "c_load", "c_heat", "c_time", "c_fuel", "c_so2", "c_nox"]
+
+
+def scenario_metadata(kind, frame, filters, result, models, target, context):
+    lines = prediction_metadata(kind, frame, filters, result, models, target)
+    if "error" in context:
+        return lines
+    baseline = context["baseline"]
+    inputs = "; ".join(f"{prediction.INPUT_LABELS[name]} {scenarios.input_text(name, value)}"
+                       for name, value in baseline["inputs"].items())
+    info = prediction.NUMERIC_INPUTS[context["variable"]]
+    settings = context["settings"]
+    if settings["mode"] == "pct":
+        sweep = f"{settings['low']:g}% to {settings['high']:g}% of the baseline in steps of {settings['step']:g}%"
+    else:
+        sweep = (f"{settings['low']:.6g} to {settings['high']:.6g} {info['unit']} in steps of "
+                 f"{settings['step']:.6g}")
+    span = models["ranges"]["numeric"][context["variable"]]
+    extra = [
+        ("Model analyzed", f"{prediction.MODELS[context['kind']]['name']} "
+                           f"{json.dumps(models['parameters'][context['kind']])}"),
+        ("Baseline", f"{baseline['label']}, {baseline['year']} (unit key {baseline['unit_key']})"),
+        ("Baseline inputs", inputs),
+        ("Baseline actual", f"{baseline['actual']:.6g} short tons"),
+        ("Baseline prediction", f"{context['base_prediction']:.6g} short tons"),
+        ("Varied input", f"{info['label']} ({info['unit']}), {sweep}"),
+        ("Held constant", "Every other input at the baseline value"),
+        ("Training range of varied input", f"{span['min']:.6g} to {span['max']:.6g} {info['unit']}"),
+        ("Percent change", "(scenario prediction − baseline prediction) ÷ baseline prediction × 100"),
+        ("Interpretation", scenarios.INTERPRETATION),
+    ]
+    return lines[:2] + extra + lines[2:]
+
+
+@app.route("/scenarios")
+def scenarios_page():
+    """
+    Sensitivity and scenario analysis (proposal 6): change one input of a fitted model at a time, and compare
+    named scenarios with a baseline unit, warning about values outside the training data.
+    """
+    params, filters, result, frame, target, models = prediction_request()
+    context = scenario_request(params, models, target)
+    chosen = {key: params[key] for key in SCENARIO_CHOICES if params.get(key)}
+    chosen["target"] = target
+    url_choices = {"target": target}
+    return render_template(
+        "scenarios.html",
+        target=target,
+        targets=prediction.TARGETS,
+        models=models,
+        context=context,
+        params=params,
+        model_info=prediction.MODELS,
+        candidates=prediction.CANDIDATES,
+        numeric_inputs=prediction.NUMERIC_INPUTS,
+        input_labels=prediction.INPUT_LABELS,
+        fuels=scenarios.FUELS,
+        input_text=scenarios.input_text,
+        interpretation=scenarios.INTERPRETATION,
+        max_points=scenarios.MAX_POINTS,
+        period=prediction.period,
+        charts=scenario_charts(context, models, target),
+        target_links={key: page_url("/scenarios", filters, target=key) for key in prediction.TARGETS},
+        predictions_url=page_url("/predictions", filters, **url_choices),
+        download_base=page_url("/scenarios/download", filters, **chosen),
+        **selection_context(filters, result, frame, keep=url_choices),
+    )
+
+
+@app.route("/scenarios/download")
+def scenarios_download():
+    """Sensitivity or scenario results as CSV or Excel (what=sensitivity or scenarios), or one chart's numbers."""
+    params, filters, result, frame, target, models = prediction_request()
+    context = scenario_request(params, models, target)
+    if "error" in context:
+        abort(404)
+    charts = scenario_charts(context, models, target)
+    what = request.args.get("chart") or request.args.get("what", "sensitivity")
+    spec = charts.get(what)
+    if spec is None:
+        abort(404)
+    columns, rows = spec["table"]["columns"], spec["table"]["rows"]
+    if what == "scenarios":
+        extra_columns = [f"{label} in scenario" for label in prediction.INPUT_LABELS.values()]
+        rows = [row + [scenarios.input_text(name, item["inputs"][name]) for name in prediction.INPUT_LABELS]
+                for row, item in zip(rows, context["scenarios"])]
+        columns = columns + extra_columns
+        kind = "Scenario comparison"
+    else:
+        kind = "One-variable-at-a-time sensitivity"
+    lines = scenario_metadata(kind, frame, filters, result, models, target, context)
+    return export_response(columns, rows, lines, ["scenarios", target, what], requested_format())
 
 # ---------- Sensitivity page ----------
 @app.route("/sensitivity", methods=["GET", "POST"])

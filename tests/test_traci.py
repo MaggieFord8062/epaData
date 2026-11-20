@@ -159,3 +159,35 @@ def test_impacts_page_and_downloads(client):
     factors = client.get("/impacts/download?what=factors").get_data(as_text=True)
     assert "Exact substance name NITROGEN OXIDES" in factors
     assert client.get("/impacts/download?what=records&format=xlsx").status_code == 200
+
+
+def test_calculation_text_matches_hand_calculation(impacts):
+    factors, frame = impacts
+    acidification = next(item for item in traci.summarize(frame, factors) if item["key"] == "acidification")
+    lines = acidification["calculation"]
+    assert lines[0] == "Acidification"
+    # SO2: 2,202.7 t × 907.18474 = 1,998,255.8 kg, × 1 = 1,998,255.8 kg SO2 eq
+    assert lines[1] == ("SO2: 2,202.7 short tons × 907.18474 kg per short ton = 1,998,255.8 kg; "
+                        "× 1 kg SO2 eq per kg (TRACI factor) = 1,998,255.8 kg SO2 eq")
+    # NOx: 4,315 t × 907.18474 = 3,914,502.2 kg, × 0.7 = 2,740,151.5 kg SO2 eq
+    assert lines[2] == ("NOx: 4,315 short tons × 907.18474 kg per short ton = 3,914,502.2 kg; "
+                        "× 0.7 kg SO2 eq per kg (TRACI factor) = 2,740,151.5 kg SO2 eq")
+    assert lines[3] == "Acidification = 1,998,255.8 + 2,740,151.5 = 4,738,407.3 kg SO2 eq"
+    assert lines[4].startswith("Per MWh: 4,738,407.3 kg SO2 eq ÷ 3,350,000 MWh of gross load = 1.414")
+    assert lines[5] == "Uses 7 records that report every pollutant this category needs."
+
+
+def test_every_impact_bar_carries_its_calculation(client):
+    import json
+    import re
+    page = client.get("/impacts?by=state").get_data(as_text=True)
+    assert "How this was calculated" in page
+    for chart_id in ("impact_shares", "impact_groups"):
+        body = re.search(r'<script type="application/json" id="spec-' + chart_id + r'">(.*?)</script>', page, re.S)
+        spec = json.loads(body.group(1))
+        assert spec["explain"]
+        assert f'id="explain-{chart_id}"' in page
+        for trace in spec["data"]:
+            for point in trace["customdata"]:
+                if point[2]:
+                    assert any("907.18474" in line for line in point[2])

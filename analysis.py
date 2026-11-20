@@ -423,6 +423,153 @@ def describe(frame, key, percentiles=None):
     return result
 
 
+# ---------- What the numbers say ----------
+
+def interpret(summary, key, groups=None, unusual_result=None):
+    """
+    Plain-language findings from the statistics, so the page explains the numbers instead of only
+    listing them. Returns a list of (heading, sentence). Every sentence is worked out from the
+    numbers passed in; nothing is assumed about the data.
+    """
+    item = VARIABLES[key]
+    unit = item["unit"]
+    label = item["label"]
+    findings = []
+    if not summary or not summary.get("count"):
+        return findings
+
+    def amount(value):
+        return f"{format_number(value)} {unit}"
+
+    median, mean = summary["median"], summary["mean"]
+    if summary.get("q1") is not None:
+        findings.append(("Typical value",
+                         f"Half of the records with a value are below {amount(median)}, and the middle half lies "
+                         f"between {amount(summary['q1'])} and {amount(summary['q3'])}."))
+
+    if median is not None and mean is not None and median > 0 and mean > 0:
+        ratio = mean / median
+        if ratio >= 1.25:
+            findings.append(("Skewed by large values",
+                             f"The mean ({amount(mean)}) is {ratio:.1f}× the median, so a few very large values pull "
+                             "the average up. The median describes a typical record better."))
+        elif ratio <= 0.8:
+            findings.append(("Pulled down by small values",
+                             f"The mean ({amount(mean)}) is below the median, so a group of small values pulls the "
+                             "average down."))
+        else:
+            findings.append(("Balanced",
+                             f"The mean ({amount(mean)}) and the median are close, so the values are spread fairly "
+                             "evenly around the middle."))
+
+    if summary.get("std") is not None and mean:
+        spread = summary["std"] / abs(mean)
+        if spread >= 1:
+            findings.append(("Wide spread",
+                             f"The standard deviation is {spread:.1f}× the mean: records differ enormously, which is "
+                             "why the charts use log scales."))
+        elif spread <= 0.25:
+            findings.append(("Narrow spread",
+                             f"The standard deviation is only {spread * 100:.0f}% of the mean: most records are "
+                             "close to each other."))
+
+    if item["ratio"] and summary.get("overall") is not None and mean:
+        overall = summary["overall"]
+        if abs(overall - mean) / abs(mean) >= 0.05:
+            findings.append(("Large units weigh more",
+                             f"The overall ratio ({amount(overall)}) is {'lower' if overall < mean else 'higher'} "
+                             f"than the average record ({amount(mean)}). Total ÷ total weights each record by its "
+                             f"size, so the large units have {'lower' if overall < mean else 'higher'} {label} than "
+                             "the small ones."))
+
+    # Missing values are explained in the note under the statistics; only say so when there are none
+    if not summary["missing"]:
+        findings.append(("Complete", f"Every one of the {summary['records']:,} records has a value."))
+
+    usable = [row for row in (groups or []) if row["group"] != NOT_REPORTED]
+    measure = "overall" if item["ratio"] else ("total" if item["additive"] else "mean")
+    usable = [row for row in usable if row.get(measure) is not None]
+    if len(usable) >= 2:
+        high = max(usable, key=lambda row: row[measure])
+        low = min(usable, key=lambda row: row[measure])
+        text = (f"{high['group']} has the highest {('overall ' if item['ratio'] else measure + ' ')}{label} "
+                f"({amount(high[measure])}) and {low['group']} the lowest ({amount(low[measure])})")
+        if low[measure] and low[measure] > 0 and high[measure] > 0:
+            text += f", {high[measure] / low[measure]:,.1f}× apart"
+        findings.append(("Groups", text + "."))
+
+    flagged = (unusual_result["above"] + unusual_result["below"]) if unusual_result else 0
+    if flagged:
+        findings.append(("Unusual values",
+                         f"{flagged:,} records ({unusual_result['share']:.1f}%) lie outside Tukey's "
+                         f"fences: {unusual_result['above']:,} above {amount(unusual_result['high'])} and "
+                         f"{unusual_result['below']:,} below {amount(unusual_result['low'])}."))
+    return findings
+
+
+# ---------- Unusual observations (proposal goal 5) ----------
+
+UNUSUAL_RULE = ("A value is unusual when it is more than 1.5 × the interquartile range (IQR) below the first "
+                "quartile or above the third quartile: Tukey's fences, the same rule the box plots use for "
+                "their whiskers.")
+UNUSUAL_NOTE = ("Unusual is not the same as wrong. Emissions are skewed, so the largest plants often sit above the "
+                "upper fence; a value far beyond it, or any ratio that is physically implausible, is worth checking "
+                "against the facility's own records.")
+UNUSUAL_LIMIT = 10
+
+
+def unusual(frame, key, limit=UNUSUAL_LIMIT):
+    """
+    Records whose value of the variable lies outside Tukey's fences (Q1 − 1.5 × IQR, Q3 + 1.5 × IQR).
+    Returns None when fewer than four values are present. "highest" and "lowest" hold the most
+    extreme records on each side (up to `limit`); "records" holds every unusual record, for the download.
+    Distance is how far past its fence a value is, in IQRs (missing when the IQR is 0).
+    """
+    if key not in frame.columns:
+        return None
+    values = frame[key]
+    present = values.dropna()
+    if present.size < 4:
+        return None
+    q1 = float(present.quantile(0.25))
+    q3 = float(present.quantile(0.75))
+    spread = q3 - q1
+    low = q1 - 1.5 * spread
+    high = q3 + 1.5 * spread
+    labels = unit_labels(frame)
+
+    def describe_rows(mask, side, ascending):
+        part = frame[mask].copy()
+        part["_value"] = values[mask]
+        part = part.sort_values("_value", ascending=ascending)
+        fence = low if side == "below" else high
+        rows = []
+        for index, row in part.iterrows():
+            value = float(row["_value"])
+            rows.append({
+                "label": labels[index],
+                "facility_id": None if pd.isna(row["facility_id"]) else int(row["facility_id"]),
+                "unit_key": None if pd.isna(row["unit_key"]) else int(row["unit_key"]),
+                "year": None if pd.isna(row["year"]) else int(row["year"]),
+                "primary_fuel": row["primary_fuel"] if isinstance(row["primary_fuel"], str) else NOT_REPORTED,
+                "value": value,
+                "side": side,
+                "distance": abs(value - fence) / spread if spread > 0 else None,
+            })
+        return rows
+
+    above = describe_rows(values > high, "above", False)
+    below = describe_rows(values < low, "below", True)
+    return {
+        "q1": q1, "q3": q3, "iqr": spread, "low": low, "high": high,
+        "count": int(present.size),
+        "above": len(above), "below": len(below),
+        "share": (len(above) + len(below)) / present.size * 100,
+        "highest": above[:limit], "lowest": below[:limit],
+        "records": above + below,
+    }
+
+
 def group_labels(frame, group):
     """The group each record belongs to, as text. Records with no value go in "Not reported"."""
     if group == "facility":
@@ -778,9 +925,15 @@ def format_compact(value):
         return str(value)
     if np.isnan(number):
         return "—"
-    for limit, word in ((1e12, "trillion"), (1e9, "billion"), (1e6, "million")):
+    tiers = ((1e12, "trillion"), (1e9, "billion"), (1e6, "million"))
+    for index, (limit, word) in enumerate(tiers):
         if abs(number) >= limit:
-            return "{:.3g} {}".format(number / limit, word)
+            words = "{:.3g}".format(number / limit)
+            if "e" in words and index > 0:
+                # 999,600,000 rounds up to "1 billion", not "1e+03 million"
+                limit, word = tiers[index - 1]
+                words = "{:.3g}".format(number / limit)
+            return f"{words} {word}"
     return format_number(number)
 
 

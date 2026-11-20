@@ -146,6 +146,72 @@ def test_every_chart_is_valid_json():
         json.dumps(dashboard.json_safe(spec), allow_nan=False)
 
 
+def test_chart_headlines_and_legends():
+    frame = selection()
+    trend = dashboard.trend(frame, "co2_mass")
+    # 2025: 710,000 short tons, down from 1,060,000 in 2023
+    assert trend["headline"]["value"] == "710,000" and trend["headline"]["unit"] == "short tons"
+    assert trend["headline"]["context"] == "In 2025"
+    assert trend["headline"]["delta"] == {"text": "33.0%", "dir": "down", "after": "since 2023"}
+    assert trend["readout"]["trace"] == 0 and trend["ranges"] == []    # three years: no range buttons
+    bars = dashboard.bars(frame, "co2_mass", "state")
+    assert (bars["headline"]["value"], bars["headline"]["unit"]) == ("2.78", "million short tons")
+    assert bars["headline"]["context"] == "KY, the highest of 2"
+    indexed = dashboard.indexed_trend(frame)
+    co2 = next(item for item in indexed["legend"] if item["name"] == "CO2")
+    assert co2["value"] == "−33% since 2023"
+
+
+def test_chart_details_show_the_calculation():
+    frame = selection()
+    trend = dashboard.trend(frame, "co2_intensity")
+    detail = trend["details"]["0:2"]                      # 2025
+    assert detail["title"] == "2025"
+    assert detail["calc"][0]["value"] == "710,000 short tons"
+    assert detail["calc"][1]["value"] == "1,050,000 MWh"
+    assert detail["calc"][-1]["value"] == "0.6762 short tons/MWh" and detail["calc"][-1]["result"]
+    assert detail["drill"] == {"reporting_year": 2025}
+    assert "1 record is left out" in detail["note"]        # the zero-load record
+    bars = dashboard.bars(frame, "co2_mass", "state")
+    assert bars["details"]["0:0"]["drill"] == {"state": "KY"}
+    assert bars["details"]["0:0"]["calc"][-1]["value"] == "2,780,000 short tons"
+    choices = {"variable": "co2_mass", "group": "state", "split": "none", "x": "heat_input", "y": "co2_mass",
+               "scale": "log", "corr": "spearman", "level": "facility", "min_load": 0}
+    for spec in dashboard.build_all(frame, choices):
+        if not spec["empty"]:
+            assert spec["about"]["what"] and spec["about"]["why"] and spec["about"]["source"]
+            assert spec.get("details") or spec.get("detail_template")
+
+
+def test_statistics_explain_the_numbers(client):
+    findings = dict(analysis.interpret(analysis.describe(selection(), "co2_intensity"), "co2_intensity"))
+    assert "Typical value" in findings and "Large units weigh more" in findings
+    page = client.get("/statistics?variable=co2_intensity").get_data(as_text=True)
+    assert "What the numbers say" in page
+
+
+def test_sensitivity_page_is_in_the_app(client):
+    page = client.get("/sensitivity").get_data(as_text=True)
+    assert "Sensitivity Analysis" in page
+    assert 'href="/sensitivity"' in page          # linked from the global navigation
+
+
+def test_short_numbers():
+    assert dashboard.short_number(1_260_000_000) == "1.26B"
+    assert dashboard.short_number(999_600) == "1M"
+    assert dashboard.short_number(100) == "100"
+    assert dashboard.short_number(-2.33) == "−2.33"
+    assert analysis.format_compact(999_600_000) == "1 billion"
+
+
+def test_log_scale_falls_back_to_linear_for_negative_values():
+    import pandas as pd
+    frame = pd.DataFrame({"co2_mass_change_pct": [-10.0, 5.0, 20.0, 0.0, 30.0]})
+    spec = dashboard.histogram(frame, "co2_mass_change_pct", "log")
+    assert sum(row[2] for row in spec["table"]["rows"]) == 5      # nothing left out
+    assert "uses a linear scale" in spec["note"]
+
+
 def test_dashboard_page(client):
     page = client.get("/dashboard?state=KY&variable=co2_intensity").get_data(as_text=True)
     blocks = re.findall(r'<script type="application/json" id="spec-([a-z_]+)">(.*?)</script>', page, re.S)
@@ -155,6 +221,8 @@ def test_dashboard_page(client):
     for _, body in blocks:
         json.loads(body)
     assert "plotly" in page.lower()
+    assert 'class="chart-value"' in page and 'class="chart-legend"' in page
+    assert 'class="chart-about"' in page and "Why this kind of chart" in page
 
 
 def test_dashboard_chart_download(client):
@@ -223,3 +291,17 @@ def test_comparison_pages(client):
     assert "Welch's t-test: p-value" in text
     for what in ("indicators", "groups"):
         assert client.get(f"/comparison/download?cmp=period&what={what}&format=xlsx").status_code == 200
+
+
+def test_charts_load_plotly_from_the_project(client):
+    """Charts must not depend on the internet: Plotly and the map outline are served from static/vendor."""
+    page = client.get("/dashboard").get_data(as_text=True)
+    assert "/static/vendor/plotly-2.35.2.min.js" in page
+    assert 'data-topojson="/static/vendor/topojson/"' in page
+    assert "cdnjs" not in page
+    script = client.get("/static/vendor/plotly-2.35.2.min.js")
+    assert script.status_code == 200 and b"plotly.js v2.35.2" in script.data[:200]
+    script.close()
+    outline = client.get("/static/vendor/topojson/usa_110m.json")
+    assert outline.status_code == 200
+    outline.close()

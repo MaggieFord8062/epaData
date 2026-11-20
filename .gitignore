@@ -6,3 +6,4 @@ __pycache__/
 uploads/
 
 .pytest_cache/
+trained_models/
