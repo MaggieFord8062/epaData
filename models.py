@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Float, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -359,4 +359,45 @@ class QATest(Base):
     unit = relationship(
         "Unit",
         back_populates="qa_tests"
+    )
+
+# ---------------------------------------------------------
+# Prediction models (Phase 2)
+# ---------------------------------------------------------
+
+class PredictionModel(Base):
+    """
+    One fitted prediction model. The model itself is saved with joblib (file_path, checked with
+    file_sha256); this row records what it predicts, from which inputs, with which settings,
+    which years trained, validated and tested it, and how well it did, so results can be
+    reproduced and every export can say exactly which model made it.
+    The three models fitted together on one selection share a run_key.
+    """
+    __tablename__ = "prediction_model"
+
+    prediction_model_id = Column(Integer, primary_key=True)
+    run_key = Column(String, nullable=False, index=True)
+    created_at = Column(String)
+    target = Column(String, nullable=False)          # co2_mass, so2_mass or nox_mass
+    model_kind = Column(String, nullable=False)      # mean, linear or tree
+    model_name = Column(String)                      # e.g. "Decision tree"
+    is_chosen = Column(Boolean, default=False)       # the model chosen on the validation years
+    features = Column(String)                        # JSON list of input names
+    parameters = Column(String)                      # JSON
+    train_years = Column(String)                     # e.g. "1995–2022"
+    validation_years = Column(String)
+    test_years = Column(String)
+    train_records = Column(Integer)
+    validation_records = Column(Integer)
+    test_records = Column(Integer)
+    validation_scores = Column(String)               # JSON: MAE, RMSE, R², ...
+    test_scores = Column(String)                     # JSON
+    selection_fingerprint = Column(String)           # which unit-years were selected
+    selection = Column(String)                       # JSON list of the Explore filters in words
+    file_path = Column(String)                       # trained_models/<run_key>.joblib
+    file_sha256 = Column(String)
+    software = Column(String)                        # pandas, NumPy, scikit-learn and module versions
+
+    __table_args__ = (
+        UniqueConstraint("run_key", "model_kind", name="uq_prediction_model_run"),
     )

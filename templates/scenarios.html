@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+{% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
+{% from "_localnav.html" import analysis_nav %}
+
+{% block title %}Scenarios - epaData{% endblock %}
+
+{% block head %}{{ chart_scripts() }}{% endblock %}
+
+{% block localnav %}
+{{ analysis_nav(analysis_pages, request.path, request.full_path,
+                (download_base ~ "&what=scenarios", "Download") if "error" not in context else none) }}
+{% endblock %}
+
+{% block main %}
+{% set label = targets[target].label %}
+{% set ok = "error" not in context %}
+
+<section class="hero">
+    <div class="hero-inner">
+        <h1>Scenarios</h1>
+        <p class="subhead">Change one thing. See what the model says.</p>
+        <p class="lede">
+            Start from a real unit's year, change its load, fuel use, fuel or controls, and watch the fitted model's
+            {{ label }} prediction respond. Every result is compared with the unit's baseline.
+        </p>
+        <div class="ctas">
+            <nav class="segmented" aria-label="Pollutant to predict">
+                {% for key, item in targets.items() %}
+                <a href="{{ target_links[key] }}" {% if key == target %}class="is-active" aria-current="true"{% endif %}>{{ item.label }}</a>
+                {% endfor %}
+            </nav>
+        </div>
+        {% include "_selection.html" %}
+    </div>
+</section>
+
+{% if not ok %}
+
+<section class="band">
+    <div class="container">
+        <div class="empty">
+            <h3>There's no fitted model for this selection</h3>
+            <p>{{ context.error }}</p>
+            <a class="btn" href="{{ explore_url }}">Change the selection in Explore</a>
+        </div>
+    </div>
+</section>
+
+{% else %}
+
+{% set baseline = context.baseline %}
+{% set variable = context.variable %}
+{% set settings = context.settings %}
+{% set info = numeric_inputs[variable] %}
+{% set check = context.check %}
+
+<!-- Setup -->
+<section class="band">
+    <div class="container wide">
+        <h2 class="section-title">Set up. <span class="gray">Pick a model, a unit and what to change.</span></h2>
+        <p class="section-intro">The model was fitted on {{ period(models.split.train + models.split.validation) }} and every value it never saw in training is flagged.</p>
+
+        {% if context.problems %}
+        <div class="message warning" role="status">
+            {% for problem in context.problems %}<p>{{ problem }}</p>{% endfor %}
+        </div>
+        {% endif %}
+
+        <form class="controls-card" method="GET" action="/scenarios">
+            {{ hidden_filters(filters) }}
+            <input type="hidden" name="target" value="{{ target }}">
+            <div class="form-grid">
+                <div class="field">
+                    <label for="model">Model</label>
+                    <select class="control" id="model" name="model">
+                        {% for kind in candidates %}
+                        <option value="{{ kind }}" {% if kind == context.kind %}selected{% endif %}>{{ model_info[kind].name }}{% if kind == models.chosen %} (chosen){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field wide">
+                    <label for="unit">Baseline unit ({{ period(models.split.test) }})</label>
+                    <select class="control" id="unit" name="unit">
+                        {% for key, name in context.units %}
+                        <option value="{{ key }}" {% if key == context.unit_key %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="input">Input to change</label>
+                    <select class="control" id="input" name="input">
+                        {% for key, item in numeric_inputs.items() %}
+                        <option value="{{ key }}" {% if key == variable %}selected{% endif %}>{{ item.label }} ({{ item.unit }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <span class="label">Range in</span>
+                    <div class="segmented" role="radiogroup" aria-label="Range in">
+                        <input type="radio" id="mode-pct" name="mode" value="pct" {% if settings.mode == "pct" %}checked{% endif %}>
+                        <label for="mode-pct">% of baseline</label>
+                        <input type="radio" id="mode-value" name="mode" value="value" {% if settings.mode == "value" %}checked{% endif %}>
+                        <label for="mode-value">Values</label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label for="low">From</label>
+                    <input class="control" id="low" name="low" inputmode="decimal" value="{{ '%g'|format(settings.low) }}">
+                </div>
+                <div class="field">
+                    <label for="high">To</label>
+                    <input class="control" id="high" name="high" inputmode="decimal" value="{{ '%g'|format(settings.high) }}">
+                </div>
+                <div class="field">
+                    <label for="step">Step</label>
+                    <input class="control" id="step" name="step" inputmode="decimal" value="{{ '%g'|format(settings.step) }}">
+                    <span class="hint">Up to {{ max_points }} points.</span>
+                </div>
+            </div>
+
+            <details class="analysis-details" style="margin-top: 26px" {% if context.custom[0] %}open{% endif %}>
+                <summary>Your own scenario</summary>
+                <p>Combine changes; blank fields stay at the baseline. Percentages change the baseline value.</p>
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="c_load">Gross load change (%)</label>
+                        <input class="control" id="c_load" name="c_load" inputmode="decimal" placeholder="e.g. 20" value="{{ params.c_load or '' }}">
+                    </div>
+                    <div class="field">
+                        <label for="c_heat">Heat input change (%)</label>
+                        <input class="control" id="c_heat" name="c_heat" inputmode="decimal" placeholder="e.g. -5" value="{{ params.c_heat or '' }}">
+                    </div>
+                    <div class="field">
+                        <label for="c_time">Operating time change (%)</label>
+                        <input class="control" id="c_time" name="c_time" inputmode="decimal" placeholder="e.g. 10" value="{{ params.c_time or '' }}">
+                    </div>
+                    <div class="field">
+                        <label for="c_fuel">Fuel</label>
+                        <select class="control" id="c_fuel" name="c_fuel">
+                            <option value="">Unchanged</option>
+                            {% for fuel in fuels %}<option value="{{ fuel }}" {% if params.c_fuel == fuel %}selected{% endif %}>{{ fuel }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="c_so2">SO2 control</label>
+                        <select class="control" id="c_so2" name="c_so2">
+                            <option value="">Unchanged</option>
+                            <option value="1" {% if params.c_so2 == "1" %}selected{% endif %}>Reported</option>
+                            <option value="0" {% if params.c_so2 == "0" %}selected{% endif %}>None</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="c_nox">NOx control</label>
+                        <select class="control" id="c_nox" name="c_nox">
+                            <option value="">Unchanged</option>
+                            <option value="1" {% if params.c_nox == "1" %}selected{% endif %}>Reported</option>
+                            <option value="0" {% if params.c_nox == "0" %}selected{% endif %}>None</option>
+                        </select>
+                    </div>
+                </div>
+            </details>
+
+            <div class="form-actions">
+                <button class="btn" type="submit">Update</button>
+                <a class="btn-link" href="{{ target_links[target] }}">Start over</a>
+            </div>
+        </form>
+    </div>
+</section>
+
+<!-- Baseline -->
+<section class="band alt">
+    <div class="container wide">
+        <h2 class="section-title">The baseline. <span class="gray">Where every change starts.</span></h2>
+        <p class="section-intro">The unit's actual {{ baseline.year }} inputs. The {{ model_info[context.kind].name|lower }}'s prediction for them is the baseline every result is compared with.</p>
+        <div class="baseline-card">
+            <div>
+                <h3><a href="/unit/{{ baseline.unit_key }}">{{ baseline.label }}</a></h3>
+                <p class="sub">{{ baseline.year }} · {{ baseline.primary_fuel or "Fuel not reported" }} · {{ baseline.inputs.unit_type }}</p>
+                <ul class="io-list">
+                    {% for name, value in baseline.inputs.items() %}
+                    <li><span>{{ input_labels[name] }}</span><span>{{ input_text(name, value) }}</span></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="baseline-numbers">
+                <div>
+                    <div class="value">{{ check.prediction|stat }}</div>
+                    <div class="label">Baseline prediction, short tons {{ label }}</div>
+                </div>
+                <div>
+                    <div class="value">{{ check.actual|stat }}</div>
+                    <div class="label">Actually reported in {{ baseline.year }}</div>
+                </div>
+                <div>
+                    <div class="value">{{ check.error|signed }}</div>
+                    <div class="label">Model miss at the baseline{% if check.error_pct is not none %} ({{ check.error_pct|signed_pct }}){% endif %}</div>
+                </div>
+                <div>
+                    <div class="value">{{ model_info[context.kind].name }}</div>
+                    <div class="label">Model, trained {{ models.trained_at[:10] }}</div>
+                </div>
+                {% if context.baseline_warnings %}
+                <div style="grid-column: 1 / -1">
+                    {% for warning in context.baseline_warnings %}<p class="warn-text">{{ warning }}</p>{% endfor %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- One variable at a time -->
+{% set sweep = context.sweep %}
+{% set lowest = sweep|min(attribute="prediction") %}
+{% set highest = sweep|max(attribute="prediction") %}
+<section class="band">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">One at a time. <span class="gray">{{ info.label }} changes; nothing else does.</span></h2>
+                <p class="section-intro">
+                    From {{ sweep[0].value|stat }} to {{ sweep[-1].value|stat }} {{ info.unit }}, the predicted {{ label }} ranges from
+                    {{ lowest.prediction|stat }} to {{ highest.prediction|stat }} short tons
+                    ({% if lowest.change_pct is not none %}{{ lowest.change_pct|signed_pct }} to {{ highest.change_pct|signed_pct }} from the baseline{% else %}the baseline prediction is 0, so percentages are undefined{% endif %}).
+                    {% if context.outside_count %}{{ context.outside_count }} of {{ sweep|length }} values are outside the training range and are marked.{% endif %}
+                </p>
+            </div>
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=sensitivity" download>Download CSV</a>
+                <a class="btn-link" href="{{ download_base }}&what=sensitivity&format=xlsx" download>Excel</a>
+            </div>
+        </div>
+        <div class="chart-grid">
+            {{ chart_card(charts.sensitivity, download_base, wide=true) }}
+        </div>
+        {% if context.kind == "tree" %}
+        <p class="note">A decision tree predicts the average of groups of similar training records, so its curve moves in steps and stays flat where the input doesn't change which group the unit falls in.</p>
+        {% else %}
+        <p class="note">Linear regression gives a straight line: each extra {{ info.unit[:-1] if variable == "operating_time" else info.unit }} changes the prediction by the same amount, until the prediction reaches 0, where it stops.</p>
+        {% endif %}
+    </div>
+</section>
+
+<!-- Scenarios -->
+<section class="band alt">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">Scenarios. <span class="gray">Named changes, side by side.</span></h2>
+                <p class="section-intro">Percentage change = (scenario − baseline) ÷ baseline × 100. Scenarios marked ⚠ use a value the model never saw in training.</p>
+            </div>
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=scenarios" download>Download CSV</a>
+                <a class="btn-link" href="{{ download_base }}&what=scenarios&format=xlsx" download>Excel</a>
+            </div>
+        </div>
+        <div class="chart-grid">
+            {{ chart_card(charts.scenarios, download_base, wide=true) }}
+        </div>
+        <div class="table-card space-top">
+            <div class="table-wrap">
+                <table class="data scenario-table">
+                    <thead>
+                        <tr><th>Scenario</th><th>What changes</th><th class="num">Predicted {{ label }}</th><th class="num">Change</th><th class="num">Change %</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for row in context.scenarios %}
+                        <tr class="{{ 'is-highlight' if row.key == 'baseline' else '' }}">
+                            <td class="name">{{ row.name }}</td>
+                            <td class="wrap">{{ row.about }}{% for warning in row.warnings %}<p class="warn-text" style="margin: 6px 0 0">{{ warning }}</p>{% endfor %}</td>
+                            <td class="num">{{ row.prediction|stat }}</td>
+                            <td class="num">{% if row.key == "baseline" %}—{% else %}{{ row.change|signed }}{% endif %}</td>
+                            <td class="num">{% if row.key == "baseline" %}—{% else %}{{ row.change_pct|signed_pct }}{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <p class="note">Short tons of {{ label }} a year. Changes are from the baseline prediction, not from the reported value.</p>
+    </div>
+</section>
+
+<!-- Interpretation -->
+<section class="band">
+    <div class="container wide">
+        <h2 class="section-title">Read this first. <span class="gray">What these results can and can't say.</span></h2>
+        <p class="section-intro">{{ interpretation }}</p>
+        <details class="analysis-details">
+            <summary>Why one input can seem to work backwards</summary>
+            <p>Across all units, bigger units have more gross load, more heat input and more operating hours at once. When one of them changes and the others are held fixed, the model is asked about a unit that doesn't exist in the data, such as one making more electricity from the same fuel. Linear regression then answers with the effect it learned across units, which can point the "wrong" way. The "Runs 10% more" scenario, where load, heat input and hours rise together, is the realistic version.</p>
+        </details>
+        <details class="analysis-details">
+            <summary>Out-of-range warnings</summary>
+            <p>Training range for each input (records the final model learned from, {{ period(models.split.train + models.split.validation) }}):</p>
+            <ul>
+                {% for key, item in numeric_inputs.items() %}
+                <li>{{ item.label }}: {{ models.ranges.numeric[key].min|stat }} to {{ models.ranges.numeric[key].max|stat }} {{ item.unit }}</li>
+                {% endfor %}
+            </ul>
+            <p>Outside these, a decision tree repeats its nearest group's value and a straight line keeps going; neither has been checked against data there. A fuel and unit-type combination, or a control on a fuel, that never appears in training is flagged the same way.</p>
+        </details>
+        <details class="analysis-details">
+            <summary>Downloads</summary>
+            <p>
+                <a href="{{ download_base }}&what=sensitivity" download>One-at-a-time results (CSV)</a> ·
+                <a href="{{ download_base }}&what=sensitivity&format=xlsx" download>Excel</a><br>
+                <a href="{{ download_base }}&what=scenarios" download>Scenario comparison (CSV)</a> ·
+                <a href="{{ download_base }}&what=scenarios&format=xlsx" download>Excel</a><br>
+                Each file lists the model, its settings and training years, the baseline unit and its inputs, the range tried and what was held constant.
+            </p>
+        </details>
+        <p class="note"><a class="more-link" href="{{ predictions_url }}">See how the models were tested on the Predictions page</a></p>
+    </div>
+</section>
+
+{% endif %}
+
+{% endblock %}

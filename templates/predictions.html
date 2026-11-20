@@ -1,332 +1,388 @@
-
 {% extends "base.html" %}
+{% from "_chart.html" import chart_card, chart_scripts %}
+{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Predictions - epaData{% endblock %}
 
-{% block content %}
+{% block head %}{{ chart_scripts() }}{% endblock %}
 
-<div class="page-head">
-    <h1>Emissions Predictions</h1>
-    <p>
-        Train and evaluate prediction models using historical EPA emissions data.
-        Compare model predictions against actual emissions and explore future estimates.
-    </p>
-</div>
-
-<!-- Prediction settings -->
-<section class="section">
-    <h2 class="section-title">Prediction Settings</h2>
-
-    <p class="section-intro">
-        Annual CO2 emissions prediction using historical EPA data.
-    </p>
-
-    <div class="prediction-settings-grid">
-
-        <div class="prediction-setting">
-            <span>Target Variable</span>
-            <p>CO2 Emissions</p>
-        </div>
-
-        <div class="prediction-setting">
-            <span>Testing Year</span>
-            <p>2025</p>
-        </div>
-
-        <div class="prediction-setting">
-            <span>Training Years</span>
-            <p>2015–2022</p>
-        </div>
-
-        <div class="prediction-setting">
-            <span>Validation Years</span>
-            <p>2023–2024</p>
-        </div>
-
-    </div>
-</section>
-
-<section class="section">
-    <details>
-        <summary class="section-title">Historical CO₂ Data (1995–2025)</summary>
-
-        <p class="section-intro">
-            Annual CO₂ emissions retrieved from the epaData database.
-        </p>
-
-        <div class="table-wrap">
-            <table class="data">
-                <thead>
-                    <tr>
-                        <th>Year</th>
-                        <th class="num">Total CO₂ Emissions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for record in annual_totals %}
-                    <tr>
-                        <td>{{ record.year }}</td>
-                        <td class="num">
-                            {{ "{:,.2f}".format(record.co2_total) }}
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="2">No annual CO₂ data found.</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </details>
-</section>
-
-
-<!-- Model predictions -->
-<section class="section">
-    <h2 class="section-title">2025 Model Predictions</h2>
-
-    <p class="section-intro">
-        Comparison of predicted and actual annual CO2 emissions.
-    </p>
-
-    <div class="table-wrap">
-        <table class="data">
-            <thead>
-                <tr>
-                    <th>Model</th>
-                    <th class="num">Predicted CO2</th>
-                    <th class="num">Actual CO2</th>
-                    <th class="num">MAE</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for name, result in test_results.items() %}
-                <tr>
-                    <td>{{ name }}</td>
-                    <td class="num">
-                        {{ "{:,.2f}".format(result.predicted) }}
-                    </td>
-                    <td class="num">
-                        {{ "{:,.2f}".format(result.actual) }}
-                    </td>
-                    <td class="num">
-                        {{ "{:,.2f}".format(result.mae) }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
-
-<!-- Model evaluation -->
-<section class="section">
-    <h2 class="section-title">Model Evaluation</h2>
-
-    <p>
-        The models were evaluated using Mean Absolute Error (MAE)
-        and Root Mean Squared Error (RMSE). Lower values indicate
-        better prediction accuracy.
-    </p>
-
-    <h3>Best Performing Model</h3>
-
-    <p>
-        The Decision Tree model performed best on the 2025 test data,
-        with an MAE of approximately 27.7 million and an RMSE of
-        approximately 27.7 million.
-    </p>
-
-    <h3>Evaluation Limitations</h3>
-
-    <ul>
-        <li>The validation period only includes 2023 and 2024.</li>
-        <li>The test period only includes 2025.</li>
-        <li>The Decision Tree produces a flat forecast beyond the
-            historical training years.</li>
-    </ul>
-</section>
-
-<!-- Future predictions -->
-<section class="section">
-    <h2 class="section-title">Future Emissions Forecast</h2>
-
-    <p class="section-intro">
-        Predicted annual CO2 emissions for 2026–2030
-        using three different prediction models.
-    </p>
-
-    <div class="table-wrap">
-        <table class="data">
-            <thead>
-                <tr>
-                    <th>Year</th>
-                    <th class="num">Mean Baseline</th>
-                    <th class="num">Linear Regression</th>
-                    <th class="num">Decision Tree</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for row in forecasts %}
-                <tr>
-                    <td>{{ row.year }}</td>
-
-                    <td class="num">
-                        {{ "{:,.2f}".format(row["Mean Baseline"]) }}
-                    </td>
-
-                    <td class="num">
-                        {{ "{:,.2f}".format(row["Linear Regression"]) }}
-                    </td>
-
-                    <td class="num">
-                        {{ "{:,.2f}".format(row["Decision Tree"]) }}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
-
-<section class="section">
-    <h2 class="section-title">Historical vs. Predicted CO2 Emissions</h2>
-
-    <p class="section-intro">
-        Historical annual CO2 emissions compared with model forecasts
-        for 2026–2030.
-    </p>
-
-    <div id="co2ForecastChart" style="width: 100%; height: 450px;"></div>
-    
-</section>
-
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-
-    const historicalYears = [
-        {% for row in annual_totals %}
-            {{ row.year|tojson }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    const historicalCO2 = [
-        {% for row in annual_totals %}
-            {{ row.co2_total|tojson }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    const futureYears = [
-        {% for row in forecasts %}
-            {{ row.year|tojson }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    const actual2025 = historicalCO2[historicalYears.indexOf(2025)];
-
-    const forecastYears = [2025, ...futureYears];
-
-    const meanBaseline = [
-        actual2025,
-        {% for row in forecasts %}
-            {{ row["Mean Baseline"]|tojson }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    const linearRegression = [
-        actual2025,
-        {% for row in forecasts %}
-            {{ row["Linear Regression"]|tojson }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    const decisionTree = [
-        actual2025,
-        {% for row in forecasts %}
-            {{ row["Decision Tree"]|tojson }}{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
-
-    const traces = [
-        {
-            x: historicalYears,
-            y: historicalCO2,
-            mode: "lines+markers",
-            name: "Historical CO2",
-            line: { width: 3 }
-        },
-        {
-            x: forecastYears,
-            y: meanBaseline,
-            mode: "lines+markers",
-            name: "Mean Baseline",
-            line: { dash: "dash" }
-        },
-        {
-            x: forecastYears,
-            y: linearRegression,
-            mode: "lines+markers",
-            name: "Linear Regression",
-            line: { dash: "dash" }
-        },
-        {
-            x: forecastYears,
-            y: decisionTree,
-            mode: "lines+markers",
-            name: "Decision Tree",
-            line: { dash: "dash" }
-        }
-    ];
-
-    const layout = {
-        title: "Annual CO2 Emissions: Historical Data and Forecast",
-
-        xaxis: {
-            title: "Year",
-            dtick: 2
-        },
-
-        yaxis: {
-            title: {
-                text: "CO2 Emissions (database units)",
-                standoff: 35
-            },
-            tickformat: ",.0f",
-            automargin: true
-        },
-
-        hovermode: "x unified",
-
-        legend: {
-            orientation: "h",
-            y: -0.25
-        },
-
-        margin: {
-            t: 60,
-            b: 100,
-            l: 140,
-            r: 30
-        }
-    };
-
-    Plotly.newPlot(
-        "co2ForecastChart",
-        traces,
-        layout,
-        { responsive: true }
-    );
-
-});
-</script>
-
-
-
+{% block localnav %}
+{{ analysis_nav(analysis_pages, request.path, request.full_path,
+                (download_base ~ "&what=evaluation", "Download") if "error" not in models else none) }}
 {% endblock %}
 
-{% block scripts %}
-<script src="{{ url_for('static', filename='vendor/plotly-2.35.2.min.js') }}"></script>
+{% block main %}
+{% set label = targets[target].label %}
+{% set ok = "error" not in models %}
+
+<section class="hero">
+    <div class="hero-inner">
+        <h1>Predictions</h1>
+        <p class="subhead">Three models. One honest test.</p>
+        <p class="lede">
+            Each model estimates how much {{ label }} a generating unit emits in a year from how it ran that year.
+            They learn from earlier years and are scored on the most recent one, which none of them saw.
+        </p>
+        <div class="ctas">
+            <nav class="segmented" aria-label="Pollutant to predict">
+                {% for key, item in targets.items() %}
+                <a href="{{ target_links[key] }}" {% if key == target %}class="is-active" aria-current="true"{% endif %}>{{ item.label }}</a>
+                {% endfor %}
+            </nav>
+        </div>
+        {% include "_selection.html" %}
+        {% if ok %}
+        <div class="ctas">
+            <a class="btn" href="{{ scenarios_url }}">Try scenarios</a>
+            <a class="btn btn-outline" href="{{ download_base }}&what=evaluation" download>Download results</a>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+{% if not ok %}
+
+<section class="band">
+    <div class="container">
+        <div class="empty">
+            <h3>The models can't be tested on this selection</h3>
+            <p>{{ models.error }}</p>
+            <a class="btn" href="{{ explore_url }}">Change the selection in Explore</a>
+        </div>
+    </div>
+</section>
+
+{% else %}
+
+{% set chosen = models.chosen %}
+{% set test_year = period(models.split.test) %}
+{% set best = models.test[chosen] %}
+{% set base = models.test["mean"] %}
+
+<!-- The question -->
+<section class="band">
+    <div class="container wide">
+        <h2 class="section-title">The question. <span class="gray">What is predicted, and from what.</span></h2>
+        <p class="section-intro">One clear target, inputs that are known for the same unit and year, and nothing that gives the answer away.</p>
+
+        <div class="io-grid">
+            <div class="card">
+                <p class="tile-eyebrow">Target</p>
+                <h3 class="card-title">{{ targets[target].name }} of one generating unit</h3>
+                <p class="muted">In short tons, as reported to EPA. Every record is one unit in one year.</p>
+                <h3 class="card-title" style="margin-top: 28px">Inputs</h3>
+                <ul class="io-list">
+                    {% for key, item in numeric_inputs.items() %}<li><span>{{ item.label }}</span><span>{{ item.unit }}</span></li>{% endfor %}
+                    {% for key, item in category_inputs.items() %}<li><span>{{ item.label }}</span><span>{{ item.unit }}</span></li>{% endfor %}
+                    {% for key, item in flag_inputs.items() %}<li><span>{{ item.label }}</span><span>reported or not</span></li>{% endfor %}
+                </ul>
+            </div>
+            <div class="card">
+                <p class="tile-eyebrow">Left out on purpose</p>
+                <h3 class="card-title">No target leakage</h3>
+                <p class="muted">These would reveal the answer instead of predicting it, so no model sees them.</p>
+                <ul class="io-list excluded">
+                    {% for name, why in excluded %}<li><span>{{ name }}</span><span>{{ why }}</span></li>{% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <div class="callout" style="margin-top: 20px">
+            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9.2" y="8.6" width="1.6" height="6" rx="0.8" fill="currentColor"/><circle cx="10" cy="6" r="1" fill="currentColor"/></svg>
+            <div>
+                {% if target == "co2_mass" %}<p>{{ heat_note }}</p><p style="margin-top: 8px">{{ estimation_note }}</p>
+                {% else %}<p>{{ estimation_note }}</p>{% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- The test -->
+<section class="band alt">
+    <div class="container wide">
+        <h2 class="section-title">The test. <span class="gray">Learn from the past, check on the most recent year.</span></h2>
+        <p class="section-intro">The years are split in time order, never at random, so no model is tested on a year it learned from.</p>
+
+        <div class="timeline" role="list">
+            <div class="timeline-part train" role="listitem">
+                <p class="what">Train</p>
+                <p class="years">{{ period(models.split.train) }}</p>
+                <p class="count">{{ "{:,}".format(models.counts.train) }} records</p>
+            </div>
+            <div class="timeline-part validate" role="listitem">
+                <p class="what">Validate</p>
+                <p class="years">{{ period(models.split.validation) }}</p>
+                <p class="count">{{ "{:,}".format(models.counts.validation) }} records</p>
+            </div>
+            <div class="timeline-part test" role="listitem">
+                <p class="what">Test</p>
+                <p class="years">{{ test_year }}</p>
+                <p class="count">{{ "{:,}".format(models.counts.test) }} records</p>
+            </div>
+        </div>
+        <p class="note">
+            1. Each model learns from the training years. 2. The validation years pick the model and the decision tree's depth
+            ({{ models.tree_depth }} levels). 3. Each model is refit on the training and validation years together and scored once on {{ test_year }}.
+            {% if models.left_out %}{{ "{:,}".format(models.left_out) }} records missing the target or an input were left out, never filled in.{% endif %}
+            {% if models.counts.test < small_test %}<strong>Only {{ models.counts.test }} test records, so treat the scores as rough.</strong>{% endif %}
+        </p>
+    </div>
+</section>
+
+<!-- Results -->
+<section class="band">
+    <div class="container wide">
+        <h2 class="section-title">The results. <span class="gray">How far off each model was in {{ test_year }}.</span></h2>
+        <p class="section-intro">
+            The {{ model_info[chosen].name|lower }} had the smallest error on the validation years, so it's the one the Scenarios page starts with.
+            {% if base.mae %}On the test year its average miss was {{ best.mae|stat }} short tons, {{ "{:.1f}".format(best.mae / base.mae * 100) }}% of the mean baseline's{% if best.r2 is not none %}, and it explains {{ "{:.1f}".format(best.r2 * 100) }}% of the differences between units (R²){% endif %}.{% endif %}
+        </p>
+
+        <div class="model-tiles">
+            {% for kind, info in model_info.items() %}
+            {% set score = models.test[kind] %}
+            <article class="model-tile{{ ' is-chosen' if kind == chosen else '' }}" style="background: var(--bg-alt)">
+                {% if kind == chosen %}<span class="badge">Chosen</span>{% elif kind == "mean" %}<span class="badge gray">Baseline</span>{% endif %}
+                <h3>{{ info.name }}</h3>
+                <p class="about">{{ info.about }}</p>
+                <p class="metric-big">{{ score.mae|stat }}</p>
+                <p class="metric-label">average miss, short tons (MAE)</p>
+                <ul class="metric-rows">
+                    <li><span>R²</span><span>{{ "{:.3f}".format(score.r2) if score.r2 is not none else "—" }}</span></li>
+                    <li><span>RMSE</span><span>{{ score.rmse|stat }}</span></li>
+                    <li><span>Weighted % error</span><span>{{ "{:.1f}%".format(score.wape) if score.wape is not none else "—" }}</span></li>
+                    <li><span>Validation MAE</span><span>{{ models.validation[kind].mae|stat }}</span></li>
+                </ul>
+            </article>
+            {% endfor %}
+        </div>
+
+        {% set without = models.without_heat %}
+        <p class="note">
+            {% if not models.beats_baseline %}<strong>Neither model beat the baseline on the validation years, so their predictions add little for this selection.</strong>{% endif %}
+            Leakage check: refit without heat input, the {{ model_info[chosen].name|lower }}'s test error would be {{ without.mae|stat }} short tons{% if best.mae and without.mae %}
+            ({{ "{:.1f}".format(without.mae / best.mae) }}× its error with heat input){% endif %}.
+            {{ mape_note }}
+        </p>
+
+        <div class="chart-grid space-top">
+            {{ chart_card(charts.model_errors, download_base) }}
+            <div class="chart-card">
+                <h3 class="chart-title">What each score means</h3>
+                <ul class="io-list excluded">
+                    {% for key in ["mae", "rmse", "r2", "wape", "bias"] %}<li><span>{{ metrics[key][0] }}</span><span>{{ metrics[key][1] }}</span></li>{% endfor %}
+                </ul>
+            </div>
+            {{ chart_card(charts.predicted_actual, download_base, wide=true) }}
+        </div>
+    </div>
+</section>
+
+<!-- What the models learned -->
+<section class="band alt">
+    <div class="container wide">
+        <h2 class="section-title">What the models learned. <span class="gray">Associations, not causes.</span></h2>
+        <p class="section-intro">How each model uses its inputs. These describe patterns across units in past data; they don't say what would happen if one plant changed.</p>
+        <div class="io-grid">
+            <div class="card">
+                <h3 class="card-title">Linear regression effects</h3>
+                <p class="muted" style="font-size: 14px">The change in predicted {{ label }} for one more unit of an input, with every other input held the same.</p>
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead><tr><th>Input</th><th class="num">Effect</th><th>Reads as</th></tr></thead>
+                        <tbody>
+                            {% for item in models.linear_effects %}
+                            <tr><td class="name">{{ item.input }}</td><td class="num">{{ item.effect|signed }}</td><td class="muted">{{ item.reads }}</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="note">Inputs move together across units (bigger units have more load, heat input and hours), so one effect can look backwards when the others are held fixed. That is a property of the fitted line, not of any plant.</p>
+            </div>
+            <div class="card">
+                <h3 class="card-title">What the decision tree relies on</h3>
+                <p class="muted" style="font-size: 14px">Share of the tree's error reduction that came from each input ({{ models.tree_depth }} levels deep).</p>
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead><tr><th>Input</th><th class="num">Share</th><th class="bar-cell"></th></tr></thead>
+                        <tbody>
+                            {% for item in models.tree_importance %}
+                            <tr><td class="name">{{ item.input }}</td><td class="num">{{ "{:.1f}%".format(item.share) }}</td>
+                                <td class="bar-cell"><div class="bar" style="width: {{ [item.share, 0.5]|max }}%"></div></td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <details class="analysis-details" style="margin-top: 18px">
+                    <summary>How the depth was chosen</summary>
+                    <div class="table-wrap">
+                        <table class="data">
+                            <thead><tr><th>Depth</th><th class="num">Validation MAE</th><th class="num">Validation RMSE</th></tr></thead>
+                            <tbody>
+                                {% for item in models.depth_search %}
+                                <tr class="{{ 'is-highlight' if item.depth == models.tree_depth else '' }}"><td>{{ item.depth }}{% if item.depth == models.tree_depth %} (chosen){% endif %}</td><td class="num">{{ item.mae|stat }}</td><td class="num">{{ item.rmse|stat }}</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Unusual observations -->
+<section class="band">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">Biggest misses. <span class="gray">The units the model found hardest.</span></h2>
+                <p class="section-intro">Large misses point to unusual units: a fuel switch, a new control, an outage, or a data problem worth checking.</p>
+            </div>
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=predictions" download>All {{ test_year }} predictions</a>
+                <a class="btn-link" href="{{ download_base }}&what=predictions&format=xlsx" download>Excel</a>
+            </div>
+        </div>
+        <div class="table-card">
+            <div class="table-wrap">
+                <table class="data">
+                    <thead>
+                        <tr><th>Unit</th><th>Fuel</th><th>Unit type</th><th class="num">Actual</th><th class="num">Predicted</th><th class="num">Miss</th><th class="num">Miss %</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for row in misses %}
+                        <tr>
+                            <td class="name"><a href="/unit/{{ row.unit_key }}">{{ row.label }}</a></td>
+                            <td>{{ row.fuel }}</td>
+                            <td>{{ row.unit_type }}</td>
+                            <td class="num">{{ row.actual|stat }}</td>
+                            <td class="num">{{ row.predicted|stat }}</td>
+                            <td class="num">{{ row.error|signed }}</td>
+                            <td class="num">{{ row.error_pct|signed_pct }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <p class="note">Short tons of {{ label }} in {{ test_year }}, predicted by the {{ model_info[chosen].name|lower }}. A positive miss means the model predicted too much.</p>
+    </div>
+</section>
+
+{% endif %}
+
+<!-- Year-trend forecast -->
+<section class="band alt">
+    <div class="container wide">
+        {% if "error" in trend %}
+        <h2 class="section-title">Year-trend forecast. <span class="gray">The annual total, extended five years.</span></h2>
+        <p class="section-intro">{{ trend.error }}</p>
+        {% else %}
+        <h2 class="section-title">Year-trend forecast. <span class="gray">The annual total, extended {{ trend.forecast.rows|length }} years.</span></h2>
+        <p class="section-intro">
+            A second, simpler question: the selection's total {{ label }} each year, predicted from the year alone.
+            Trained on {{ period(trend.split.train) }}, validated on {{ period(trend.split.validation) }} and tested on {{ period(trend.split.test) }};
+            the {{ model_info[trend.chosen].name|lower }} did best on validation.
+        </p>
+        {% if trend.coverage %}
+        <div class="callout warning">
+            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l8 14.5H2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><rect x="9.25" y="7.5" width="1.5" height="5" rx="0.75" fill="currentColor"/><circle cx="10" cy="14.6" r="0.95" fill="currentColor"/></svg>
+            <p>{{ trend.coverage }}</p>
+        </div>
+        {% endif %}
+        <div class="chart-grid">
+            {{ chart_card(charts.trend_forecast, download_base, wide=true) }}
+            <div class="card">
+                <h3 class="card-title">Scores on {{ period(trend.split.test) }}</h3>
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead><tr><th>Model</th><th class="num">Predicted</th><th class="num">Miss</th><th class="num">MAPE</th></tr></thead>
+                        <tbody>
+                            {% for kind, info in model_info.items() %}
+                            <tr class="{{ 'is-highlight' if kind == trend.chosen else '' }}">
+                                <td>{{ info.name }}</td>
+                                <td class="num">{{ trend.test_predictions[kind]|compact }}</td>
+                                <td class="num">{{ trend.test[kind].mae|compact }}</td>
+                                <td class="num">{{ "{:.1f}%".format(trend.test[kind].mape) if trend.test[kind].mape is not none else "—" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="note">Short tons. With one test year, MAE and RMSE are the same number, so only the miss is shown.</p>
+            </div>
+            <div class="card">
+                <h3 class="card-title">Forecast</h3>
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead><tr><th>Year</th>{% for kind, info in model_info.items() %}<th class="num">{{ info.name }}</th>{% endfor %}</tr></thead>
+                        <tbody>
+                            {% for row in trend.forecast.rows %}
+                            <tr><td>{{ row.year }}</td>{% for kind in model_info %}<td class="num">{{ row[kind]|compact }}</td>{% endfor %}</tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <p class="note"><a href="{{ download_base }}&what=trend" download>Download the trend and forecast</a></p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+<!-- Method, saved models, limitations -->
+<section class="band">
+    <div class="container wide">
+        <h2 class="section-title">Behind the numbers. <span class="gray">Reproduce any result.</span></h2>
+        <p class="section-intro">Every download lists the target, inputs, years, model settings, saved model file and software versions.</p>
+
+        <details class="analysis-details">
+            <summary>Downloads</summary>
+            <p>
+                {% if ok %}
+                <a href="{{ download_base }}&what=evaluation" download>Model evaluation (CSV)</a> ·
+                <a href="{{ download_base }}&what=evaluation&format=xlsx" download>Excel</a><br>
+                <a href="{{ download_base }}&what=predictions" download>Test-year predictions (CSV)</a> ·
+                <a href="{{ download_base }}&what=predictions&format=xlsx" download>Excel</a><br>
+                <a href="{{ download_base }}&what=depths" download>Decision-tree depth search (CSV)</a><br>
+                {% endif %}
+                {% if "error" not in trend %}<a href="{{ download_base }}&what=trend" download>Year-trend forecast (CSV)</a> ·
+                <a href="{{ download_base }}&what=trend&format=xlsx" download>Excel</a>{% endif %}
+            </p>
+        </details>
+
+        {% if saved %}
+        <details class="analysis-details">
+            <summary>Saved models</summary>
+            <p>The fitted models are saved with joblib and described in the database's <code>prediction_model</code> table. Opening this page again with the same selection and data reuses them instead of retraining.</p>
+            <div class="table-wrap">
+                <table class="data">
+                    <thead><tr><th>ID</th><th>Model</th><th>Trained</th><th>File</th></tr></thead>
+                    <tbody>
+                        {% for row in saved %}
+                        <tr><td>{{ row.id }}</td><td>{{ row.name }}{% if row.chosen %} (chosen){% endif %}</td><td>{{ row.created }}</td><td><code>{{ row.file }}</code></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="footnote">SHA-256 of the file: {{ saved[0].sha256 }}</p>
+        </details>
+        {% endif %}
+
+        <details class="analysis-details">
+            <summary>How the models work</summary>
+            {% for kind, info in model_info.items() %}<p><strong>{{ info.name }}.</strong> {{ info.about }}</p>{% endfor %}
+            <p>Gross load, heat input and operating time are standardized before fitting (each value minus its mean, divided by its standard deviation), and fuel and unit type become one yes/no column per category. This changes no prediction. Predictions below zero are set to zero.</p>
+        </details>
+
+        <details class="analysis-details">
+            <summary>Limitations</summary>
+            <ul>
+                {% for item in limitations %}<li>{{ item }}</li>{% endfor %}
+            </ul>
+        </details>
+    </div>
+</section>
+
 {% endblock %}
