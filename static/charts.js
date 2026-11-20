@@ -1,39 +1,41 @@
 /*
  * epaData charts: draws every Plotly figure on the page from its JSON block
- * (<script type="application/json" id="spec-ID">), and wires up the "PNG image" buttons.
- * The figures themselves are built in Python (dashboard.py), so this file stays small.
+ * (<script type="application/json" id="spec-ID">) and brings the card around it to life, the way the
+ * charts in Apple's Health and Stocks apps behave:
+ *   - each card rises into view as you scroll to it, and its lines draw in and its bars grow
+ *   - moving over a single-line chart shows that year in the big headline number, with a dot on the line
+ *   - the 5Y / 10Y / 20Y / All buttons change the years shown
+ *   - the legend chips hide and show their series
+ *   - "PNG image" saves the chart with its title; "Reset zoom" appears after zooming in
+ * The figures themselves are built in Python (dashboard.py, comparison.py, model_charts.py).
  */
 (function () {
     "use strict";
+
+    window.epaCharts = true;
 
     // Where the U.S. map outline is stored (static/vendor/topojson), so maps don't need the internet
     var script = document.currentScript;
     var topojsonURL = script ? script.getAttribute("data-topojson") : null;
 
+    var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var touchOnly = window.matchMedia && window.matchMedia("(hover: none)").matches;
+    var EASE = "cubic-bezier(0.28, 0.11, 0.32, 1)";
+    var FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif';
+
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".chart-card"));
+    var specs = {};
+
     function specFor(id) {
+        if (specs[id]) {
+            return specs[id];
+        }
         var block = document.getElementById("spec-" + id);
         if (!block) {
             return null;
         }
-        return JSON.parse(block.textContent);
-    }
-
-    // Phones and tablets show Plotly's tool bar all the time, on top of the title; the PNG button
-    // under every chart does the same job there
-    var touchOnly = window.matchMedia && window.matchMedia("(hover: none)").matches;
-
-    function configFor(spec) {
-        var config = {
-            displaylogo: false,
-            displayModeBar: touchOnly || window.innerWidth < 735 ? false : "hover",
-            responsive: true,
-            modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d", "toggleSpikelines"],
-            toImageButtonOptions: { format: "png", scale: 2, filename: spec.filename }
-        };
-        if (topojsonURL) {
-            config.topojsonURL = topojsonURL;
-        }
-        return config;
+        specs[id] = JSON.parse(block.textContent);
+        return specs[id];
     }
 
     function showMessage(node, message) {
@@ -44,54 +46,560 @@
         node.appendChild(paragraph);
     }
 
-    var plots = document.querySelectorAll("[data-chart]");
-
     if (!window.Plotly) {
-        for (var i = 0; i < plots.length; i++) {
-            showMessage(plots[i], "The chart library (static/vendor/plotly-2.35.2.min.js) didn't load. "
-                + "The numbers are in the table below.");
-        }
+        cards.forEach(function (card) {
+            card.classList.add("is-shown");
+            var node = card.querySelector("[data-chart]");
+            if (node) {
+                showMessage(node, "The chart library (static/vendor/plotly-2.35.2.min.js) didn't load. "
+                    + "The numbers are in the table below.");
+            }
+        });
         return;
     }
 
-    // On a phone: a smaller title broken over two lines, and the legend under the chart
-    function fitToWidth(layout, width) {
-        if (width >= 520) {
-            return layout;
+    // ---------- Numbers, written the same way as the page (analysis.format_compact) ----------
+
+    function plain(value) {
+        var size = Math.abs(value);
+        if (size === 0) {
+            return "0";
         }
-        var fitted = JSON.parse(JSON.stringify(layout));
-        if (fitted.title && fitted.title.text) {
-            var title = fitted.title.text;
-            var limit = Math.max(24, Math.floor(width / 8));
-            if (title.length > limit) {
-                var cut = title.lastIndexOf(" ", limit);
-                if (cut > 0) {
-                    title = title.slice(0, cut) + "<br>" + title.slice(cut + 1);
+        if (size >= 1000) {
+            return value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+        }
+        if (size >= 100) {
+            return value.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+        }
+        if (size >= 1) {
+            return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        return String(Number(value.toPrecision(4)));
+    }
+
+    function minus(text) {
+        return text.replace("-", "−");
+    }
+
+    // 406123456 -> ["406", "million"]
+    function compact(value) {
+        var tiers = [[1e12, "trillion"], [1e9, "billion"], [1e6, "million"]];
+        for (var i = 0; i < tiers.length; i++) {
+            if (Math.abs(value) >= tiers[i][0]) {
+                var shown = Number((value / tiers[i][0]).toPrecision(3));
+                if (Math.abs(shown) >= 1000 && i > 0) {
+                    return [minus(String(Number((value / tiers[i - 1][0]).toPrecision(3)))), tiers[i - 1][1]];
                 }
+                return [minus(String(shown)), tiers[i][1]];
             }
-            fitted.title.text = title;
-            fitted.title.font = Object.assign({}, fitted.title.font, { size: 14 });
-            fitted.margin = Object.assign({}, fitted.margin, { t: 76 });
         }
-        if (fitted.showlegend && fitted.legend) {
-            fitted.legend = Object.assign({}, fitted.legend, { y: -0.28, yanchor: "top" });
-            fitted.margin = Object.assign({}, fitted.margin, { b: 110 });
-            fitted.height = (fitted.height || 400) + 60;
+        return [minus(plain(value)), ""];
+    }
+
+    function escapeHTML(text) {
+        return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function yearStep(span) {
+        return span <= 12 ? 1 : (span <= 24 ? 2 : 5);
+    }
+
+    // ---------- Drawing ----------
+
+    function configFor(spec) {
+        var config = {
+            displaylogo: false,
+            displayModeBar: false,
+            responsive: true,
+            scrollZoom: false,
+            doubleClick: "reset",
+            toImageButtonOptions: { format: "png", scale: 2, filename: spec.filename }
+        };
+        if (topojsonURL) {
+            config.topojsonURL = topojsonURL;
+        }
+        return config;
+    }
+
+    // Phones: no room for names at the ends of lines (the legend above has them), and no drag-to-zoom,
+    // so a finger on a chart scrolls the page
+    function fitToWidth(layout, width) {
+        var fitted = JSON.parse(JSON.stringify(layout));
+        if (touchOnly) {
+            fitted.dragmode = false;
+            ["xaxis", "yaxis"].forEach(function (name) {
+                if (fitted[name]) {
+                    fitted[name].fixedrange = true;
+                }
+            });
+        }
+        if (width < 440 && fitted.annotations) {
+            var before = fitted.annotations.length;
+            // names at the ends of lines, and labels along the top edge (the legend or note has them)
+            fitted.annotations = fitted.annotations.filter(function (note) {
+                if (note.xshift) {
+                    return note.xref === "x" && note.yref === "paper";
+                }
+                return !(note.yref === "paper" && note.y >= 1);
+            });
+            if (fitted.annotations.length < before && fitted.margin) {
+                fitted.margin.r = 12;
+            }
         }
         return fitted;
     }
 
-    for (var j = 0; j < plots.length; j++) {
-        var node = plots[j];
+    // Phones: heat maps drop the numbers written in their cells (tap a cell for its value), and color
+    // keys and maps get the room they need
+    function fitData(data, layout, width) {
+        if (window.innerWidth >= 735) {
+            return data;
+        }
+        data.forEach(function (trace) {
+            var bar = trace.colorbar || (trace.marker && trace.marker.colorbar);
+            if (bar && bar.orientation === "h") {
+                bar.len = 0.8;
+                bar.nticks = 4;
+            }
+            if (trace.type === "heatmap") {
+                layout.annotations = [];
+                ["xaxis", "yaxis"].forEach(function (name) {
+                    layout[name].tickfont = Object.assign({}, layout[name].tickfont, { size: 10 });
+                });
+                layout.xaxis.tickangle = -90;
+                if (trace.colorbar) {
+                    trace.colorbar.thickness = 6;
+                }
+            }
+        });
+        if (layout.geo) {
+            layout.height = Math.round(Math.max(260, width * 0.62 + 70));
+        }
+        return data;
+    }
+
+    function draw(card) {
+        var node = card.querySelector("[data-chart]");
+        if (!node) {
+            return Promise.resolve(null);
+        }
+        if (node.epaDrawing) {
+            return node.epaDrawing;
+        }
         var spec = specFor(node.getAttribute("data-chart"));
         if (!spec) {
-            continue;
+            return Promise.resolve(null);
         }
-        Plotly.newPlot(node, spec.data, fitToWidth(spec.layout, node.offsetWidth), configFor(spec));
+        var layout = fitToWidth(spec.layout, node.offsetWidth);
+        var data = fitData(JSON.parse(JSON.stringify(spec.data)), layout, node.offsetWidth);
+        node.epaDrawing = Plotly.newPlot(node, data, layout, configFor(spec))
+            .then(function () {
+                node.style.minHeight = "";
+                wire(card, node, spec);
+                return node;
+            });
+        return node.epaDrawing;
+    }
+
+    function wire(card, node, spec) {
         if (spec.explain) {
             explainOnClick(node, spec.id);
         }
+        if (spec.readout) {
+            readout(card, node, spec);
+        }
+        if (spec.ranges) {
+            ranges(card, node, spec);
+        }
+        if (spec.legend) {
+            legend(card, node);
+        }
+        resetButton(card, node, spec);
     }
+
+    // ---------- Scroll reveal and draw-in ----------
+
+    function play(element, frames, options) {
+        if (element.animate) {
+            element.animate(frames, Object.assign({ fill: "backwards", easing: EASE }, options));
+        }
+    }
+
+    function each(node, selector, callback) {
+        Array.prototype.forEach.call(node.querySelectorAll(selector), callback);
+    }
+
+    function drawIn(node) {
+        if (reduceMotion) {
+            return;
+        }
+        var xa = node._fullLayout && node._fullLayout.xaxis;
+
+        // Lines draw from left to right (dashed reference lines just fade in)
+        each(node, ".scatterlayer .trace .js-line", function (path) {
+            var dashed = path.style.strokeDasharray && path.style.strokeDasharray !== "none";
+            var length = path.getTotalLength ? path.getTotalLength() : 0;
+            if (dashed || !length) {
+                play(path, [{ opacity: 0 }, { opacity: 1 }], { duration: 700, delay: 500 });
+                return;
+            }
+            play(path, [
+                { strokeDasharray: length + "px " + length + "px", strokeDashoffset: length + "px" },
+                { strokeDasharray: length + "px " + length + "px", strokeDashoffset: "0px" }
+            ], { duration: 1500, easing: "cubic-bezier(0.45, 0, 0.2, 1)" });
+        });
+        each(node, ".scatterlayer .trace .js-fill", function (path) {
+            play(path, [{ opacity: 0 }, { opacity: 1 }], { duration: 1000, delay: 750 });
+        });
+        each(node, ".scatterlayer .trace .points path, .scatterlayer .trace .textpoint", function (point) {
+            play(point, [{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: 1250 });
+        });
+
+        // Bars grow out of their baseline, one after another
+        each(node, ".barlayer .trace", function (traceGroup, traceIndex) {
+            var data = traceGroup.__data__;
+            var trace = data && data[0] && data[0].trace;
+            var horizontal = trace && trace.orientation === "h";
+            var zero = horizontal && xa && xa.type !== "log" ? xa.l2p(0) : null;
+            var bars = traceGroup.querySelectorAll(".point path");
+            var stagger = Math.min(40, 600 / Math.max(bars.length, 1));
+            Array.prototype.forEach.call(bars, function (bar, index) {
+                var box = bar.getBBox();
+                var origin = "center bottom";
+                if (horizontal) {
+                    origin = zero !== null && box.x + box.width / 2 < zero ? "right center" : "left center";
+                }
+                bar.style.transformBox = "fill-box";
+                bar.style.transformOrigin = origin;
+                play(bar, [{ transform: horizontal ? "scaleX(0)" : "scaleY(0)" },
+                    { transform: horizontal ? "scaleX(1)" : "scaleY(1)" }],
+                    { duration: 900, delay: traceIndex * 120 + index * stagger });
+            });
+        });
+        each(node, ".barlayer .bartext", function (label) {
+            play(label, [{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: 800 });
+        });
+
+        // Everything else fades in
+        each(node, ".boxlayer .trace, .heatmaplayer image, .geo .choroplethlayer, .geo .scattergeolayer, "
+            + ".gl-container canvas", function (layer) {
+            play(layer, [{ opacity: 0 }, { opacity: 1 }], { duration: 900, delay: 150 });
+        });
+        each(node, ".annotation, .layer-above .shapelayer path, .colorbar", function (layer) {
+            play(layer, [{ opacity: 0 }, { opacity: 1 }], { duration: 600, delay: 900 });
+        });
+    }
+
+    function reveal(card) {
+        card.classList.add("is-shown");
+        draw(card).then(function (node) {
+            if (node && node._fullLayout) {
+                drawIn(node);
+            }
+        });
+    }
+
+    if ("IntersectionObserver" in window) {
+        var watcher = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+                if (entry.isIntersecting) {
+                    watcher.unobserve(entry.target);
+                    reveal(entry.target);
+                }
+            });
+        }, { rootMargin: "0px 0px -6% 0px", threshold: 0.08 });
+        cards.forEach(function (card) {
+            watcher.observe(card);
+        });
+    } else {
+        cards.forEach(reveal);
+    }
+
+    // Printing draws everything at once
+    window.addEventListener("beforeprint", function () {
+        cards.forEach(function (card) {
+            card.classList.add("is-shown");
+            draw(card);
+        });
+    });
+
+    // ---------- The headline follows the pointer (Stocks-style scrubbing) ----------
+
+    function readout(card, node, spec) {
+        var box = card.querySelector("[data-readout]");
+        var info = spec.readout;
+        var trace = spec.data[info.trace];
+        if (!box || !trace) {
+            return;
+        }
+        var parts = {
+            value: box.querySelector("[data-value]"),
+            unit: box.querySelector("[data-unit]"),
+            context: box.querySelector("[data-context]"),
+            delta: box.querySelector("[data-delta]"),
+            deltaText: box.querySelector("[data-delta-text]"),
+            deltaWord: box.querySelector("[data-delta-word]"),
+            deltaAfter: box.querySelector("[data-delta-after]")
+        };
+        var xs = trace.x;
+        var ys = trace.y;
+        var dot = document.createElement("span");
+        dot.className = "chart-hover-dot";
+        dot.style.setProperty("--dot", (trace.line && trace.line.color) || "#0071e3");
+        dot.setAttribute("aria-hidden", "true");
+        node.appendChild(dot);
+
+        var state = { start: null };
+        node.epaRange = state;
+
+        function firstIndex() {
+            for (var i = 0; i < xs.length; i++) {
+                if (ys[i] !== null && (state.start === null || xs[i] >= state.start)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function lastIndex() {
+            for (var i = xs.length - 1; i >= 0; i--) {
+                if (ys[i] !== null) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        function show(index, hovering) {
+            if (index < 0) {
+                return;
+            }
+            var words = compact(ys[index]);
+            if (parts.value) {
+                parts.value.textContent = words[0];
+            }
+            if (parts.unit) {
+                parts.unit.textContent = (words[1] + " " + info.unit).trim();
+            }
+            if (parts.context) {
+                var context = "In " + xs[index];
+                var counts = trace.customdata;
+                if (hovering && info.count && counts && counts[index]) {
+                    context += " · " + Number(counts[index][0]).toLocaleString("en-US") + " " + info.count;
+                }
+                parts.context.textContent = context;
+            }
+            if (info.delta && parts.delta) {
+                var base = firstIndex();
+                var old = base >= 0 ? ys[base] : null;
+                var visible = base >= 0 && base !== index && old > 0;
+                parts.delta.hidden = !visible;
+                parts.deltaAfter.hidden = !visible;
+                if (visible) {
+                    var change = (ys[index] - old) / old * 100;
+                    var direction = change >= 0.05 ? "up" : (change <= -0.05 ? "down" : "flat");
+                    parts.delta.className = "chart-delta is-" + direction;
+                    parts.deltaText.textContent = Math.abs(change).toLocaleString("en-US",
+                        { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+                    parts.deltaWord.textContent = { up: "Up", down: "Down", flat: "About the same," }[direction];
+                    parts.deltaAfter.textContent = "since " + xs[base];
+                }
+            }
+        }
+
+        node.epaReadout = function () {
+            show(lastIndex(), false);
+        };
+
+        node.on("plotly_hover", function (event) {
+            var point = (event.points || []).filter(function (item) {
+                return item.curveNumber === info.trace;
+            })[0];
+            if (!point) {
+                return;
+            }
+            show(point.pointIndex, true);
+            var xa = point.xaxis;
+            var ya = point.yaxis;
+            var x = xa._offset + xa.l2p(xa.d2l(point.x));
+            var y = ya._offset + ya.l2p(ya.d2l(point.y));
+            dot.style.transform = "translate(" + x + "px, " + y + "px)";
+            card.classList.add("is-scrubbing");
+        });
+        node.on("plotly_unhover", function () {
+            card.classList.remove("is-scrubbing");
+            show(lastIndex(), false);
+        });
+    }
+
+    // ---------- 5Y / 10Y / 20Y / All ----------
+
+    function yRangeFor(node, start, end) {
+        var low = Infinity;
+        var high = -Infinity;
+        node.data.forEach(function (trace) {
+            if (trace.visible === false || trace.visible === "legendonly" || !trace.x || !trace.y) {
+                return;
+            }
+            for (var i = 0; i < trace.x.length; i++) {
+                var y = trace.y[i];
+                // the year just before the range is included too, since the line runs in from it
+                if (y !== null && y !== undefined && trace.x[i] >= start - 1 && trace.x[i] <= end) {
+                    low = Math.min(low, y);
+                    high = Math.max(high, y);
+                }
+            }
+        });
+        if (!isFinite(low)) {
+            return null;
+        }
+        var toZero = node.layout.yaxis && node.layout.yaxis.rangemode === "tozero";
+        if (toZero) {
+            low = Math.min(0, low);
+            high = Math.max(0, high);
+        }
+        var pad = (high - low) * 0.08 || Math.abs(high) * 0.08 || 1;
+        return [toZero && low === 0 ? 0 : low - pad, toZero && high === 0 ? 0 : high + pad];
+    }
+
+    function ranges(card, node, spec) {
+        var group = card.querySelector("[data-ranges]");
+        var trace = spec.data[spec.readout ? spec.readout.trace : 0];
+        if (!group || !trace) {
+            return;
+        }
+        var years = trace.x.filter(function (x, i) {
+            return trace.y[i] !== null;
+        });
+        var first = years[0];
+        var last = years[years.length - 1];
+
+        group.addEventListener("click", function (event) {
+            var button = event.target.closest("button[data-years]");
+            if (!button || button.getAttribute("aria-pressed") === "true") {
+                return;
+            }
+            Array.prototype.forEach.call(group.querySelectorAll("button"), function (other) {
+                other.setAttribute("aria-pressed", other === button ? "true" : "false");
+            });
+            var count = Number(button.getAttribute("data-years"));
+            var start = count ? Math.max(first, last - count + 1) : first;
+            if (node.epaRange) {
+                node.epaRange.start = count ? start : null;
+            }
+            var update = {
+                "xaxis.range": [start - 0.4, last + 0.4],
+                "xaxis.dtick": yearStep(last - start)
+            };
+            var yRange = yRangeFor(node, start, last);
+            if (yRange) {
+                update["yaxis.range"] = yRange;
+            }
+            node.epaInternal = true;
+            Plotly.relayout(node, update).then(function () {
+                node.epaInternal = false;
+                if (node.epaReadout) {
+                    node.epaReadout();
+                }
+                var reset = card.querySelector("[data-reset]");
+                if (reset) {
+                    reset.hidden = true;
+                }
+                if (!reduceMotion) {
+                    drawIn(node);
+                }
+            });
+        });
+    }
+
+    // ---------- Legend chips show and hide their series ----------
+
+    function legend(card, node) {
+        var keys = Array.prototype.slice.call(card.querySelectorAll("button.chart-key[data-group]"));
+        keys.forEach(function (key) {
+            key.addEventListener("click", function () {
+                var group = key.getAttribute("data-group");
+                var showing = key.getAttribute("aria-pressed") === "true";
+                var on = keys.filter(function (other) {
+                    return other.getAttribute("aria-pressed") === "true";
+                });
+                if (showing && on.length === 1) {
+                    return;   // keep at least one series on the chart
+                }
+                var indices = [];
+                node.data.forEach(function (trace, index) {
+                    if (trace.legendgroup === group || trace.name === group) {
+                        indices.push(index);
+                    }
+                });
+                key.setAttribute("aria-pressed", showing ? "false" : "true");
+                var layoutUpdate = {};
+                (node.layout.annotations || []).forEach(function (note, index) {
+                    if (note.text === "<b>" + group + "</b>") {
+                        layoutUpdate["annotations[" + index + "].visible"] = !showing;
+                    }
+                });
+                node.epaInternal = true;
+                Plotly.update(node, { visible: !showing }, layoutUpdate, indices).then(function () {
+                    node.epaInternal = false;
+                });
+            });
+        });
+    }
+
+    // ---------- Zooming ----------
+
+    function resetButton(card, node, spec) {
+        var button = card.querySelector("[data-reset]");
+        if (!button || !node._fullLayout || !node._fullLayout.xaxis || touchOnly) {
+            return;
+        }
+        node.on("plotly_relayout", function (event) {
+            if (node.epaInternal) {
+                return;
+            }
+            var names = Object.keys(event);
+            if (names.some(function (name) { return /^[xy]axis\.range/.test(name); })) {
+                button.hidden = false;
+            } else if (names.some(function (name) { return /autorange$/.test(name); })) {
+                button.hidden = true;
+            }
+        });
+        button.addEventListener("click", function () {
+            var update = {};
+            ["xaxis", "yaxis"].forEach(function (name) {
+                var axis = spec.layout[name] || {};
+                if (axis.range) {
+                    update[name + ".range"] = axis.range.slice();
+                } else {
+                    update[name + ".autorange"] = axis.autorange || true;
+                }
+                if (axis.dtick !== undefined) {
+                    update[name + ".dtick"] = axis.dtick;
+                }
+            });
+            node.epaInternal = true;
+            Plotly.relayout(node, update).then(function () {
+                node.epaInternal = false;
+                button.hidden = true;
+                if (node.epaRange) {
+                    node.epaRange.start = null;
+                }
+                var group = card.querySelector("[data-ranges]");
+                if (group) {
+                    var buttons = group.querySelectorAll("button");
+                    Array.prototype.forEach.call(buttons, function (other, index) {
+                        other.setAttribute("aria-pressed", index === buttons.length - 1 ? "true" : "false");
+                    });
+                }
+                if (node.epaReadout) {
+                    node.epaReadout();
+                }
+            });
+        });
+    }
+
+    // ---------- Worked calculations ----------
 
     // Charts whose points carry a worked calculation (the last item of customdata, a list of lines):
     // clicking a bar shows that calculation in the panel under the chart.
@@ -119,23 +627,79 @@
         });
     }
 
+    // ---------- PNG image, with the title and headline written into it ----------
+
+    function headlineText(card) {
+        var box = card.querySelector("[data-readout]");
+        if (!box) {
+            return "";
+        }
+        function text(selector) {
+            var part = box.querySelector(selector);
+            return part && !part.hidden ? part.textContent.replace(/\s+/g, " ").trim() : "";
+        }
+        var bits = [[text("[data-value]"), text("[data-unit]")].join(" ").trim(), text("[data-context]")];
+        if (text("[data-delta-text]") && !box.querySelector("[data-delta]").hidden) {
+            bits.push((text("[data-delta-word]").replace(",", "").toLowerCase() + " " + text("[data-delta-text]")
+                + " " + text("[data-delta-after]")).trim());
+        }
+        return bits.filter(Boolean).join("  \u00b7  ");
+    }
+
+    function savePNG(card, node, spec) {
+        var layout = JSON.parse(JSON.stringify(node.layout));
+        var subtitle = headlineText(card);
+        var extra = subtitle ? 66 : 46;
+        layout.title = {
+            text: "<b>" + escapeHTML(spec.title) + "</b>"
+                + (subtitle ? "<br><span style=\"font-size:13px;color:#6e6e73\">" + escapeHTML(subtitle) + "</span>" : ""),
+            x: 0, xref: "paper", xanchor: "left", y: 1, yref: "container", yanchor: "top", pad: { t: 16 },
+            font: { family: FONT, size: 17, color: "#1d1d1f" }
+        };
+        var named = node.data.filter(function (trace) {
+            return trace.name && trace.showlegend !== false && trace.visible !== false;
+        });
+        if (spec.legend && named.length > 1) {
+            layout.showlegend = true;
+            layout.legend = Object.assign({}, layout.legend, { orientation: "h", x: 0, y: 1.02, yanchor: "bottom" });
+            extra += 30;
+        }
+        var margin = layout.margin || {};
+        layout.margin = Object.assign({}, margin, {
+            t: (margin.t || 0) + extra,
+            l: Math.max(margin.l || 0, 24),
+            r: Math.max(margin.r || 0, 24),
+            b: Math.max(margin.b || 0, 16)
+        });
+        extra += Math.max(0, 16 - (margin.b || 0));
+        layout.height = (node._fullLayout ? node._fullLayout.height : spec.layout.height || 380) + extra;
+        Plotly.toImage({ data: JSON.parse(JSON.stringify(node.data)), layout: layout, config: configFor(spec) },
+            { format: "png", scale: 2, height: layout.height,
+                width: (node.offsetWidth || 900) + layout.margin.l - (margin.l || 0) + layout.margin.r - (margin.r || 0) })
+            .then(function (url) {
+            var link = document.createElement("a");
+            link.href = url;
+            link.download = spec.filename + ".png";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        });
+    }
+
     document.addEventListener("click", function (event) {
         var button = event.target.closest("[data-png]");
         if (!button) {
             return;
         }
-        var id = button.getAttribute("data-png");
-        var target = document.querySelector('[data-chart="' + id + '"]');
-        var spec = specFor(id);
-        if (!target || !spec) {
+        var card = button.closest(".chart-card");
+        var spec = specFor(button.getAttribute("data-png"));
+        if (!card || !spec) {
             return;
         }
-        Plotly.downloadImage(target, {
-            format: "png",
-            scale: 2,
-            filename: spec.filename,
-            width: target.offsetWidth,
-            height: spec.layout.height || 400
+        draw(card).then(function (node) {
+            if (node && node.data) {
+                savePNG(card, node, spec);
+            }
         });
     });
 })();

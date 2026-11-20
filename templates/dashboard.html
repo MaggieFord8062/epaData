@@ -150,9 +150,11 @@
     <div class="container wide">
         <h2 class="section-title">Compared by {{ group_options[choices.group]|lower }}. <span class="gray">Who stands out.</span></h2>
         <p class="section-intro">{{ info.label }} for each group, and how the values spread out within the largest groups.</p>
+        {# Many bars make a tall card, so then both charts get the full width #}
+        {% set tall = charts.bars.data and charts.bars.data[0].y|length > 8 %}
         <div class="chart-grid">
-            {{ chart_card(charts.bars, data_base) }}
-            {{ chart_card(charts.box, data_base) }}
+            {{ chart_card(charts.bars, data_base, wide=tall) }}
+            {{ chart_card(charts.box, data_base, wide=tall) }}
         </div>
     </div>
 </section>

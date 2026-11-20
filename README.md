@@ -410,7 +410,7 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 | State map | The variable by state |
 | Facility map | Facility locations colored by the variable (needs latitude and longitude from `python ingest.py --attributes-only`) |
 
-Every chart has a title, units, a legend where there is more than one series, and tooltips. **PNG image** saves the chart, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Plotly.js 2.35.2 and the U.S. map outline are kept in `static/vendor/`, so the charts and maps work without an internet connection (useful for a demo).
+Every chart sits in a card laid out like the charts in Apple's Health and Stocks apps: a short label, the title, a headline number with its unit and how much it changed, and a legend where there is more than one series (select a legend entry to hide or show that series). On a single trend line, moving the pointer along the line shows that year's value and its change in the headline, and **5Y / 10Y / 20Y / All** change the years shown. Other charts have tooltips; after zooming in, **Reset zoom** goes back. Cards rise into view and lines draw in as the page scrolls (switched off when the system asks for reduced motion). **PNG image** saves the chart with its title and headline, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Plotly.js 2.35.2 and the U.S. map outline are kept in `static/vendor/`, so the charts and maps work without an internet connection (useful for a demo).
 
 ### 12.4 Comparative analysis (proposal 4.5)
 
@@ -496,7 +496,7 @@ A warning appears whenever an input is outside the training range (minimum to ma
 
 ### 12.8 Interface design
 
-The interface follows apple.com's design language: a translucent 44 px global navigation with flyout menus, a search panel and a phone menu; a sticky local navigation for each section with a blue pill for its main download; centered heroes; full-width bands alternating white and #f5f5f7, with black bands for headline numbers; white cards with 18 px corners; pill buttons in #0071e3; blue text links; two-tone section headlines; and the gray footer with its directory. Text uses the visitor's own system font (San Francisco on Apple devices) with Apple's type scale and letter spacing, and the layout follows Apple's breakpoints (1068 px and 734 px). Charts use the same fonts and grays, and a four-color palette tuned to Apple's blue and orange (CO2, coal and group A `#0071e3`; SO2, gas and group B `#f56300`; NOx and oil `#00a86b`; gross load `#eda100`) that passed a color-blind separation check; no purple is used.
+The interface follows apple.com's design language: a translucent 44 px global navigation with flyout menus, a search panel and a phone menu; a sticky local navigation for each section with a blue pill for its main download; centered heroes; full-width bands alternating white and #f5f5f7, with black bands for headline numbers; white cards with 18 px corners (28 px around charts); pill buttons in #0071e3; blue text links; two-tone section headlines; and the gray footer with its directory. Text uses the visitor's own system font (San Francisco on Apple devices) with Apple's type scale and letter spacing, and the layout follows Apple's breakpoints (1068 px and 734 px). Charts use the same fonts and grays, dotted hairline grids, values on the right of time series, rounded bars with their names above them, and a four-color palette tuned to Apple's blue and orange (CO2, coal and group A `#0071e3`; SO2, gas and group B `#f56300`; NOx and oil `#00a86b`; gross load `#eda100`) that passed a color-blind separation check; no purple is used.
 
 ### 12.9 Unusual observations (proposal goal 5)
 
@@ -516,9 +516,9 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 |---|---|
 | `tests/test_analysis.py` | Derived indicators, missing and zero-denominator handling, descriptive statistics, grouping |
 | `tests/test_statistics_page.py` | The Statistics page and its CSV/Excel exports with metadata |
-| `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
+| `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart and the headline above it; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 | `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
 | `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
 
-Expected result: all 85 tests pass.
+Expected result: all 88 tests pass.

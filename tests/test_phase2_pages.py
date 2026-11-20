@@ -146,6 +146,38 @@ def test_every_chart_is_valid_json():
         json.dumps(dashboard.json_safe(spec), allow_nan=False)
 
 
+def test_chart_headlines_and_legends():
+    frame = selection()
+    trend = dashboard.trend(frame, "co2_mass")
+    # 2025: 710,000 short tons, down from 1,060,000 in 2023
+    assert trend["headline"]["value"] == "710,000" and trend["headline"]["unit"] == "short tons"
+    assert trend["headline"]["context"] == "In 2025"
+    assert trend["headline"]["delta"] == {"text": "33.0%", "dir": "down", "after": "since 2023"}
+    assert trend["readout"]["trace"] == 0 and trend["ranges"] == []    # three years: no range buttons
+    bars = dashboard.bars(frame, "co2_mass", "state")
+    assert (bars["headline"]["value"], bars["headline"]["unit"]) == ("2.78", "million short tons")
+    assert bars["headline"]["context"] == "KY, the highest of 2"
+    indexed = dashboard.indexed_trend(frame)
+    co2 = next(item for item in indexed["legend"] if item["name"] == "CO2")
+    assert co2["value"] == "−33% since 2023"
+
+
+def test_short_numbers():
+    assert dashboard.short_number(1_260_000_000) == "1.26B"
+    assert dashboard.short_number(999_600) == "1M"
+    assert dashboard.short_number(100) == "100"
+    assert dashboard.short_number(-2.33) == "−2.33"
+    assert analysis.format_compact(999_600_000) == "1 billion"
+
+
+def test_log_scale_falls_back_to_linear_for_negative_values():
+    import pandas as pd
+    frame = pd.DataFrame({"co2_mass_change_pct": [-10.0, 5.0, 20.0, 0.0, 30.0]})
+    spec = dashboard.histogram(frame, "co2_mass_change_pct", "log")
+    assert sum(row[2] for row in spec["table"]["rows"]) == 5      # nothing left out
+    assert "uses a linear scale" in spec["note"]
+
+
 def test_dashboard_page(client):
     page = client.get("/dashboard?state=KY&variable=co2_intensity").get_data(as_text=True)
     blocks = re.findall(r'<script type="application/json" id="spec-([a-z_]+)">(.*?)</script>', page, re.S)
@@ -155,6 +187,7 @@ def test_dashboard_page(client):
     for _, body in blocks:
         json.loads(body)
     assert "plotly" in page.lower()
+    assert 'class="chart-value"' in page and 'class="chart-legend"' in page
 
 
 def test_dashboard_chart_download(client):

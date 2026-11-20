@@ -1,4 +1,9 @@
-{# A chart drawn by static/charts.js from the figure in the JSON block, with downloads and the numbers behind it. #}
+{#
+  A chart card, laid out like the charts in Apple's Health and Stocks apps: a small gray eyebrow, the title,
+  a big headline number with a change pill, a year-range picker and a legend, then the plot (drawn by
+  static/charts.js from the figure in the JSON block), the downloads and the numbers behind it.
+  Every part above the plot is optional; dashboard.py says which ones a chart has.
+#}
 
 {% macro hidden_filters(filters, skip=()) -%}
 {% for key, value in filters.items() if key not in skip %}
@@ -6,13 +11,63 @@
 {% endfor %}
 {%- endmacro %}
 
+{% macro delta_pill(change) -%}
+<span class="chart-delta is-{{ change.dir if change else 'flat' }}" data-delta {% if not change %}hidden{% endif %}>
+    <svg class="chart-delta-arrow" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M5 8.8V1.4M1.9 4.5 5 1.4l3.1 3.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="visually-hidden" data-delta-word>{{ {"up": "Up", "down": "Down", "flat": "About the same,"}[change.dir] if change else "" }}</span>
+    <span data-delta-text>{{ change.text if change else "" }}</span>
+</span>
+<span class="chart-delta-after" data-delta-after {% if not change %}hidden{% endif %}>{{ change.after if change else "" }}</span>
+{%- endmacro %}
+
 {% macro chart_card(spec, data_base=none, wide=false) -%}
-<figure class="chart-card{{ ' wide' if wide else '' }}" id="chart-{{ spec.id }}">
+{% set head = spec.headline %}
+{% set eyebrow = (head.eyebrow if head else none) or spec.eyebrow %}
+<figure class="chart-card{{ ' wide' if wide else '' }}{{ ' is-empty' if spec.empty else '' }}" id="chart-{{ spec.id }}" data-card="{{ spec.id }}">
+    <header class="chart-head">
+        <div class="chart-heading">
+            {% if eyebrow and not spec.empty %}<p class="chart-eyebrow">{{ eyebrow }}</p>{% endif %}
+            <h3 class="chart-title">{{ spec.title }}</h3>
+        </div>
+        {% if spec.ranges and not spec.empty %}
+        <div class="chart-ranges" role="group" aria-label="Years shown" data-ranges>
+            {% for option in spec.ranges %}
+            {% set years = option.years|int %}
+            <button type="button" data-years="{{ years }}" aria-pressed="{{ 'true' if loop.last else 'false' }}" aria-label="{{ ('Last ' ~ years ~ ' years') if years else 'All years' }}">{{ option.label }}</button>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </header>
     {% if spec.empty %}
-    <h3 class="chart-title">{{ spec.title }}</h3>
     <p class="chart-empty">{{ spec.empty }}</p>
     {% else %}
-    <div class="chart-plot" data-chart="{{ spec.id }}" role="img" aria-label="{{ spec.title }}" style="min-height: {{ spec.layout.height or 400 }}px"></div>
+    {% if head %}
+    <div class="chart-readout" data-readout>
+        <p class="chart-figure"><span class="chart-value" data-value>{{ head.value }}</span>{% if head.unit %} <span class="chart-unit" data-unit>{{ head.unit }}</span>{% endif %}</p>
+        <p class="chart-context">
+            {% if head.context %}<span class="chart-when" data-context>{{ head.context }}</span>{% endif %}
+            {% if spec.readout or head.delta %}{{ delta_pill(head.delta) }}{% endif %}
+        </p>
+        {% if head.note %}<p class="chart-subnote">{{ head.note }}</p>{% endif %}
+    </div>
+    {% endif %}
+    {% if spec.legend %}
+    <ul class="chart-legend" aria-label="Legend">
+        {% for item in spec.legend %}
+        {% set inside %}
+            <span class="chart-swatch is-{{ item.style }}" style="--swatch: {{ item.color }}" aria-hidden="true"></span>
+            <span class="chart-key-name">{{ item.name }}</span>
+            {% if item.value %}<span class="chart-key-value">{{ item.value }}</span>{% endif %}
+        {% endset %}
+        {% if item.group %}
+        <li><button type="button" class="chart-key" data-group="{{ item.group }}" aria-pressed="true">{{ inside }}</button></li>
+        {% else %}
+        <li><span class="chart-key is-static">{{ inside }}</span></li>
+        {% endif %}
+        {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="chart-plot" data-chart="{{ spec.id }}" role="img" aria-label="{{ spec.title }}{% if head %}: {{ head.value }} {{ head.unit }} {{ head.context }}{% endif %}" style="min-height: {{ spec.layout.height or 380 }}px"></div>
     <script type="application/json" id="spec-{{ spec.id }}">{{ spec|tojson }}</script>
     {% if spec.explain %}
     <div class="chart-explain" id="explain-{{ spec.id }}" aria-live="polite" hidden></div>
@@ -26,6 +81,7 @@
             <a class="btn-link" href="{{ data_base }}&chart={{ spec.id }}" download>Data CSV</a>
             <a class="btn-link" href="{{ data_base }}&chart={{ spec.id }}&format=xlsx" download>Excel</a>
             {% endif %}
+            <button type="button" class="btn-link chart-reset" data-reset="{{ spec.id }}" hidden>Reset zoom</button>
         </div>
     </figcaption>
     {% if spec.table.columns %}
@@ -58,8 +114,13 @@
 </figure>
 {%- endmacro %}
 
-{# Plotly.js 2.35.2 (MIT license) and the U.S. map outline are kept in static/vendor, so charts work offline. #}
+{#
+  Plotly.js 2.35.2 (MIT license) and the U.S. map outline are kept in static/vendor, so charts work offline.
+  The inline line lets the cards start hidden and rise into view as you scroll; if charts.js never
+  loads, it shows them anyway after a few seconds.
+#}
 {% macro chart_scripts() -%}
+<script>document.documentElement.classList.add("js-charts");setTimeout(function(){if(!window.epaCharts){document.documentElement.classList.remove("js-charts");}},4000);</script>
 <script src="{{ url_for('static', filename='vendor/plotly-2.35.2.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='charts.js') }}" data-topojson="{{ url_for('static', filename='vendor/topojson/') }}" defer></script>
 {%- endmacro %}

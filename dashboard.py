@@ -23,6 +23,8 @@ Design rules (kept the same on every chart)
     coal blue, gas orange, oil and other green. A filter never repaints them.
   - One y-axis per chart. Measures with different units are indexed or drawn as separate charts.
   - Every value on a chart is also in the table under it.
+  - The title, a headline number and the legend sit in the card above the plot (templates/_chart.html),
+    in the style of the charts in Apple's Health and Stocks apps; static/charts.js keeps them up to date.
 """
 
 import html
@@ -35,11 +37,15 @@ import analysis
 
 # ---------- Look ----------
 #
-# Apple-style chart chrome: the system San Francisco font, near-black titles, gray axis text,
-# hairline grids and no frame. Series colors are tuned to Apple's blue and orange and checked
-# with the dataviz palette validator (scripts/validate_palette.js): the first three pass the
-# color-blind checks for every pair (scatter plots and maps use at most three), and all four
-# pass for neighbors.
+# Charts in the style of Apple's own (Health, Stocks, Fitness). The title, a big headline number,
+# a range picker and the legend sit in the card above the plot (templates/_chart.html), so the plot
+# itself is only data: gray 11px axis text, dotted hairline grids, no frame, values on the right of
+# time series, rounded bars with their names above them, lines that end in a ringed dot, and a
+# gradient under single lines. Moving over a single-line chart shows that year in the headline.
+#
+# Series colors are tuned to Apple's blue and orange and checked with the dataviz palette validator
+# (scripts/validate_palette.js): the first three pass the color-blind checks for every pair
+# (scatter plots and maps use at most three), and all four pass for neighbors.
 
 FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif'
 INK = "#1d1d1f"
@@ -62,6 +68,10 @@ SEQUENTIAL = [[0.0, "#d6e8fc"], [0.25, "#8ec0f5"], [0.5, "#3d94ec"], [0.75, "#00
 # Red (negative) to gray (zero) to blue (positive), for correlations
 DIVERGING = [[0.0, "#e34948"], [0.5, "#f5f5f7"], [1.0, "#0071e3"]]
 
+# Bars: each row is this tall, with the name above the bar
+BAR_ROW = 40
+BAR_GAP = 0.52
+
 
 def fill(color, alpha):
     """A series color as a see-through fill."""
@@ -69,15 +79,24 @@ def fill(color, alpha):
     return f"rgba({int(color[0:2], 16)},{int(color[2:4], 16)},{int(color[4:6], 16)},{alpha})"
 
 
+def gradient(color, top=0.26):
+    """A fill that fades from the series color under the line to nothing at the bottom (as in Stocks)."""
+    return {"type": "vertical", "colorscale": [[0, fill(color, 0)], [1, fill(color, top)]]}
+
+
 def axis(title, **extra):
+    """A recessive axis: gray 11px ticks, dotted hairline grid, no frame."""
     settings = {
-        "title": {"text": title, "font": {"color": INK_2, "size": 12}, "standoff": 12},
+        "title": {"text": title, "font": {"color": MUTED, "size": 11}, "standoff": 10},
         "gridcolor": GRID,
+        "griddash": "dot",
         "gridwidth": 1,
+        "showline": False,
         "linecolor": AXIS,
-        "showline": True,
+        "linewidth": 1,
         "zeroline": False,
         "ticks": "",
+        "ticklabelstandoff": 6,
         "tickfont": {"color": MUTED, "size": 11},
         "automargin": True,
     }
@@ -85,27 +104,32 @@ def axis(title, **extra):
     return settings
 
 
-def layout(title, x_title="", y_title="", height=400, **extra):
+def layout(title, x_title="", y_title="", height=380, **extra):
+    """
+    A figure layout. The title isn't drawn inside the plot: the card above it shows the title with the
+    headline number, and the PNG download adds the title back (static/charts.js).
+    """
     settings = {
-        "title": {"text": title, "x": 0, "xanchor": "left", "y": 0.98, "yanchor": "top",
-                  "font": {"size": 17, "color": INK, "weight": 600}},
         "font": {"family": FONT, "size": 12, "color": INK_2},
         "paper_bgcolor": SURFACE,
         "plot_bgcolor": SURFACE,
         "height": height,
-        "margin": {"l": 16, "r": 24, "t": 76, "b": 16},
+        "margin": {"l": 8, "r": 8, "t": 14, "b": 8},
         "xaxis": axis(x_title),
         "yaxis": axis(y_title),
-        "hoverlabel": {"bgcolor": "rgba(255,255,255,0.96)", "bordercolor": AXIS,
+        "hoverlabel": {"bgcolor": "rgba(255,255,255,0.98)", "bordercolor": GRID,
                        "font": {"family": FONT, "color": INK, "size": 13}, "align": "left"},
-        "legend": {"orientation": "h", "x": 0, "xanchor": "left", "y": 1.0, "yanchor": "bottom",
+        "legend": {"orientation": "h", "x": 0, "xanchor": "left", "y": 1.02, "yanchor": "bottom",
                    "font": {"color": INK_2, "size": 12}, "bgcolor": "rgba(0,0,0,0)", "itemsizing": "constant"},
-        "barcornerradius": 4,
+        "barcornerradius": 6,
         "showlegend": False,
+        "hovermode": "closest",
         "dragmode": "zoom",
         "modebar": {"bgcolor": "rgba(0,0,0,0)", "color": MUTED, "activecolor": INK},
     }
     settings.update(extra)
+    if settings.get("showlegend"):
+        settings["margin"] = dict(settings["margin"], t=44)
     return settings
 
 
@@ -126,6 +150,129 @@ def empty_chart(chart_id, title, message):
     return chart(chart_id, title, [], {}, [], [], empty=message)
 
 
+# ---------- The card above each chart ----------
+#
+# Optional fields a builder can add to its spec; templates/_chart.html draws them and
+# static/charts.js keeps them up to date as the reader moves over the chart:
+#   eyebrow   small gray line above the title ("Indexed, 2000 = 100")
+#   headline  the big number: value, unit, context, delta (a change pill), note, eyebrow
+#   legend    named color chips (click one to hide or show that series)
+#   ranges    year-range buttons (5Y, 10Y, 20Y, All), as in Stocks
+#   readout   which trace drives the headline while hovering, and how to describe it
+
+def compact_parts(value):
+    """406,123,456 -> ("406", "million"); 0.8442 -> ("0.8442", ""): a headline number and its word."""
+    words = analysis.format_compact(value)
+    for word in ("trillion", "billion", "million"):
+        if words.endswith(" " + word):
+            return words[:-len(word) - 1], word
+    return words, ""
+
+
+def short_number(value):
+    """Labels on bars and axes, in the same style as the axis ticks: 1.23B, 456M, 12.3k, 87.5, 0.42."""
+    if value is None:
+        return "—"
+    size = abs(value)
+    for limit, letter in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "k")):
+        if size >= limit * 0.9995:
+            return f"{value / limit:.3g}{letter}".replace("-", "−")
+    if size >= 0.01:
+        return f"{value:.3g}".replace("-", "−")
+    return analysis.format_number(value).replace("-", "−")
+
+
+def percent_change(new, old):
+    if new is None or old is None or old <= 0:
+        return None
+    return (new - old) / old * 100
+
+
+def delta(pct, after):
+    """A change pill: arrow, size and what it's compared with. Gray, not red or green: the reader decides."""
+    if pct is None:
+        return None
+    direction = "up" if pct >= 0.05 else ("down" if pct <= -0.05 else "flat")
+    return {"text": f"{abs(pct):,.1f}%", "dir": direction, "after": after}
+
+
+def headline(value, unit, context="", change=None, note="", eyebrow=""):
+    number, word = compact_parts(value)
+    return {"value": number.replace("-", "−"), "unit": (word + " " + unit).strip(), "context": context,
+            "delta": change, "note": note, "eyebrow": eyebrow}
+
+
+def legend_item(name, color, value="", style="line", group=None):
+    """A legend chip. group names the traces it shows and hides; "" makes it a plain label."""
+    return {"name": name, "color": color, "value": value, "style": style, "group": name if group is None else group}
+
+
+def end_dot(x, y, color, group):
+    """The latest point of a line: a dot with a white ring."""
+    return {"type": "scatter", "mode": "markers", "x": [x], "y": [y], "name": "", "showlegend": False,
+            "legendgroup": group, "hoverinfo": "skip", "cliponaxis": False,
+            "marker": {"size": 11, "color": color, "line": {"color": SURFACE, "width": 3}}}
+
+
+def year_ranges(years):
+    """Buttons above a yearly chart, like the range picker in Stocks."""
+    span = years[-1] - years[0] + 1 if years else 0
+    options = [{"label": f"{n}Y", "years": n} for n in (5, 10, 20) if span > n + 1]
+    return options + [{"label": "All", "years": 0}] if options else []
+
+
+def time_axes(figure, years, unified=True):
+    """Years along a baseline with a crosshair; values on the right."""
+    figure["xaxis"].update(showgrid=False, showline=True, dtick=year_step(years), tickformat="d",
+                           range=[years[0] - 0.4, years[-1] + 0.4], showspikes=True, spikemode="across",
+                           spikethickness=1, spikecolor=AXIS, spikedash="solid", spikesnap="data")
+    figure["yaxis"].update(side="right", rangemode="tozero")
+    figure["hovermode"] = "x unified" if unified else "x"
+    figure["hoverdistance"] = -1
+    figure["spikedistance"] = -1
+
+
+def bar_rows(figure, names, values=None, show_axis=False, suffix="", axis_title=""):
+    """
+    Horizontal bars with each name above its bar (left-aligned, as on apple.com comparisons), so long
+    facility names never squeeze the bars. Without show_axis, the value axis is hidden and each bar
+    carries its own label (value_labels). Margins are fixed (no automargin) so every row is exactly
+    BAR_ROW pixels and the names sit right above their bars.
+    """
+    count = len(names)
+    bottom = (48 if axis_title else 30) if show_axis else 8
+    figure["margin"] = dict(figure["margin"], l=4, t=22, r=8, b=bottom)
+    figure["height"] = BAR_ROW * count + 22 + bottom
+    figure["bargap"] = BAR_GAP
+    figure["yaxis"].update(showgrid=False, showticklabels=False, autorange="reversed", title={"text": ""},
+                           fixedrange=True, automargin=False, type="category")
+    bar_half = BAR_ROW * (1 - BAR_GAP) / 2
+    present = [v for v in (values or []) if v is not None]
+    leftward = not show_axis and present and max(present) <= 0
+    figure["annotations"] = list(figure.get("annotations", [])) + [{
+        "x": 0, "xref": "x" if leftward else "paper", "y": name, "yref": "y", "text": name, "showarrow": False,
+        "xanchor": "right" if leftward else "left", "yanchor": "bottom", "yshift": bar_half + 1,
+        "align": "right" if leftward else "left", "font": {"color": INK, "size": 12},
+    } for name in names]
+    if show_axis:
+        figure["xaxis"].update(ticksuffix=suffix, showline=False, automargin=False, fixedrange=True,
+                               title={"text": axis_title, "font": {"color": MUTED, "size": 11}, "standoff": 8})
+        return
+    high = max(present + [0])
+    low = min(present + [0])
+    room = (high - low) * 0.2 or 1
+    figure["xaxis"].update(showgrid=False, showticklabels=False, title={"text": ""}, fixedrange=True,
+                           automargin=False, range=[low - (room if low < 0 else 0), high + room],
+                           zeroline=low < 0, zerolinecolor=AXIS, zerolinewidth=1)
+
+
+def value_labels(values, formatter=None):
+    """Short labels at the end of each bar, in the text color (never the bar color)."""
+    formatter = formatter or short_number
+    return {"text": [formatter(v) if v is not None else "" for v in values], "textposition": "outside",
+            "cliponaxis": False, "constraintext": "none", "textfont": {"color": INK, "size": 12}}
+
+
 def text(value):
     """Facility and unit names go into tooltips; escape them so they show as plain text."""
     return html.escape(str(value), quote=False)
@@ -135,9 +282,14 @@ def unit_of(key):
     return analysis.VARIABLES[key]["unit"]
 
 
-def log_axis(settings):
+def log_axis(settings, low=None, high=None):
+    """
+    A log axis labeled only at powers of ten (10, 100, 1k, 10k ...), so it stays quiet. When the values
+    (low to high) span less than two powers of ten, Plotly picks in-between labels instead.
+    """
     settings["type"] = "log"
-    settings["dtick"] = "D2"
+    if low is None or high is None or low <= 0 or high / low >= 100:
+        settings["dtick"] = 1
 
 
 def lower_first(label):
@@ -237,7 +389,7 @@ def split_labels(frame, split):
 
 def indexed_trend(frame):
     """CO2, SO2, NOx and gross load totals by year, each indexed to its first year = 100."""
-    title = "Emissions and generation over time (first year = 100)"
+    title = "Emissions and generation over time"
     years = selection_years(frame)
     if len(years) < 2:
         return empty_chart("indexed", title, "This selection covers one year, so there is no trend to show.")
@@ -246,8 +398,7 @@ def indexed_trend(frame):
     names = {"co2_mass": "CO2", "so2_mass": "SO2", "nox_mass": "NOx", "gross_load": "Gross load"}
     totals = frame.groupby("year")[keys].sum(min_count=1).reindex(years)
 
-    data = []
-    annotations = []
+    data, dots, annotations, legend = [], [], [], []
     columns = ["Year"] + [f"{names[k]} total ({unit_of(k)})" for k in keys] + [f"{names[k]} index" for k in keys]
     indexes = {}
     for key in keys:
@@ -258,34 +409,50 @@ def indexed_trend(frame):
             continue
         index = series / series[base_year] * 100
         indexes[key] = index
+        color = POLLUTANT_COLORS[key]
         data.append({
-            "type": "scatter", "mode": "lines+markers", "name": names[key],
+            "type": "scatter", "mode": "lines", "name": names[key], "legendgroup": names[key],
             "x": years, "y": [clean(v) for v in index],
             "customdata": [[clean(v)] for v in series],
-            "line": {"color": POLLUTANT_COLORS[key], "width": 2},
-            "marker": {"size": 8, "color": POLLUTANT_COLORS[key], "line": {"color": SURFACE, "width": 2}},
-            "hovertemplate": f"{names[key]}: %{{y:.1f}} (total %{{customdata[0]:,.0f}} {unit_of(key)})<extra></extra>",
+            "line": {"color": color, "width": 3},
+            "hovertemplate": f"{names[key]}  <b>%{{y:.1f}}</b>  (total %{{customdata[0]:,.0f}} {unit_of(key)})"
+                             "<extra></extra>",
         })
         last = next((year for year in reversed(years) if pd.notna(index[year])), None)
         if last is not None:
-            annotations.append({"x": last, "y": float(index[last]), "text": names[key], "showarrow": False,
-                                "xanchor": "left", "xshift": 10, "yanchor": "middle",
-                                "font": {"color": INK_2, "size": 12}})
+            dots.append(end_dot(last, clean(index[last]), color, names[key]))
+            annotations.append({"x": last, "y": float(index[last]), "text": f"<b>{names[key]}</b>",
+                                "showarrow": False, "xanchor": "left", "xshift": 12, "yanchor": "middle",
+                                "font": {"color": INK, "size": 12}})
+            legend.append(legend_item(names[key], color, signed_percent(float(index[last]) - 100)
+                                      + f" since {base_year}"))
 
     rows = []
     for year in years:
-        row = [year] + [clean(totals.loc[year, k]) for k in keys] + [clean(indexes[k][year]) for k in keys]
-        rows.append(row)
+        rows.append([year] + [clean(totals.loc[year, k]) for k in keys] + [clean(indexes[k][year]) for k in keys])
 
     spread_labels(annotations)
-    figure = layout(title, "Reporting year", "Index (first year with data = 100)", showlegend=True,
-                    hovermode="x unified", annotations=annotations)
-    figure["xaxis"]["dtick"] = year_step(years)
-    figure["xaxis"]["range"] = [years[0] - 0.3, years[-1] + 0.3]
-    figure["margin"]["r"] = 96
-    note = ("Each line is the yearly total for the selected records divided by that line's first-year total. "
-            "Totals also change when units start or stop reporting.")
-    return chart("indexed", title, data, figure, columns, rows, note)
+    figure = layout(title, "", "", height=360, annotations=annotations)
+    time_axes(figure, years)
+    figure["yaxis"].update(side="left", rangemode="normal")
+    figure["shapes"] = [{"type": "line", "xref": "paper", "x0": 0, "x1": 1, "y0": 100, "y1": 100, "layer": "below",
+                         "line": {"color": MUTED, "width": 1, "dash": "dash"}}]
+    figure["margin"]["r"] = 92
+    note = ("Each line is the yearly total for the selected records divided by that line's first-year total, so "
+            "the dashed line at 100 is where every line starts. Totals also change when units start or stop "
+            "reporting.")
+    spec = chart("indexed", title, data + dots, figure, columns, rows, note)
+    spec["eyebrow"] = "Indexed to the first year = 100"
+    spec["legend"] = legend
+    return spec
+
+
+def signed_percent(value):
+    if value is None:
+        return "—"
+    if abs(value) < 0.5:
+        return "0%"
+    return ("+" if value > 0 else "−") + f"{abs(value):,.0f}%"
 
 
 def trend(frame, key, split="none"):
@@ -301,7 +468,8 @@ def trend(frame, key, split="none"):
     else:
         series = [(name, frame[labels == name], colors[name]) for name in order if (labels == name).any()]
 
-    data = []
+    single = len(series) == 1
+    data, dots, legend = [], [], []
     columns = ["Year"]
     values_by_series = []
     for name, part, color in series:
@@ -310,24 +478,57 @@ def trend(frame, key, split="none"):
         counts = [0 if pd.isna(c) else int(c) for c in table["records"]]
         values_by_series.append(values)
         columns.append(f"{name}: {value_title(key)}")
-        data.append({
-            "type": "scatter", "mode": "lines+markers", "name": name, "x": years, "y": values,
+        trace = {
+            "type": "scatter", "mode": "lines", "name": name, "legendgroup": name, "x": years, "y": values,
             "customdata": [[c] for c in counts],
-            "line": {"color": color, "width": 2},
-            "marker": {"size": 8, "color": color, "line": {"color": SURFACE, "width": 2}},
-            "hovertemplate": f"{text(name)}: %{{y:,.4~g}} {item['unit']} (%{{customdata[0]:,}} records)<extra></extra>",
+            "line": {"color": color, "width": 3},
+            "hovertemplate": f"{text(name)}  <b>%{{y:,.4~g}} {item['unit']}</b>  (%{{customdata[0]:,}} records)"
+                             "<extra></extra>",
             "connectgaps": False,
-        })
+        }
+        if single:
+            # As in Stocks: a gradient under the line, and the hovered year shown in the headline above
+            trace.update(fill="tozeroy", fillgradient=gradient(color), hoverinfo="none")
+            del trace["hovertemplate"]
+        data.append(trace)
+        present = [(year, value) for year, value in zip(years, values) if value is not None]
+        if present:
+            dots.append(end_dot(present[-1][0], present[-1][1], color, name))
+            legend.append(legend_item(name, color, f"{short_number(present[-1][1])} in {present[-1][0]}"))
 
     rows = [[year] + [values[i] for values in values_by_series] for i, year in enumerate(years)]
-    figure = layout(title, "Reporting year", value_title(key), showlegend=len(series) > 1, hovermode="x unified")
-    figure["xaxis"]["dtick"] = year_step(years)
+    figure = layout(title, "", "", height=340)
+    time_axes(figure, years, unified=not single)
+    if any(value is not None and value < 0 for values in values_by_series for value in values):
+        figure["yaxis"].update(rangemode="normal", zeroline=True, zerolinecolor=AXIS)
+    word = analysis.aggregate_label(key)
     note = {
         "Overall ratio": "Each point divides the year's total of the numerator by the total of the denominator.",
         "Total": "Each point is the year's total over the selected records.",
         "Mean": "Each point is the year's average over the selected records.",
-    }[analysis.aggregate_label(key)]
-    return chart("trend", title, data, figure, columns, rows, note)
+    }[word]
+    spec = chart("trend", title, data + dots, figure, columns, rows, note)
+    eyebrow = "Overall" if word == "Overall ratio" else word
+    if not single:
+        spec["eyebrow"] = f"{eyebrow}, by {SPLITS[split].lower()}"
+        spec["legend"] = legend
+        return spec
+
+    present = [(year, value) for year, value in zip(years, values_by_series[0]) if value is not None]
+    if not present:
+        return spec
+    first_year, first = present[0]
+    last_year, last = present[-1]
+    peak_year, peak = max(present, key=lambda pair: pair[1])
+    changes = item["group"] != "Year-over-year change"
+    spec["headline"] = headline(
+        last, item["unit"], f"In {last_year}",
+        delta(percent_change(last, first), f"since {first_year}") if changes else None,
+        f"Peak: {analysis.format_compact(peak)} in {peak_year}" if peak_year not in (first_year, last_year) else "",
+        eyebrow)
+    spec["readout"] = {"trace": 0, "unit": item["unit"], "delta": changes, "count": "records"}
+    spec["ranges"] = year_ranges([year for year, _ in present])
+    return spec
 
 
 # ---------- Comparisons across groups ----------
@@ -342,25 +543,31 @@ def bars(frame, key, group):
         return empty_chart("bars", title, "No values for this variable in the selection.")
 
     shown = table.head(BAR_LIMIT)
-    names = list(shown.index)
-    data = [{
-        "type": "bar", "orientation": "h",
-        "x": [clean(v) for v in shown["value"]], "y": [text(n) for n in names],
+    names = [text(n) for n in shown.index]
+    values = [clean(v) for v in shown["value"]]
+    data = [dict({
+        "type": "bar", "orientation": "h", "x": values, "y": names,
         "customdata": [[int(r)] for r in shown["records"]],
         "marker": {"color": SERIES[0]},
-        "hovertemplate": "%{y}<br><b>%{x:,.4~g} " + item["unit"] + "</b> (%{customdata[0]:,} records)<extra></extra>",
-    }]
-    height = max(260, 34 * len(names) + 110)
-    figure = layout(title, value_title(key), "", height=height, bargap=0.25)
-    figure["yaxis"]["autorange"] = "reversed"
-    figure["yaxis"]["gridcolor"] = "rgba(0,0,0,0)"
+        "hovertemplate": "%{y}<br><b>%{x:,.4~g} " + item["unit"] + "</b>  (%{customdata[0]:,} records)<extra></extra>",
+    }, **value_labels(values))]
+    figure = layout(title)
+    bar_rows(figure, names, values)
 
     columns = [group_name, value_title(key), "Records"]
     rows = [[name, clean(row["value"]), int(row["records"])] for name, row in table.iterrows()]
     note = f"Highest {len(shown)} of {len(table)} groups shown; the table and download have all of them."
     if len(table) <= BAR_LIMIT:
         note = f"All {len(table)} groups, highest first."
-    return chart("bars", title, data, figure, columns, rows, note)
+    spec = chart("bars", title, data, figure, columns, rows, note)
+    word = analysis.aggregate_label(key)
+    top = headline(values[0], item["unit"], f"{shown.index[0]}, the highest of {len(table)}",
+                   eyebrow=f"Highest {group_name.lower()}")
+    total = float(table["value"].sum())
+    if word == "Total" and len(table) > 1 and total > 0 and values[0] > 0:
+        top["note"] = f"{values[0] / total * 100:.1f}% of the selection's total"
+    spec["headline"] = top
+    return spec
 
 
 # ---------- Distributions ----------
@@ -376,6 +583,9 @@ def histogram(frame, key, scale="log"):
     title = f"Distribution of {item['label']}"
     values = frame[key].dropna()
     excluded = 0
+    switched = scale == "log" and bool((values < 0).any())
+    if switched:
+        scale = "linear"   # changes can be negative, which a log scale can't show
     if scale == "log":
         positive = values[values > 0]
         excluded = int(len(values) - len(positive))
@@ -392,39 +602,55 @@ def histogram(frame, key, scale="log"):
     edges[0] = values.min()
     edges[-1] = values.max()
     counts, edges = np.histogram(values, bins=edges)
-
     ranges = [[float(edges[i]), float(edges[i + 1]), int(counts[i])] for i in range(len(counts))]
-    if scale == "log":
-        # A step outline: correct bin edges on a log axis
-        data = [{
-            "type": "scatter", "mode": "lines", "x": [float(e) for e in edges],
-            "y": [int(c) for c in counts] + [int(counts[-1])],
-            "customdata": ranges + [ranges[-1]],
-            "line": {"shape": "hv", "color": SERIES[0], "width": 2},
-            "fill": "tozeroy", "fillcolor": fill(SERIES[0], 0.16),
-            "hovertemplate": "%{customdata[0]:,.4~g} to %{customdata[1]:,.4~g} " + item["unit"]
-                             + "<br><b>%{customdata[2]:,} records</b><extra></extra>",
-        }]
-    else:
-        centers = (edges[:-1] + edges[1:]) / 2
-        data = [{
-            "type": "bar", "x": [float(c) for c in centers], "y": [int(c) for c in counts],
-            "width": [float(edges[i + 1] - edges[i]) * 0.94 for i in range(len(counts))],
-            "customdata": ranges, "marker": {"color": SERIES[0]},
-            "hovertemplate": "%{customdata[0]:,.4~g} to %{customdata[1]:,.4~g} " + item["unit"]
-                             + "<br><b>%{customdata[2]:,} records</b><extra></extra>",
-        }]
+    median = float(values.median())
 
-    figure = layout(title, f"{item['label']} ({item['unit']}){', log scale' if scale == 'log' else ''}",
-                    "Number of records", bargap=0)
-    if scale == "log":
-        log_axis(figure["xaxis"])
+    # On a log scale every bin is equally wide in powers of ten, so the bars are drawn at log10 positions
+    # on a plain axis whose labels are written back as real values (100, 1K, 10K, ...). That keeps the
+    # bars rounded and evenly spaced, which a log axis can't do.
+    def position(value):
+        return math.log10(value) if scale == "log" else value
 
-    note = f"{len(values):,} records in {bins} bins."
+    lefts = [position(e) for e in edges[:-1]]
+    rights = [position(e) for e in edges[1:]]
+    data = [{
+        "type": "bar", "x": [(a + b) / 2 for a, b in zip(lefts, rights)], "y": [int(c) for c in counts],
+        "width": [(b - a) * 0.8 for a, b in zip(lefts, rights)],
+        "customdata": ranges, "marker": {"color": SERIES[0]},
+        "hovertemplate": "%{customdata[0]:,.4~g} to %{customdata[1]:,.4~g} " + item["unit"]
+                         + "<br><b>%{customdata[2]:,} records</b><extra></extra>",
+    }]
+    figure = layout(title, f"{item['label']} ({item['unit']}{', log scale' if scale == 'log' else ''})", "",
+                    height=320, barcornerradius=3)
+    figure["xaxis"].update(showgrid=False, showline=True)
+    figure["yaxis"].update(side="right", tickformat="~s")
+    if scale == "log":
+        low, high = math.floor(lefts[0]), math.ceil(rights[-1])
+        ticks = [k for k in range(low, high + 1) if lefts[0] - 0.05 <= k <= rights[-1] + 0.05]
+        if len(ticks) < 2:
+            ticks = [lefts[0], rights[-1]]
+        figure["xaxis"].update(tickvals=ticks, ticktext=[short_number(10 ** k) for k in ticks],
+                               range=[lefts[0] - 0.04, rights[-1] + 0.04])
+    marker = position(median)
+    figure["shapes"] = [{"type": "line", "xref": "x", "yref": "paper", "x0": marker, "x1": marker, "y0": 0, "y1": 1,
+                         "line": {"color": INK, "width": 1.5, "dash": "dot"}}]
+    figure["annotations"] = [{"x": marker, "y": 1, "xref": "x", "yref": "paper", "yanchor": "bottom",
+                              "xanchor": "left", "xshift": 5, "showarrow": False,
+                              "text": f"Median {short_number(median)}", "font": {"color": INK, "size": 11}}]
+    figure["margin"]["t"] = 26
+
+    note = f"{len(values):,} records in {bins} bins; the dotted line marks the median."
     if excluded:
         note += f" {excluded:,} records with a value of 0 are left out because a log scale can't show 0."
+    if switched:
+        note += " Some values are below 0, which a log scale can't show, so this chart uses a linear scale."
     columns = [f"From ({item['unit']})", f"To ({item['unit']})", "Records"]
-    return chart("histogram", title, data, figure, columns, ranges, note)
+    spec = chart("histogram", title, data, figure, columns, ranges, note)
+    busiest = max(range(len(counts)), key=lambda index: counts[index])
+    spec["headline"] = headline(median, item["unit"], f"half of the {len(values):,} records are above it", eyebrow="Median",
+                                note=f"Most common: {short_number(ranges[busiest][0])} to "
+                                     f"{short_number(ranges[busiest][1])} {item['unit']}")
+    return spec
 
 
 def box_stats(values):
@@ -442,12 +668,27 @@ def box_stats(values):
             "outliers": outliers, "count": int(len(values)), "min": float(values.min()), "max": float(values.max())}
 
 
+def box_trace(name, x, stats, color):
+    """Slim boxes in the series color with a solid median, as in Health's range charts."""
+    return {
+        "type": "box", "name": name, "x": x,
+        "q1": [s["q1"] for s in stats], "median": [s["median"] for s in stats], "q3": [s["q3"] for s in stats],
+        "lowerfence": [s["lower"] for s in stats], "upperfence": [s["upper"] for s in stats],
+        "mean": [s["mean"] for s in stats],
+        "boxpoints": False, "width": 0.42, "whiskerwidth": 0, "marker": {"color": color},
+        "line": {"color": color, "width": 1.5}, "fillcolor": fill(color, 0.16),
+    }
+
+
 def box(frame, key, group, scale="log"):
     item = analysis.VARIABLES[key]
     group_name = analysis.GROUPS[group]
     title = f"Spread of {lower_first(item['label'])} within each {group_name.lower()}"
     data_frame = pd.DataFrame({"group": analysis.group_labels(frame, group), "value": frame[key]}).dropna()
     data_frame = data_frame[data_frame["group"] != analysis.NOT_REPORTED]
+    switched = scale == "log" and bool((data_frame["value"] < 0).any())
+    if switched:
+        scale = "linear"   # changes can be negative, which a log scale can't show
     if scale == "log":
         data_frame = data_frame[data_frame["value"] > 0]
     counts = data_frame.groupby("group").size()
@@ -457,30 +698,39 @@ def box(frame, key, group, scale="log"):
     names = list(counts.index[:BOX_LIMIT])
     stats = [box_stats(data_frame.loc[data_frame["group"] == name, "value"]) for name in names]
 
-    data = [{
-        "type": "box", "name": item["label"], "x": [text(n) for n in names],
-        "q1": [s["q1"] for s in stats], "median": [s["median"] for s in stats], "q3": [s["q3"] for s in stats],
-        "lowerfence": [s["lower"] for s in stats], "upperfence": [s["upper"] for s in stats],
-        "mean": [s["mean"] for s in stats],
-        "boxpoints": False, "marker": {"color": SERIES[0]},
-        "line": {"color": SERIES[0], "width": 2}, "fillcolor": fill(SERIES[0], 0.16),
-    }]
-    figure = layout(title, group_name, f"{item['label']} ({item['unit']})", height=420)
+    data = [box_trace(item["label"], [text(n) for n in names], stats, SERIES[0])]
+    figure = layout(title, "", "", height=340)
     if scale == "log":
-        log_axis(figure["yaxis"])
-    figure["xaxis"]["gridcolor"] = "rgba(0,0,0,0)"
+        log_axis(figure["yaxis"], min(s["lower"] for s in stats), max(s["upper"] for s in stats))
+    figure["xaxis"].update(showgrid=False, showline=True, tickfont={"color": INK, "size": 12}, type="category")
+    figure["yaxis"].update(side="right")
     columns = [group_name, "Records", "Minimum", "Lower whisker", "Q1", "Median", "Mean", "Q3", "Upper whisker",
                "Maximum", "Outliers beyond whiskers"]
     rows = [[n, s["count"], s["min"], s["lower"], s["q1"], s["median"], s["mean"], s["q3"], s["upper"], s["max"],
              s["outliers"]] for n, s in zip(names, stats)]
-    note = (f"The {len(names)} largest groups. Boxes run from Q1 to Q3 with the median inside; whiskers reach the "
-            f"furthest values within 1.5 × IQR. Points beyond the whiskers are counted in the table, not drawn.")
+    note = (f"The {len(names)} largest groups, in {item['unit']}{' on a log scale' if scale == 'log' else ''}. "
+            "Boxes run from Q1 to Q3 with the median inside; whiskers reach the furthest values within 1.5 × IQR. "
+            "Points beyond the whiskers are counted in the table, not drawn.")
     if scale == "log":
         note += " Values of 0 are left out on the log scale."
-    return chart("box", title, data, figure, columns, rows, note)
+    if switched:
+        note += " Some values are below 0, which a log scale can't show, so this chart uses a linear scale."
+    spec = chart("box", title, data, figure, columns, rows, note)
+    top = max(range(len(stats)), key=lambda index: stats[index]["median"])
+    spec["headline"] = headline(stats[top]["median"], item["unit"], f"median of {names[top]}",
+                                eyebrow="Highest median")
+    return spec
 
 
 # ---------- Relationships ----------
+
+def strength(r):
+    size = abs(r)
+    if size < 0.2:
+        return "little or no relationship"
+    word = "very strong" if size >= 0.9 else "strong" if size >= 0.7 else "moderate" if size >= 0.4 else "weak"
+    return f"{word}: {'they rise together' if r > 0 else 'one falls as the other rises'}"
+
 
 def scatter(frame, x_key, y_key, scale="log"):
     x_item = analysis.VARIABLES[x_key]
@@ -502,26 +752,29 @@ def scatter(frame, x_key, y_key, scale="log"):
     if len(shown) > SCATTER_SAMPLE:
         shown = shown.sample(n=SCATTER_SAMPLE, random_state=0)
 
-    data = []
+    data, legend = [], []
     for family in analysis.FUEL_FAMILIES:
         part = shown[shown["family"] == family]
         if part.empty:
             continue
         data.append({
-            "type": "scattergl", "mode": "markers", "name": family,
+            "type": "scattergl", "mode": "markers", "name": family, "legendgroup": family,
             "x": [float(v) for v in part["x"]], "y": [float(v) for v in part["y"]],
             "text": [f"{text(n)}, {int(y)}" for n, y in zip(part["name"], part["year"])],
-            "marker": {"size": 8, "color": FAMILY_COLORS[family], "opacity": 0.75,
-                       "line": {"color": SURFACE, "width": 1}},
-            "hovertemplate": "%{text}<br>" + x_item["label"] + ": <b>%{x:,.4~g}</b> " + x_item["unit"]
-                             + "<br>" + y_item["label"] + ": <b>%{y:,.4~g}</b> " + y_item["unit"]
+            "marker": {"size": 7, "color": FAMILY_COLORS[family], "opacity": 0.7,
+                       "line": {"color": SURFACE, "width": 0.5}},
+            "hovertemplate": "<b>%{text}</b><br>" + x_item["label"] + "  %{x:,.4~g} " + x_item["unit"]
+                             + "<br>" + y_item["label"] + "  %{y:,.4~g} " + y_item["unit"]
                              + "<extra>" + family + "</extra>",
         })
+        legend.append(legend_item(family, FAMILY_COLORS[family],
+                                  f"{int((data_frame['family'] == family).sum()):,} records", "dot"))
     figure = layout(title, f"{x_item['label']} ({x_item['unit']})", f"{y_item['label']} ({y_item['unit']})",
-                    height=460, showlegend=True, hovermode="closest")
+                    height=400)
     if scale == "log":
-        log_axis(figure["xaxis"])
-        log_axis(figure["yaxis"])
+        log_axis(figure["xaxis"], float(data_frame["x"].min()), float(data_frame["x"].max()))
+        log_axis(figure["yaxis"], float(data_frame["y"].min()), float(data_frame["y"].max()))
+    figure["xaxis"].update(showline=True)
 
     note = (f"Correlation over all {len(data_frame):,} records with both values: "
             f"Spearman {spearman:.2f}, Pearson {pearson:.2f}.")
@@ -537,7 +790,13 @@ def scatter(frame, x_key, y_key, scale="log"):
             rows.append([family, int(len(part)), clean(part["x"].corr(part["y"], method="spearman")),
                          clean(part["x"].corr(part["y"], method="pearson"))])
     rows.append(["All", int(len(data_frame)), clean(spearman), clean(pearson)])
-    return chart("scatter", title, data, figure, columns, rows, note)
+    spec = chart("scatter", title, data, figure, columns, rows, note)
+    spec["legend"] = legend
+    if pd.notna(spearman):
+        spec["headline"] = {"value": f"{spearman:.2f}".replace("-", "−"), "unit": "Spearman correlation",
+                            "context": strength(spearman), "delta": None, "eyebrow": "Relationship",
+                            "note": f"Pearson {pearson:.2f}".replace("-", "−") if pd.notna(pearson) else ""}
+    return spec
 
 
 def correlation(frame, method="spearman"):
@@ -556,26 +815,29 @@ def correlation(frame, method="spearman"):
     z = [[clean(matrix.iloc[i, j]) for j in range(len(keys))] for i in range(len(keys))]
     counts = [[int(pairs.iloc[i, j]) for j in range(len(keys))] for i in range(len(keys))]
     annotations = []
+    strongest = None
     for i in range(len(keys)):
         for j in range(len(keys)):
             r = z[i][j]
             if i != j and r is not None and abs(r) >= 0.7:
-                annotations.append({"x": names[j], "y": names[i], "text": f"{r:.2f}", "showarrow": False,
+                annotations.append({"x": names[j], "y": names[i], "text": f"{r:.2f}".replace("-", "−"),
+                                    "showarrow": False,
                                     "font": {"color": SURFACE if abs(r) >= 0.85 else INK, "size": 11}})
+            if i < j and r is not None and (strongest is None or abs(r) > abs(strongest[0])):
+                strongest = (r, names[i], names[j])
     data = [{
         "type": "heatmap", "x": names, "y": names, "z": z, "customdata": counts,
-        "zmin": -1, "zmax": 1, "zmid": 0, "colorscale": DIVERGING, "xgap": 2, "ygap": 2,
-        "colorbar": {"title": {"text": "r", "side": "top"}, "thickness": 12, "outlinewidth": 0,
-                     "tickfont": {"color": MUTED}, "len": 0.8},
-        "hovertemplate": "%{y} and %{x}<br><b>r = %{z:.2f}</b> (%{customdata:,} records)<extra></extra>",
+        "zmin": -1, "zmax": 1, "zmid": 0, "colorscale": DIVERGING, "xgap": 3, "ygap": 3,
+        "colorbar": {"title": {"text": "r", "side": "top", "font": {"color": MUTED, "size": 11}}, "thickness": 8,
+                     "outlinewidth": 0, "tickfont": {"color": MUTED, "size": 11}, "len": 0.6,
+                     "tickvals": [-1, -0.5, 0, 0.5, 1], "ticktext": ["−1", "−0.5", "0", "0.5", "1"]},
+        "hovertemplate": "%{y} and %{x}<br><b>r = %{z:.2f}</b>  (%{customdata:,} records)<extra></extra>",
     }]
-    figure = layout(title, "", "", height=560, annotations=annotations)
+    figure = layout(title, "", "", height=480, annotations=annotations)
     figure["yaxis"]["autorange"] = "reversed"
     figure["xaxis"]["tickangle"] = -40
     for name in ("xaxis", "yaxis"):
-        figure[name]["gridcolor"] = "rgba(0,0,0,0)"
-        figure[name]["linecolor"] = "rgba(0,0,0,0)"
-        figure[name]["ticks"] = ""
+        figure[name].update(showgrid=False, showline=False, tickfont={"color": INK_2, "size": 11})
     columns = ["Variable"] + names
     rows = [[names[i]] + z[i] for i in range(len(keys))]
     note = (f"Each pair uses the records that have both values (at least {CORRELATION_MINIMUM}). "
@@ -583,7 +845,12 @@ def correlation(frame, method="spearman"):
             "relationship. Values of 0.7 or more either way are labeled. Correlation is not causation.")
     if method == "spearman":
         note += " Spearman compares ranks, so a few very large plants don't dominate it."
-    return chart("correlation", title, data, figure, columns, rows, note)
+    spec = chart("correlation", title, data, figure, columns, rows, note)
+    if strongest:
+        spec["headline"] = {"value": f"{strongest[0]:.2f}".replace("-", "−"), "unit": "correlation",
+                            "context": f"{strongest[1]} and {strongest[2]}", "delta": None, "note": "",
+                            "eyebrow": "Strongest pair"}
+    return spec
 
 
 # ---------- Rankings ----------
@@ -629,32 +896,54 @@ def rankings(frame, key, level="facility", min_load=DEFAULT_MIN_LOAD):
         common = (f" Only {noun} with at least {min_load:,.0f} MWh of gross load in the selection are ranked, so "
                   f"very small ones don't top the list by chance ({excluded:,} left out).")
 
-    def bar_chart(chart_id, title, part, note):
-        names = list(part.index)
-        data = [{
-            "type": "bar", "orientation": "h", "x": [clean(v) for v in part["value"]],
-            "y": [text(n) for n in names], "customdata": [[clean(g)] for g in part["gross_load"]],
+    def bar_chart(chart_id, title, part, note, eyebrow):
+        names = [text(n) for n in part.index]
+        values = [clean(v) for v in part["value"]]
+        data = [dict({
+            "type": "bar", "orientation": "h", "x": values, "y": names,
+            "customdata": [[clean(g)] for g in part["gross_load"]],
             "marker": {"color": SERIES[0]},
             "hovertemplate": "%{y}<br><b>%{x:,.4~g} " + item["unit"]
                              + "</b><br>Gross load %{customdata[0]:,.0f} MWh<extra></extra>",
-        }]
-        figure = layout(title, value_title(key), "", height=max(260, 34 * len(names) + 110), bargap=0.25)
-        figure["yaxis"]["autorange"] = "reversed"
-        figure["yaxis"]["gridcolor"] = "rgba(0,0,0,0)"
+        }, **value_labels(values))]
+        figure = layout(title)
+        bar_rows(figure, names, values)
         columns = ["Rank", "Unit" if level == "unit" else "Facility", value_title(key), "Gross load (MWh)", "Records"]
         rows = []
         for rank, (name, row) in enumerate(part.iterrows(), start=1):
             rows.append([rank, name, clean(row["value"]), clean(row["gross_load"]), int(row["records"])])
-        return chart(chart_id, title, data, figure, columns, rows, note)
+        spec = chart(chart_id, title, data, figure, columns, rows, note)
+        if len(part):
+            spec["headline"] = headline(values[0], item["unit"], str(part.index[0]), eyebrow=eyebrow)
+        return spec
+
 
     high = table.head(RANK_COUNT)
     low = lowest_pool.tail(RANK_COUNT).iloc[::-1]
-    return (bar_chart("rank_high", high_title, high, f"Out of {len(table):,} {noun}." + common),
+    return (bar_chart("rank_high", high_title, high, f"Out of {len(table):,} {noun}." + common,
+                      f"Highest of {len(table):,}"),
             bar_chart("rank_low", low_title, low, f"Lowest first, out of {len(lowest_pool):,} {noun}." + low_note
-                      + common))
+                      + common, f"Lowest of {len(lowest_pool):,}"))
 
 
 # ---------- Maps ----------
+
+def map_colorbar(unit):
+    """A thin horizontal color key centered under the map."""
+    return {"title": {"text": unit, "side": "top", "font": {"color": MUTED, "size": 11}}, "orientation": "h",
+            "x": 0.5, "xanchor": "center", "y": 0, "yanchor": "top", "ypad": 6, "len": 0.42, "thickness": 6,
+            "outlinewidth": 0, "tickfont": {"color": MUTED, "size": 11}}
+
+
+def map_layout(title, land):
+    figure = layout(title, height=400)
+    figure["geo"] = {"scope": "usa", "bgcolor": SURFACE, "lakecolor": SURFACE, "showlakes": False,
+                     "showland": True, "landcolor": land, "subunitcolor": SURFACE, "subunitwidth": 1.5,
+                     "countrycolor": SURFACE, "projection": {"type": "albers usa"}}
+    figure["margin"] = {"l": 0, "r": 0, "t": 4, "b": 58}
+    figure["dragmode"] = False
+    return figure
+
 
 def state_map(frame, key):
     item = analysis.VARIABLES[key]
@@ -669,20 +958,20 @@ def state_map(frame, key):
         "type": "choropleth", "locationmode": "USA-states", "locations": codes,
         "z": [clean(v) for v in table["value"]], "text": names,
         "customdata": [[int(r)] for r in table["records"]],
-        "colorscale": SEQUENTIAL, "marker": {"line": {"color": SURFACE, "width": 1}},
-        "colorbar": {"title": {"text": item["unit"], "side": "top"}, "thickness": 12, "outlinewidth": 0,
-                     "tickfont": {"color": MUTED}, "len": 0.75},
-        "hovertemplate": "%{text}<br><b>%{z:,.4~g} " + item["unit"] + "</b> (%{customdata[0]:,} records)<extra></extra>",
+        "colorscale": SEQUENTIAL, "marker": {"line": {"color": SURFACE, "width": 1.5}},
+        "colorbar": map_colorbar(item["unit"]),
+        "hovertemplate": "<b>%{text}</b><br>%{z:,.4~g} " + item["unit"] + "  (%{customdata[0]:,} records)<extra></extra>",
     }]
-    figure = layout(title, height=460)
-    figure["geo"] = {"scope": "usa", "bgcolor": SURFACE, "lakecolor": SURFACE, "showlakes": False,
-                     "subunitcolor": SURFACE, "projection": {"type": "albers usa"}}
-    figure["margin"] = {"l": 0, "r": 0, "t": 72, "b": 0}
+    figure = map_layout(title, "#f5f5f7")
     columns = ["State", "State code", value_title(key), "Records"]
     rows = [[name, code, clean(v), int(r)] for name, code, v, r in zip(names, codes, table["value"], table["records"])]
     rows.sort(key=lambda row: -(row[2] or 0))
-    note = f"{analysis.aggregate_label(key)} for each state with records in the selection. Darker means higher."
-    return chart("state_map", title, data, figure, columns, rows, note)
+    note = (f"{analysis.aggregate_label(key)} for each state with records in the selection. Darker means higher; "
+            "states in light gray have no records.")
+    spec = chart("state_map", title, data, figure, columns, rows, note)
+    spec["headline"] = headline(rows[0][2], item["unit"], rows[0][0],
+                                eyebrow=f"Highest of {len(rows)} state{'' if len(rows) == 1 else 's'}")
+    return spec
 
 
 def analysis_state_name(code):
@@ -720,21 +1009,19 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
         "type": "scattergeo", "mode": "markers",
         "lat": [places[int(i)][0] for i in shown.index], "lon": [places[int(i)][1] for i in shown.index],
         "text": names, "customdata": [[int(i)] for i in shown.index],
-        "marker": {"size": 8, "color": [clean(v) for v in shown["value"]], "colorscale": SEQUENTIAL,
-                   "line": {"color": SURFACE, "width": 1}, "opacity": 0.9,
-                   "colorbar": {"title": {"text": item["unit"], "side": "top"}, "thickness": 12,
-                                "outlinewidth": 0, "tickfont": {"color": MUTED}, "len": 0.75}},
-        "hovertemplate": "%{text}<br><b>%{marker.color:,.4~g} " + item["unit"] + "</b><extra></extra>",
+        "marker": {"size": 9, "color": [clean(v) for v in shown["value"]], "colorscale": SEQUENTIAL,
+                   "line": {"color": SURFACE, "width": 1.5}, "opacity": 0.95,
+                   "colorbar": map_colorbar(item["unit"])},
+        "hovertemplate": "<b>%{text}</b><br>%{marker.color:,.4~g} " + item["unit"] + "<extra></extra>",
     }]
-    figure = layout(title, height=460)
-    figure["geo"] = {"scope": "usa", "bgcolor": SURFACE, "showland": True, "landcolor": "#f5f5f7",
-                     "subunitcolor": "#d2d2d7", "showlakes": False, "projection": {"type": "albers usa"}}
-    figure["margin"] = {"l": 0, "r": 0, "t": 72, "b": 0}
+    figure = map_layout(title, "#f0f0f2")
+    figure["geo"]["subunitcolor"] = "#d2d2d7"
+    figure["geo"]["subunitwidth"] = 0.75
 
     columns = ["Facility ID", "Facility", "Latitude", "Longitude", value_title(key), "Gross load (MWh)"]
     rows = [[int(i), info.at[i, "facility_name"], places[int(i)][0], places[int(i)][1], clean(row["value"]),
              clean(row["gross_load"])] for i, row in shown.iloc[::-1].iterrows()]
-    note = f"{len(shown):,} facilities."
+    note = f"{len(shown):,} facilities; the highest values are drawn on top."
     if len(with_place) > len(shown):
         note += (f" The {MAP_FACILITY_LIMIT:,} with the highest "
                  f"{'gross load' if item['ratio'] else item['label']} are drawn.")
@@ -742,7 +1029,11 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
         note += f" {without:,} facilities have no stored location and are not drawn."
     if item["ratio"]:
         note += f" Facilities with under {min_load:,.0f} MWh of gross load are left out."
-    return chart("facility_map", title, data, figure, columns, rows, note)
+    spec = chart("facility_map", title, data, figure, columns, rows, note)
+    top = max(rows, key=lambda row: row[4] if row[4] is not None else float("-inf"))
+    spec["headline"] = headline(top[4], item["unit"], str(top[1]),
+                                eyebrow=f"Highest of {len(shown):,} facilit{'y' if len(shown) == 1 else 'ies'}")
+    return spec
 
 
 # ---------- Everything at once ----------
@@ -826,7 +1117,7 @@ def impact_share_chart(totals):
     if not shown:
         return empty_chart("impact_shares", title, "No impact could be calculated for this selection.")
     names = [item["name"] for item in shown]
-    data = []
+    data, legend = [], []
     for pollutant in traci.POLLUTANT_ORDER:
         label = traci.POLLUTANTS[pollutant]["label"]
         shares = []
@@ -848,19 +1139,16 @@ def impact_share_chart(totals):
         if all(share is None for share in shares):
             continue
         data.append({
-            "type": "bar", "orientation": "h", "name": label, "x": shares, "y": names, "customdata": details,
+            "type": "bar", "orientation": "h", "name": label, "legendgroup": label, "x": shares, "y": names,
+            "customdata": details,
             "marker": {"color": POLLUTANT_COLORS[pollutant], "line": {"color": SURFACE, "width": 2}},
             "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
                              "<extra></extra>",
         })
-    figure = layout(title, "Share of the category total (%)", "", height=max(260, 56 * len(names) + 120),
-                    barmode="stack", showlegend=True, bargap=0.35)
-    figure["legend"]["traceorder"] = "normal"
-    figure["xaxis"]["range"] = [0, 100]
-    figure["xaxis"]["ticksuffix"] = "%"
-    figure["yaxis"]["autorange"] = "reversed"
-    figure["yaxis"]["gridcolor"] = "rgba(0,0,0,0)"
-    figure["barcornerradius"] = 0
+        legend.append(legend_item(label, POLLUTANT_COLORS[pollutant], style="square"))
+    figure = layout(title, "", "", barmode="stack")
+    bar_rows(figure, names, show_axis=True, suffix="%")
+    figure["xaxis"].update(range=[0, 100], dtick=25, fixedrange=True)
     columns = ["Impact category", "Unit", "Total"] + [f"Share from {traci.POLLUTANTS[p]['label']} (%)"
                                                      for p in traci.POLLUTANT_ORDER]
     rows = []
@@ -871,6 +1159,8 @@ def impact_share_chart(totals):
     note = "Each bar is one impact category. Categories are never added together because their units differ."
     spec = chart("impact_shares", title, data, figure, columns, rows, note)
     spec["explain"] = "Click any part of a bar to see exactly how its number was calculated."
+    spec["eyebrow"] = "Share of each category, by pollutant"
+    spec["legend"] = legend
     return spec
 
 
@@ -894,6 +1184,7 @@ def impact_group_chart(rows, categories, choices, group_name):
     shown = usable[:IMPACT_CHART_LIMIT]
     names = [text(row["group"]) for row in shown]
     value_unit = unit + (" per MWh" if per_mwh else "")
+
     def parts_for(item):
         parts = []
         for pollutant in traci.POLLUTANT_ORDER:
@@ -903,6 +1194,8 @@ def impact_group_chart(rows, categories, choices, group_name):
                           "factor": item["factors"][pollutant], "amount": item["contributions"].get(pollutant)})
         return parts
 
+    legend = []
+    figure = layout(title, "", "", barmode="stack")
     if per_mwh:
         details = []
         for row in shown:
@@ -912,13 +1205,14 @@ def impact_group_chart(rows, categories, choices, group_name):
             details.append([f"{text(row['group'])}: {traci.number(item['intensity'], 4)} {value_unit}",
                             f"{traci.number(item['intensity'] * item['load'])} {unit} ÷ "
                             f"{traci.number(item['load'])} MWh", lines])
-        data = [{
-            "type": "bar", "orientation": "h", "x": [clean(row[key]["intensity"]) for row in shown], "y": names,
+        values = [clean(row[key]["intensity"]) for row in shown]
+        data = [dict({
+            "type": "bar", "orientation": "h", "x": values, "y": names,
             "customdata": details, "marker": {"color": SERIES[0]},
             "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
                              "<extra></extra>",
-        }]
-        legend = False
+        }, **value_labels(values))]
+        bar_rows(figure, names, values)
     else:
         data = []
         pollutants = [p for p in traci.POLLUTANT_ORDER if p in shown[0][key]["contributions"]]
@@ -938,20 +1232,15 @@ def impact_group_chart(rows, categories, choices, group_name):
                                 f"{traci.number(tons, 3)} short tons × {traci.SHORT_TON_KG} × "
                                 f"{item['factors'][pollutant]:.6g}", lines])
             data.append({
-                "type": "bar", "orientation": "h", "name": label, "y": names,
+                "type": "bar", "orientation": "h", "name": label, "legendgroup": label, "y": names,
                 "x": [clean(row[key]["contributions"].get(pollutant)) for row in shown], "customdata": details,
                 "marker": {"color": POLLUTANT_COLORS[pollutant], "line": {"color": SURFACE, "width": 2}},
                 "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
                                  "<extra></extra>",
             })
-        legend = len(pollutants) > 1
-    figure = layout(title, f"{name} ({value_unit})", "", height=max(280, 34 * len(names) + 130),
-                    barmode="stack", showlegend=legend, bargap=0.25)
-    figure["legend"]["traceorder"] = "normal"
-    figure["yaxis"]["autorange"] = "reversed"
-    figure["yaxis"]["gridcolor"] = "rgba(0,0,0,0)"
-    if not per_mwh and len(data) > 1:
-        figure["barcornerradius"] = 0
+            legend.append(legend_item(label, POLLUTANT_COLORS[pollutant], style="square"))
+        bar_rows(figure, names, show_axis=True, axis_title=f"{name} ({value_unit})")
+        figure["xaxis"]["rangemode"] = "tozero"
     columns = [group_name, f"{name} ({unit})", f"{name} per MWh ({unit}/MWh)", "Records used", "Records"]
     table = [[row["group"], clean(row.get(key, {}).get("total")), clean(row.get(key, {}).get("intensity")),
               row.get(key, {}).get("used"), row["records"]] for row in rows]
@@ -960,4 +1249,9 @@ def impact_group_chart(rows, categories, choices, group_name):
         note += " Each bar is split by the pollutant it comes from."
     spec = chart("impact_groups", title, data, figure, columns, table, note)
     spec["explain"] = "Click any bar to see exactly how its number was calculated."
+    top = shown[0][key][field]
+    spec["headline"] = headline(top, value_unit, f"{shown[0]['group']}, the highest of {len(usable)}",
+                                eyebrow=f"Highest {group_name.lower()}")
+    if len(legend) > 1:
+        spec["legend"] = legend
     return spec

@@ -358,37 +358,55 @@ def box_chart(key, values_a, values_b, a_label, b_label, scale):
     title = f"{item['label']}: {a_label} and {b_label}"
     traces = []
     rows = []
-    for label, values, color in ((a_label, values_a, A_COLOR), (b_label, values_b, B_COLOR)):
+    legend = []
+    medians = {}
+    for side, label, values, color in (("A", a_label, values_a, A_COLOR), ("B", b_label, values_b, B_COLOR)):
         shown = values[values > 0] if scale == "log" else values
         if len(shown) < 1:
             continue
         s = dashboard.box_stats(pd.Series(shown))
-        traces.append({
-            "type": "box", "name": dashboard.text(label), "x": [dashboard.text(label)],
-            "q1": [s["q1"]], "median": [s["median"]], "q3": [s["q3"]],
-            "lowerfence": [s["lower"]], "upperfence": [s["upper"]], "mean": [s["mean"]],
-            "boxpoints": False, "line": {"color": color, "width": 2}, "fillcolor": rgba(color, 0.18),
-            "marker": {"color": color},
-        })
+        medians[side] = s["median"]
+        name = dashboard.text(label)
+        trace = dashboard.box_trace(name, [name], [s], color)
+        trace["legendgroup"] = name
+        traces.append(trace)
+        legend.append(dashboard.legend_item(name, color, f"median {dashboard.short_number(s['median'])}", "square"))
         rows.append([label, s["count"], s["min"], s["lower"], s["q1"], s["median"], s["mean"], s["q3"], s["upper"],
                      s["max"], s["outliers"]])
     if not traces:
         return dashboard.empty_chart("compare_box", title, "No values to compare.")
-    figure = dashboard.layout(title, "", f"{item['label']} ({item['unit']})", height=420)
-    figure["xaxis"]["gridcolor"] = "rgba(0,0,0,0)"
+    figure = dashboard.layout(title, "", "", height=360)
+    figure["xaxis"].update(showgrid=False, showline=True, tickfont={"color": dashboard.INK, "size": 12},
+                           type="category")
+    figure["yaxis"].update(side="right")
     if scale == "log":
-        dashboard.log_axis(figure["yaxis"])
+        dashboard.log_axis(figure["yaxis"], min(row[3] for row in rows), max(row[8] for row in rows))
     columns = ["Group", "Records", "Minimum", "Lower whisker", "Q1", "Median", "Mean", "Q3", "Upper whisker",
                "Maximum", "Outliers beyond whiskers"]
-    note = "Boxes run from Q1 to Q3 with the median inside; whiskers reach the furthest values within 1.5 × IQR."
+    note = (f"In {item['unit']}{' on a log scale' if scale == 'log' else ''}. Boxes run from Q1 to Q3 with the median "
+            "inside; whiskers reach the furthest values within 1.5 × IQR.")
     if scale == "log":
         note += " Values of 0 are left out on the log scale."
-    return dashboard.chart("compare_box", title, traces, figure, columns, rows, note)
+    spec = dashboard.chart("compare_box", title, traces, figure, columns, rows, note)
+    spec["legend"] = legend
+    if "A" in medians and "B" in medians and medians["A"] > 0:
+        change = (medians["B"] - medians["A"]) / medians["A"] * 100
+        spec["headline"] = {"value": signed_percent(change), "unit": "", "delta": None, "eyebrow": "Median",
+                            "context": f"{b_label}'s median compared with {a_label}'s", "note": ""}
+    return spec
 
 
 def rgba(color, alpha):
-    color = color.lstrip("#")
-    return f"rgba({int(color[0:2], 16)},{int(color[2:4], 16)},{int(color[4:6], 16)},{alpha})"
+    return dashboard.fill(color, alpha)
+
+
+def signed_percent(value):
+    """12.345 -> "+12.3%", -0.04 -> "0%"."""
+    if value is None:
+        return "—"
+    if abs(value) < 0.05:
+        return "0%"
+    return ("+" if value > 0 else "−") + f"{abs(value):,.1f}%"
 
 
 def indicator_chart(rows, a_label, b_label):
@@ -397,27 +415,30 @@ def indicator_chart(rows, a_label, b_label):
     if not usable:
         return dashboard.empty_chart("compare_indicators", title, "No indicator can be compared as a percentage.")
     names = [f"{row['label']} ({row['measure'].lower()})" for row in usable]
-    data = [{
-        "type": "bar", "orientation": "h", "x": [row["percent"] for row in usable], "y": names,
+    values = [row["percent"] for row in usable]
+    data = [dict({
+        "type": "bar", "orientation": "h", "x": values, "y": names,
         "customdata": [[row["a"], row["b"], row["unit"]] for row in usable],
-        "marker": {"color": dashboard.SERIES[0]},
+        "marker": {"color": [A_COLOR if value < 0 else B_COLOR for value in values]},
         "hovertemplate": "%{y}<br><b>%{x:+.1f}%</b><br>" + dashboard.text(a_label) + ": %{customdata[0]:,.4~g} "
                          "%{customdata[2]}<br>" + dashboard.text(b_label)
                          + ": %{customdata[1]:,.4~g} %{customdata[2]}<extra></extra>",
-    }]
-    figure = dashboard.layout(title, "% difference, B compared with A", "",
-                              height=max(300, 34 * len(names) + 120), bargap=0.3)
-    figure["yaxis"]["autorange"] = "reversed"
-    figure["yaxis"]["gridcolor"] = "rgba(0,0,0,0)"
-    figure["xaxis"]["zeroline"] = True
-    figure["xaxis"]["zerolinecolor"] = dashboard.AXIS
-    figure["xaxis"]["ticksuffix"] = "%"
+    }, **dashboard.value_labels(values, signed_percent))]
+    figure = dashboard.layout(title)
+    dashboard.bar_rows(figure, names, values)
     columns = ["Indicator", "Measure", "Unit", a_label, b_label, "Difference (B − A)", "% difference"]
     table = [[row["label"], row["measure"], row["unit"], row["a"], row["b"], row["change"], row["percent"]]
              for row in rows]
     note = ("Totals add up the records; intensities, heat rate and utilization are overall ratios (total ÷ total), "
-            "so large units count more. Bars to the right mean B is higher.")
-    return dashboard.chart("compare_indicators", title, data, figure, columns, table, note)
+            "so large units count more. Each bar takes the color of the group that is higher.")
+    spec = dashboard.chart("compare_indicators", title, data, figure, columns, table, note)
+    spec["legend"] = [dashboard.legend_item(f"{a_label} higher", A_COLOR, style="square", group=""),
+                      dashboard.legend_item(f"{b_label} higher", B_COLOR, style="square", group="")]
+    biggest = max(usable, key=lambda row: abs(row["percent"]))
+    spec["headline"] = {"value": signed_percent(biggest["percent"]), "unit": "", "delta": None, "note": "",
+                        "context": f"{biggest['label']} ({biggest['measure'].lower()}), {b_label} compared with {a_label}",
+                        "eyebrow": "Biggest difference"}
+    return spec
 
 
 def trend_chart(frame, key, definition):
@@ -428,15 +449,18 @@ def trend_chart(frame, key, definition):
         if len(years) < 2:
             return dashboard.empty_chart("compare_trend", title, "The selection covers one year.")
         table = analysis.aggregate(frame, key, frame["year"]).reindex(years)
+        values = [dashboard.clean(v) for v in table["value"]]
         data = [{
-            "type": "scatter", "mode": "lines+markers", "name": "All selected records", "x": years,
-            "y": [dashboard.clean(v) for v in table["value"]],
-            "line": {"color": dashboard.INK_2, "width": 2},
-            "marker": {"size": 8, "color": dashboard.INK_2, "line": {"color": dashboard.SURFACE, "width": 2}},
-            "hovertemplate": "%{x}: <b>%{y:,.4~g} " + item["unit"] + "</b><extra></extra>",
+            "type": "scatter", "mode": "lines", "name": "All selected records", "x": years, "y": values,
+            "line": {"color": dashboard.INK, "width": 2.5},
+            "hovertemplate": "<b>%{y:,.4~g} " + item["unit"] + "</b><extra></extra>",
         }]
+        present = [(year, value) for year, value in zip(years, values) if value is not None]
+        if present:
+            data.append(dashboard.end_dot(present[-1][0], present[-1][1], dashboard.INK, "All selected records"))
         shapes = []
         annotations = []
+        legend = []
         for side, color, label in (("a", A_COLOR, "A"), ("b", B_COLOR, "B")):
             start = definition[side]["from"]
             end = definition[side]["to"]
@@ -445,21 +469,28 @@ def trend_chart(frame, key, definition):
             shapes.append({"type": "rect", "xref": "x", "yref": "paper", "x0": start - 0.45, "x1": end + 0.45,
                            "y0": 0, "y1": 1, "fillcolor": rgba(color, 0.12), "line": {"width": 0}, "layer": "below"})
             annotations.append({"x": (start + end) / 2, "y": 1, "yref": "paper", "yanchor": "bottom",
-                                "text": f"{label}: {period_label(start, end)}", "showarrow": False,
+                                "text": f"<b>{label}</b>  {period_label(start, end)}", "showarrow": False,
                                 "font": {"color": dashboard.INK_2, "size": 12}})
-        figure = dashboard.layout(title, "Reporting year", dashboard.value_title(key), shapes=shapes,
-                                  annotations=annotations, hovermode="x unified")
-        figure["xaxis"]["dtick"] = dashboard.year_step(years)
+            legend.append(dashboard.legend_item(f"{label}: {period_label(start, end)}", color, style="square",
+                                                group=""))
+        figure = dashboard.layout(title, "", "", height=360, shapes=shapes, annotations=annotations)
+        dashboard.time_axes(figure, years)
+        figure["margin"]["t"] = 30
         columns = ["Year", dashboard.value_title(key), "Records"]
         rows = [[year, dashboard.clean(v), 0 if pd.isna(r) else int(r)]
                 for year, v, r in zip(years, table["value"], table["records"])]
-        return dashboard.chart("compare_trend", title, data, figure, columns, rows,
+        spec = dashboard.chart("compare_trend", title, data, figure, columns, rows,
                                "Shaded years are the two periods being compared.")
+        spec["legend"] = legend
+        spec["eyebrow"] = dashboard.value_title(key)
+        return spec
 
     title = f"{item['label']} by year: {definition['a_label']} and {definition['b_label']}"
     if len(years) < 2:
         return dashboard.empty_chart("compare_trend", title, "The selection covers one year.")
     data = []
+    dots = []
+    legend = []
     columns = ["Year"]
     series_values = []
     for label, mask, color in ((definition["a_label"], definition["mask_a"], A_COLOR),
@@ -469,18 +500,25 @@ def trend_chart(frame, key, definition):
         values = [dashboard.clean(v) for v in table["value"]]
         series_values.append(values)
         columns.append(f"{label}: {dashboard.value_title(key)}")
+        name = dashboard.text(label)
         data.append({
-            "type": "scatter", "mode": "lines+markers", "name": dashboard.text(label), "x": years, "y": values,
-            "line": {"color": color, "width": 2},
-            "marker": {"size": 8, "color": color, "line": {"color": dashboard.SURFACE, "width": 2}},
-            "hovertemplate": dashboard.text(label) + ": <b>%{y:,.4~g} " + item["unit"] + "</b><extra></extra>",
+            "type": "scatter", "mode": "lines", "name": name, "legendgroup": name, "x": years, "y": values,
+            "line": {"color": color, "width": 3},
+            "hovertemplate": name + "  <b>%{y:,.4~g} " + item["unit"] + "</b><extra></extra>",
         })
-    figure = dashboard.layout(title, "Reporting year", dashboard.value_title(key), showlegend=True,
-                              hovermode="x unified")
-    figure["xaxis"]["dtick"] = dashboard.year_step(years)
+        present = [(year, value) for year, value in zip(years, values) if value is not None]
+        if present:
+            dots.append(dashboard.end_dot(present[-1][0], present[-1][1], color, name))
+            legend.append(dashboard.legend_item(name, color, f"{dashboard.short_number(present[-1][1])} in "
+                                                             f"{present[-1][0]}"))
+    figure = dashboard.layout(title, "", "", height=360)
+    dashboard.time_axes(figure, years)
     rows = [[year] + [values[i] for values in series_values] for i, year in enumerate(years)]
-    return dashboard.chart("compare_trend", title, data, figure, columns, rows,
+    spec = dashboard.chart("compare_trend", title, data + dots, figure, columns, rows,
                            "Gaps are years with no records for that group.")
+    spec["legend"] = legend
+    spec["eyebrow"] = dashboard.value_title(key)
+    return spec
 
 
 # ---------- Everything ----------

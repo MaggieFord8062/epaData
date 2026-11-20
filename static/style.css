@@ -2693,17 +2693,23 @@ table.data td.metric {
     grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
 }
 
+/*
+ * Chart cards, laid out like the charts in Apple's Health and Stocks apps: an eyebrow, the title,
+ * a big headline number with a change pill and a range picker, a legend, then the plot.
+ */
 .chart-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 20px;
+    gap: 24px;
 }
 
 .chart-card {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
     margin: 0;
-    padding: 28px 28px 22px;
-    border-radius: var(--radius-md);
+    padding: 30px 32px 26px;
+    border-radius: var(--radius-lg);
     background: var(--bg);
 }
 
@@ -2717,14 +2723,304 @@ table.data td.metric {
     grid-column: 1 / -1;
 }
 
-.chart-plot {
-    width: 100%;
+/* Cards rise into view as you scroll to them (static/charts.js adds .is-shown) */
+.js-charts .chart-card {
+    opacity: 0;
+    transform: translateY(48px);
+    transition: opacity 0.9s cubic-bezier(0.28, 0.11, 0.32, 1), transform 0.9s cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+
+.js-charts .chart-card.is-shown {
+    opacity: 1;
+    transform: none;
+}
+
+.chart-grid > .chart-card:nth-child(2) {
+    transition-delay: 0.08s;
+}
+
+.chart-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px 20px;
+}
+
+.chart-heading {
+    min-width: 0;
+    flex: 1 1 260px;
+}
+
+.chart-eyebrow {
+    margin: 0 0 6px;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.33337;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .chart-title {
-    margin: 0 0 8px;
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 21px;
+    font-weight: 600;
+    line-height: 1.19048;
+    letter-spacing: 0.011em;
+    color: var(--text);
+}
+
+/* Range picker: a small segmented control, as in Stocks */
+.chart-ranges {
+    display: inline-flex;
+    flex: none;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 9px;
+    background: var(--bg-alt);
+}
+
+.chart-ranges button {
+    min-width: 40px;
+    padding: 5px 10px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.33337;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    transition: background-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.chart-ranges button:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.chart-ranges button[aria-pressed="true"] {
+    background: var(--bg);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
+}
+
+.chart-ranges button:focus-visible,
+.chart-key:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
+/* The headline number */
+.chart-readout {
+    margin-top: 18px;
+}
+
+.chart-figure {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    margin: 0;
+}
+
+.chart-value {
+    font-family: var(--font-display);
+    font-size: 48px;
+    font-weight: 600;
+    line-height: 1.04167;
+    letter-spacing: -0.015em;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-unit {
+    color: var(--text-2);
     font-size: 17px;
     font-weight: 600;
+    line-height: 1.23536;
+    letter-spacing: -0.022em;
+}
+
+.chart-context {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    min-height: 22px;
+    margin: 8px 0 0;
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1.42859;
+    letter-spacing: -0.016em;
+}
+
+.chart-context:empty {
+    display: none;
+}
+
+.chart-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 9px 2px 7px;
+    border-radius: 980px;
+    background: var(--bg-alt);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.38462;
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-delta[hidden],
+.chart-delta-after[hidden] {
+    display: none;
+}
+
+.band:not(.alt) .chart-delta {
+    background: var(--bg-alt);
+}
+
+.chart-delta-arrow {
+    transition: transform 0.25s var(--ease);
+}
+
+.chart-delta.is-down .chart-delta-arrow {
+    transform: rotate(180deg);
+}
+
+.chart-delta.is-flat .chart-delta-arrow {
+    transform: rotate(90deg);
+}
+
+.chart-when {
+    color: var(--text-2);
+}
+
+.chart-subnote {
+    margin: 4px 0 0;
+    color: var(--text-3);
+    font-size: 13px;
+    line-height: 1.38462;
+    letter-spacing: -0.01em;
+}
+
+/* Legend chips: a swatch, the name and its value; select one to hide or show it */
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin: 18px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.chart-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.28577;
+    letter-spacing: -0.016em;
+    cursor: pointer;
+    transition: opacity 0.2s var(--ease);
+}
+
+.chart-key-name {
+    font-weight: 600;
+}
+
+.chart-key-value {
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-swatch {
+    flex: none;
+    width: 16px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--swatch);
+    transition: background-color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.chart-swatch.is-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.chart-swatch.is-square {
+    width: 12px;
+    height: 12px;
+    border-radius: 4px;
+}
+
+.chart-key.is-static {
+    cursor: default;
+}
+
+.chart-swatch.is-dash {
+    height: 0;
+    border-top: 2px dashed var(--swatch);
+    border-radius: 0;
+    background: none;
+}
+
+.chart-swatch.is-ring {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: none;
+    box-shadow: inset 0 0 0 2px var(--swatch);
+}
+
+.chart-key[aria-pressed="false"] {
+    opacity: 0.42;
+}
+
+.chart-key[aria-pressed="false"] .chart-swatch {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--swatch);
+}
+
+/* The plot */
+.chart-plot {
+    position: relative;
+    width: 100%;
+    margin-top: 16px;
+}
+
+.chart-hover-dot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border-radius: 50%;
+    background: var(--dot);
+    box-shadow: 0 0 0 3px var(--bg), 0 1px 6px rgba(0, 0, 0, 0.28);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s var(--ease);
+}
+
+.chart-card.is-scrubbing .chart-hover-dot {
+    opacity: 1;
+}
+
+.chart-card.is-scrubbing .chart-value {
+    color: var(--text);
 }
 
 .chart-empty {
@@ -2734,12 +3030,21 @@ table.data td.metric {
     font-size: 15px;
 }
 
+.chart-card.is-empty .chart-empty {
+    padding-bottom: 8px;
+}
+
+.chart-card figcaption {
+    margin-top: auto;
+    padding-top: 8px;
+}
+
 .chart-note {
-    margin: 14px 0 0;
+    margin: 12px 0 0;
     color: var(--text-2);
-    font-size: 14px;
-    line-height: 1.42859;
-    letter-spacing: -0.016em;
+    font-size: 13px;
+    line-height: 1.38462;
+    letter-spacing: -0.01em;
 }
 
 .chart-actions {
@@ -2754,16 +3059,33 @@ table.data td.metric {
 .chart-actions button.btn-link {
     padding: 5px 12px;
     border-radius: 980px;
-    background: var(--fill);
+    background: var(--bg-alt);
     color: var(--text);
     font-size: 12px;
     line-height: 1.33337;
     letter-spacing: -0.01em;
 }
 
+.band.alt .chart-actions .btn-link {
+    background: var(--bg-alt);
+}
+
 .chart-actions .btn-link:hover {
-    background: var(--fill-2);
+    background: var(--fill);
     text-decoration: none;
+}
+
+.chart-actions .chart-reset {
+    background: var(--blue);
+    color: #ffffff;
+}
+
+.chart-actions .chart-reset:hover {
+    background: var(--blue-hover);
+}
+
+.chart-actions [hidden] {
+    display: none;
 }
 
 .chart-table {
@@ -2985,6 +3307,32 @@ table.data td.metric {
 
 .chart-hint {
     color: var(--text);
+}
+
+/* Plotly's hover box, rounded like a system popover */
+.chart-plot .hoverlayer .hovertext path,
+.chart-plot .hoverlayer .legend .bg {
+    filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.12));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .js-charts .chart-card {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+}
+
+@media print {
+    .js-charts .chart-card {
+        opacity: 1 !important;
+        transform: none !important;
+    }
+
+    .chart-ranges,
+    .chart-hover-dot {
+        display: none;
+    }
 }
 
 /* Statistics */
@@ -3805,7 +4153,26 @@ p.test-results {
     }
 
     .chart-card {
-        padding: 18px 12px 16px;
+        padding: 24px 18px 20px;
+        border-radius: var(--radius-md);
+    }
+
+    .chart-value {
+        font-size: 40px;
+        line-height: 1.1;
+    }
+
+    .chart-title {
+        font-size: 19px;
+        line-height: 1.21053;
+    }
+
+    .chart-ranges {
+        width: 100%;
+    }
+
+    .chart-ranges button {
+        flex: 1;
     }
 
     .table-card {

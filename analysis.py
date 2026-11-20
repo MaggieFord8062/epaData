@@ -841,9 +841,15 @@ def format_compact(value):
         return str(value)
     if np.isnan(number):
         return "—"
-    for limit, word in ((1e12, "trillion"), (1e9, "billion"), (1e6, "million")):
+    tiers = ((1e12, "trillion"), (1e9, "billion"), (1e6, "million"))
+    for index, (limit, word) in enumerate(tiers):
         if abs(number) >= limit:
-            return "{:.3g} {}".format(number / limit, word)
+            words = "{:.3g}".format(number / limit)
+            if "e" in words and index > 0:
+                # 999,600,000 rounds up to "1 billion", not "1e+03 million"
+                limit, word = tiers[index - 1]
+                words = "{:.3g}".format(number / limit)
+            return f"{words} {word}"
     return format_number(number)
 
 
