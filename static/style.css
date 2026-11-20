@@ -2187,3 +2187,155 @@ p.test-results {
         grid-template-columns: 1fr;
     }
 }
+
+/* ===================================
+   Sensitivity Analysis
+=================================== */
+
+.sensitivity-page {
+    padding-bottom: 40px;
+}
+
+.sensitivity-title {
+    font-size: 58px;
+    font-weight: 700;
+    margin-top: 0;
+    margin-bottom: 12px;
+    line-height: 1.1;
+}
+
+.sensitivity-description {
+    color: #777;
+    font-size: 19px;
+    margin-bottom: 65px;
+}
+
+.sensitivity-section {
+    margin-bottom: 55px;
+}
+
+.sensitivity-section h2 {
+    font-size: 30px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+
+.sensitivity-subtitle {
+    color: #777;
+    font-size: 16px;
+    margin-top: 0;
+    margin-bottom: 35px;
+}
+
+.sensitivity-grid {
+    display: grid;
+    gap: 35px 50px;
+}
+
+.sensitivity-grid-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sensitivity-grid-three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sensitivity-variable {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-top: 1px solid #d8dbe0;
+    border-bottom: 1px solid #d8dbe0;
+    padding: 18px 0 22px;
+}
+
+.sensitivity-variable label {
+    color: #777;
+    font-size: 15px;
+    font-weight: 400;
+    margin-bottom: 12px;
+}
+
+.sensitivity-control {
+    width: 100%;
+    min-width: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #292d32;
+    font-size: 20px;
+    padding: 0;
+}
+
+.sensitivity-control:focus {
+    box-shadow: none;
+    outline: none;
+}
+
+.sensitivity-variable small {
+    color: #777;
+    font-size: 12px;
+    margin-top: 9px;
+}
+
+.sensitivity-input-section {
+    margin-top: 48px;
+}
+
+.sensitivity-note {
+    color: #777;
+    font-size: 13px;
+    margin-top: 22px;
+}
+
+.sensitivity-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 28px;
+}
+
+.sensitivity-actions .btn {
+    padding: 10px 22px;
+}
+
+.sensitivity-results {
+    margin-top: 65px;
+}
+
+.sensitivity-results h3 {
+    font-size: 21px;
+    font-weight: 600;
+    margin-top: 40px;
+    margin-bottom: 25px;
+}
+
+.sensitivity-result-value {
+    font-size: 21px;
+    color: #292d32;
+}
+
+.sensitivity-table-heading {
+    border-top: 1px solid #d8dbe0;
+    padding-top: 30px;
+}
+
+@media (max-width: 768px) {
+    .sensitivity-title {
+        font-size: 32px;
+    }
+
+    .sensitivity-description {
+        font-size: 16px;
+        margin-bottom: 40px;
+    }
+
+    .sensitivity-grid-two,
+    .sensitivity-grid-three {
+        grid-template-columns: 1fr;
+    }
+
+    .sensitivity-grid {
+        gap: 18px;
+    }
+}
+

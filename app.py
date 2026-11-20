@@ -16,6 +16,7 @@ from client import CAMPDClient, CAMPDError
 from dotenv import load_dotenv
 from models import Facility, Unit, AnnualRecord, HourlyRecord, Dataset, UploadedFile
 from prediction import train_prediction_models, get_annual_co2_totals, generate_forecast
+from sensitivity import run_sensitivity_analysis
 import analysis
 import comparison
 import dashboard
@@ -2018,5 +2019,81 @@ def predictions():
         test_results=results["test_results"],
         forecasts=forecasts
     )
+
+# ---------- Sensitivity page ----------
+@app.route("/sensitivity", methods=["GET", "POST"])
+def sensitivity():
+    session = SessionLocal()
+
+    try:
+        units = (
+            session.query(Unit)
+            .order_by(Unit.epa_facility_id, Unit.epa_unit_id)
+            .all()
+        )
+
+        results = None
+        error = None
+
+        if request.method == "POST":
+            unit_key = int(request.form["unit_key"])
+            model = request.form["model"]
+
+            gross_load_changes = [
+                float(value.strip())
+                for value in request.form["gross_load_changes"].split(",")
+                if value.strip()
+            ]
+
+            heat_input_changes = [
+                float(value.strip())
+                for value in request.form["heat_input_changes"].split(",")
+                if value.strip()
+            ]
+
+            fuel_type = request.form["fuel_type"]
+
+            if model not in ["linear_regression", "decision_tree"]:
+                raise ValueError("Invalid prediction model.")
+
+            if len(gross_load_changes) != len(heat_input_changes):
+                raise ValueError(
+                    "Gross Load and Heat Input must have the same number of percentages."
+                )
+
+            if not gross_load_changes:
+                raise ValueError("Enter at least one percentage.")
+
+            results = run_sensitivity_analysis(
+                internal_unit_key=unit_key,
+                model_name=model,
+                gross_load_changes=gross_load_changes,
+                heat_input_changes=heat_input_changes,
+                fuel_type=fuel_type
+            )
+
+            if "error" in results:
+                error = results["error"]
+                results = None
+
+        return render_template(
+            "sensitivity.html",
+            units=units,
+            results=results,
+            error=error
+        )
+
+    except (ValueError, TypeError, KeyError) as e:
+        return render_template(
+            "sensitivity.html",
+            units=units,
+            results=None,
+            error=str(e)
+        )
+
+    finally:
+        session.close()
+
+
 if __name__ == "__main__":
     app.run(debug=True)

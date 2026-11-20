@@ -1,0 +1,267 @@
+
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container-fluid px-3 px-md-4 sensitivity-page">
+
+    <h1 class="sensitivity-title">Sensitivity Analysis</h1>
+
+    <p class="sensitivity-description">
+        Explore how changes in generating unit inputs affect predicted CO₂ emissions.
+    </p>
+
+    <!-- Analysis Settings -->
+    <section class="sensitivity-section">
+
+        <h2>Analysis Settings</h2>
+
+        <p class="sensitivity-subtitle">
+            Select a generating unit and prediction model.
+        </p>
+
+        <form method="POST" action="/sensitivity">
+
+            <div class="sensitivity-grid sensitivity-grid-two">
+
+                <div class="sensitivity-variable">
+                    <label for="unit_key">Generating Unit</label>
+
+                    <select name="unit_key" id="unit_key"
+                            class="sensitivity-control" required>
+
+                        <option value="">Select a unit</option>
+
+                        {% for unit in units %}
+                            <option value="{{ unit.internal_unit_key }}">
+                                {{ unit.facility.facility_name if unit.facility else 'Unknown Facility' }}
+                                - Unit {{ unit.epa_unit_id }}
+                            </option>
+                        {% endfor %}
+
+                    </select>
+                </div>
+
+                <div class="sensitivity-variable">
+                    <label for="model">Prediction Model</label>
+
+                    <select name="model" id="model"
+                            class="sensitivity-control">
+                        <option value="linear_regression">Linear Regression</option>
+                        <option value="decision_tree">Decision Tree</option>
+                    </select>
+                </div>
+
+            </div>
+
+            <!-- Operating Inputs -->
+            <div class="sensitivity-section sensitivity-input-section">
+
+                <h2>Operating Input Changes</h2>
+
+                <p class="sensitivity-subtitle">
+                    Adjust operating variables to see how predicted CO₂ emissions change.
+                </p>
+
+                <div class="sensitivity-grid sensitivity-grid-three">
+
+                    <div class="sensitivity-variable">
+                        <label for="gross_load_changes">
+                            Gross Load Changes (%)
+                        </label>
+
+                        <input
+                            type="text"
+                            name="gross_load_changes"
+                            id="gross_load_changes"
+                            class="sensitivity-control"
+                            value="-20,-10,0,10,20"
+                            required
+                        >
+
+                        <small>Example: -20, -10, 0, 10, 20</small>
+                    </div>
+
+                    <div class="sensitivity-variable">
+                        <label for="heat_input_changes">
+                            Heat Input Changes (%)
+                        </label>
+
+                        <input
+                            type="text"
+                            name="heat_input_changes"
+                            id="heat_input_changes"
+                            class="sensitivity-control"
+                            value="-10,-5,0,5,10"
+                            required
+                        >
+
+                        <small>Example: -10, -5, 0, 5, 10</small>
+                    </div>
+
+                    <div class="sensitivity-variable">
+                        <label for="fuel_type">Fuel Type</label>
+
+                        <select name="fuel_type" id="fuel_type"
+                                class="sensitivity-control" required>
+                            <option value="Coal">Coal</option>
+                            <option value="Coal Refuse">Coal Refuse</option>
+                            <option value="Diesel Oil">Diesel Oil</option>
+                            <option value="Natural Gas">Natural Gas</option>
+                            <option value="Other Gas">Other Gas</option>
+                            <option value="Other Oil">Other Oil</option>
+                            <option value="Other Solid Fuel">Other Solid Fuel</option>
+                            <option value="PetroleumCoke">PetroleumCoke</option>
+                            <option value="Pipeline Natural Gas">Pipeline Natural Gas</option>
+                            <option value="Process Gas">Process Gas</option>
+                            <option value="Residual Oil">Residual Oil</option>
+                            <option value="Tire Derived Fuel">Tire Derived Fuel</option>
+                            <option value="Wood">Wood</option>
+                        </select>
+
+                        <small>Select the fuel type to test.</small>
+                    </div>
+
+                </div>
+
+                <p class="sensitivity-note">
+                    Gross Load and Heat Input percentages are paired by position.
+                    The selected fuel type applies to every test scenario.
+                </p>
+
+            </div>
+
+            <div class="sensitivity-actions">
+                <button type="submit" class="btn btn-primary">
+                    Run Sensitivity Analysis
+                </button>
+            </div>
+
+        </form>
+
+    </section>
+
+    {% if error %}
+    <div class="alert alert-danger mt-4">
+        {{ error }}
+    </div>
+    {% endif %}
+
+    {% if results %}
+
+    <!-- Results -->
+    <section class="sensitivity-section sensitivity-results">
+
+        <h2>Sensitivity Analysis Results</h2>
+
+        <h3>Baseline Information</h3>
+
+        <div class="sensitivity-grid sensitivity-grid-three">
+
+            <div class="sensitivity-variable">
+                <label>Baseline Year</label>
+                <div class="sensitivity-result-value">
+                    {{ results.baseline_year }}
+                </div>
+            </div>
+
+            <div class="sensitivity-variable">
+                <label>Baseline Gross Load</label>
+                <div class="sensitivity-result-value">
+                    {{ "%.2f"|format(results.baseline_gross_load) }}
+                </div>
+            </div>
+
+            <div class="sensitivity-variable">
+                <label>Baseline Heat Input</label>
+                <div class="sensitivity-result-value">
+                    {{ "%.2f"|format(results.baseline_heat_input) }}
+                </div>
+            </div>
+
+            <div class="sensitivity-variable">
+                <label>Baseline Fuel Type</label>
+                <div class="sensitivity-result-value">
+                    {{ results.baseline_fuel_type }}
+                </div>
+            </div>
+
+            <div class="sensitivity-variable">
+                <label>Selected Scenario Fuel</label>
+                <div class="sensitivity-result-value">
+                    {{ results.selected_fuel_type }}
+                </div>
+            </div>
+
+            <div class="sensitivity-variable">
+                <label>Baseline Predicted CO₂</label>
+                <div class="sensitivity-result-value">
+                    {{ "%.2f"|format(results.baseline_prediction) }}
+                </div>
+            </div>
+
+        </div>
+
+        <h3 class="sensitivity-table-heading">Scenario Results</h3>
+
+        <p class="sensitivity-subtitle">
+            Each row shows the predicted result after applying the selected input changes.
+        </p>
+
+        <div class="table-responsive">
+
+            <table class="table table-striped">
+
+                <thead>
+                    <tr>
+                        <th>Gross Load Change</th>
+                        <th>New Gross Load</th>
+                        <th>Heat Input Change</th>
+                        <th>New Heat Input</th>
+                        <th>Fuel Type</th>
+                        <th>Predicted CO₂</th>
+                        <th>Absolute Change</th>
+                        <th>Percent Change</th>
+                        <th>Range Status</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for row in results.results %}
+                    <tr>
+                        <td>{{ row.gross_load_change }}%</td>
+                        <td>{{ "%.2f"|format(row.gross_load_value) }}</td>
+                        <td>{{ row.heat_input_change }}%</td>
+                        <td>{{ "%.2f"|format(row.heat_input_value) }}</td>
+                        <td>{{ row.fuel_type }}</td>
+                        <td>{{ "%.2f"|format(row.predicted_co2) }}</td>
+                        <td>{{ "%.2f"|format(row.absolute_change) }}</td>
+                        <td>
+                            {% if row.percent_change is not none %}
+                                {{ "%.2f"|format(row.percent_change) }}%
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.out_of_range %}
+                                <span class="text-danger">Outside training range</span>
+                            {% else %}
+                                <span class="text-success">Within range</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </section>
+
+    {% endif %}
+
+</div>
+
+{% endblock %}
