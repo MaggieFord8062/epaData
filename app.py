@@ -1457,6 +1457,26 @@ def table_cell(value, column=""):
     return analysis.format_number(value)
 
 
+@app.template_filter("signed")
+def signed_number(value):
+    """+1,234 / −1,234 / 0, with a true minus sign; a dash when missing."""
+    if value is None:
+        return "—"
+    if abs(value) < 5e-10:
+        return "0"
+    return ("+" if value > 0 else "−") + analysis.format_number(abs(value))
+
+
+@app.template_filter("signed_pct")
+def signed_percent(value, decimals=1):
+    """+12.3% / −4.5% / 0%, with a true minus sign; a dash when missing."""
+    if value is None:
+        return "—"
+    if abs(value) < 0.5 * 10 ** -decimals:
+        return "0%"
+    return ("+" if value > 0 else "−") + "{:,.{}f}%".format(abs(value), decimals)
+
+
 @app.template_filter("pvalue")
 def p_value(value):
     if value is None:
@@ -1496,16 +1516,18 @@ def page_url(path, filters, **choices):
     return path + ("?" + urlencode(values) if values else "")
 
 
-def selection_context(filters, result, frame, variable=None):
-    """What every analysis page shows about the selection, and links to the other pages."""
+def selection_context(filters, result, frame, variable=None, keep=None):
+    """What every analysis page shows about the selection, and links to the other pages (keeping `keep` choices)."""
     explore_url = "/explore" + ("?" + urlencode(filters) if filters else "")
+    keep = keep or {}
     return {
         "labels": selection_labels(filters, result),
         "selection": analysis.selection_summary(frame),
         "explore_url": explore_url,
         "partial": result["partial"],
-        "analysis_pages": [(path, label, page_url(path, filters, variable=variable))
+        "analysis_pages": [(path, label, page_url(path, filters, variable=variable, **keep))
                            for path, label in ANALYSIS_PAGES],
+        "dataset_url": page_url("/statistics/download", filters, what="dataset"),
         "filters": filters,
     }
 
@@ -1731,9 +1753,19 @@ def dashboard_page():
     if len(frame):
         charts = [dashboard.json_safe(spec) for spec in dashboard.build_all(frame, choices)]
     data_base = page_url("/dashboard/data", filters, **dashboard_url_choices(choices))
+    glance = None
+    if len(frame):
+        glance = {
+            "co2": analysis.clean(frame["co2_mass"].sum(min_count=1)),
+            "so2": analysis.clean(frame["so2_mass"].sum(min_count=1)),
+            "nox": analysis.clean(frame["nox_mass"].sum(min_count=1)),
+            "load": analysis.clean(frame["gross_load"].sum(min_count=1)),
+            "intensity": analysis.overall_ratio(frame, "co2_intensity"),
+        }
     return render_template(
         "dashboard.html",
         choices=choices,
+        glance=glance,
         charts={spec["id"]: spec for spec in charts},
         data_base=data_base,
         variable_menu=analysis.variables_by_group(),
@@ -1969,8 +2001,20 @@ def impacts_download():
     """Impact results as CSV or Excel: what=totals, groups, records or factors."""
     params, filters, result, frame, factors, categories, choices = impacts_request()
     what = request.args.get("what", "totals")
+    chart_id = request.args.get("chart")
 
-    if what == "factors":
+    if chart_id:
+        totals = traci.summarize(frame, factors) if len(frame) and factors else []
+        if chart_id == "impact_shares" and totals:
+            spec = dashboard.impact_share_chart(totals)
+        elif chart_id == "impact_groups" and totals:
+            rows = impact_group_rows(frame, factors, categories, choices)
+            spec = dashboard.impact_group_chart(rows, categories, choices, IMPACT_GROUPS[choices["by"]])
+        else:
+            abort(404)
+        columns, rows = spec["table"]["columns"], spec["table"]["rows"]
+        kind, what = f"Chart data: {spec['title']}", chart_id
+    elif what == "factors":
         columns, rows = traci.factors_table(factors)
         kind = "TRACI characterization factors used"
     elif what == "groups":

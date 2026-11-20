@@ -449,7 +449,7 @@ def trend_chart(frame, key, definition):
                                 "font": {"color": dashboard.INK_2, "size": 12}})
         figure = dashboard.layout(title, "Reporting year", dashboard.value_title(key), shapes=shapes,
                                   annotations=annotations, hovermode="x unified")
-        figure["xaxis"]["dtick"] = 1
+        figure["xaxis"]["dtick"] = dashboard.year_step(years)
         columns = ["Year", dashboard.value_title(key), "Records"]
         rows = [[year, dashboard.clean(v), 0 if pd.isna(r) else int(r)]
                 for year, v, r in zip(years, table["value"], table["records"])]
@@ -477,7 +477,7 @@ def trend_chart(frame, key, definition):
         })
     figure = dashboard.layout(title, "Reporting year", dashboard.value_title(key), showlegend=True,
                               hovermode="x unified")
-    figure["xaxis"]["dtick"] = 1
+    figure["xaxis"]["dtick"] = dashboard.year_step(years)
     rows = [[year] + [values[i] for values in series_values] for i, year in enumerate(years)]
     return dashboard.chart("compare_trend", title, data, figure, columns, rows,
                            "Gaps are years with no records for that group.")

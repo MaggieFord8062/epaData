@@ -19,8 +19,8 @@ Charts
   facility_map  facility locations colored by the chosen variable
 
 Design rules (kept the same on every chart)
-  - Colors follow the thing they stand for: CO2 is always blue, SO2 orange, NOx green-blue,
-    coal blue, gas orange, oil and other green-blue. A filter never repaints them.
+  - Colors follow the thing they stand for: CO2 is always blue, SO2 orange, NOx green,
+    coal blue, gas orange, oil and other green. A filter never repaints them.
   - One y-axis per chart. Measures with different units are indexed or drawn as separate charts.
   - Every value on a chart is also in the table under it.
 """
@@ -34,35 +34,51 @@ import pandas as pd
 import analysis
 
 # ---------- Look ----------
+#
+# Apple-style chart chrome: the system San Francisco font, near-black titles, gray axis text,
+# hairline grids and no frame. Series colors are tuned to Apple's blue and orange and checked
+# with the dataviz palette validator (scripts/validate_palette.js): the first three pass the
+# color-blind checks for every pair (scatter plots and maps use at most three), and all four
+# pass for neighbors.
 
-FONT = '-apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif'
-INK = "#0b0b0b"
-INK_2 = "#52514e"
-MUTED = "#898781"
-GRID = "#e1e0d9"
-AXIS = "#c3c2b7"
+FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif'
+INK = "#1d1d1f"
+INK_2 = "#6e6e73"
+MUTED = "#86868b"
+GRID = "#e8e8ed"
+AXIS = "#d2d2d7"
 SURFACE = "#ffffff"
 
-# Categorical colors, always used in this order (checked for color-blind separation)
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-OTHER = "#a8a7a1"
+# Categorical colors, always used in this order: CO2 / coal / group A, SO2 / gas / group B,
+# NOx / oil and other, gross load
+SERIES = ["#0071e3", "#f56300", "#00a86b", "#eda100"]
+OTHER = "#a1a1a6"
 
 POLLUTANT_COLORS = {"co2_mass": SERIES[0], "so2_mass": SERIES[1], "nox_mass": SERIES[2], "gross_load": SERIES[3]}
 FAMILY_COLORS = {"Coal": SERIES[0], "Gas": SERIES[1], "Oil and other": SERIES[2]}
 
 # One blue, light to dark, for amounts (maps)
-SEQUENTIAL = [[0.0, "#cde2fb"], [0.25, "#86b6ef"], [0.5, "#3987e5"], [0.75, "#1c5cab"], [1.0, "#0d366b"]]
+SEQUENTIAL = [[0.0, "#d6e8fc"], [0.25, "#8ec0f5"], [0.5, "#3d94ec"], [0.75, "#0066cc"], [1.0, "#003a75"]]
 # Red (negative) to gray (zero) to blue (positive), for correlations
-DIVERGING = [[0.0, "#e34948"], [0.5, "#f0efec"], [1.0, "#2a78d6"]]
+DIVERGING = [[0.0, "#e34948"], [0.5, "#f5f5f7"], [1.0, "#0071e3"]]
+
+
+def fill(color, alpha):
+    """A series color as a see-through fill."""
+    color = color.lstrip("#")
+    return f"rgba({int(color[0:2], 16)},{int(color[2:4], 16)},{int(color[4:6], 16)},{alpha})"
 
 
 def axis(title, **extra):
     settings = {
-        "title": {"text": title, "font": {"color": INK_2, "size": 13}, "standoff": 12},
+        "title": {"text": title, "font": {"color": INK_2, "size": 12}, "standoff": 12},
         "gridcolor": GRID,
+        "gridwidth": 1,
         "linecolor": AXIS,
+        "showline": True,
         "zeroline": False,
-        "tickfont": {"color": MUTED, "size": 12},
+        "ticks": "",
+        "tickfont": {"color": MUTED, "size": 11},
         "automargin": True,
     }
     settings.update(extra)
@@ -72,19 +88,22 @@ def axis(title, **extra):
 def layout(title, x_title="", y_title="", height=400, **extra):
     settings = {
         "title": {"text": title, "x": 0, "xanchor": "left", "y": 0.98, "yanchor": "top",
-                  "font": {"size": 16, "color": INK}},
-        "font": {"family": FONT, "size": 13, "color": INK_2},
+                  "font": {"size": 17, "color": INK, "weight": 600}},
+        "font": {"family": FONT, "size": 12, "color": INK_2},
         "paper_bgcolor": SURFACE,
         "plot_bgcolor": SURFACE,
         "height": height,
-        "margin": {"l": 16, "r": 24, "t": 72, "b": 16},
+        "margin": {"l": 16, "r": 24, "t": 76, "b": 16},
         "xaxis": axis(x_title),
         "yaxis": axis(y_title),
-        "hoverlabel": {"bgcolor": SURFACE, "bordercolor": GRID, "font": {"family": FONT, "color": INK, "size": 13}},
+        "hoverlabel": {"bgcolor": "rgba(255,255,255,0.96)", "bordercolor": AXIS,
+                       "font": {"family": FONT, "color": INK, "size": 13}, "align": "left"},
         "legend": {"orientation": "h", "x": 0, "xanchor": "left", "y": 1.0, "yanchor": "bottom",
-                   "font": {"color": INK_2, "size": 12}, "bgcolor": "rgba(0,0,0,0)"},
+                   "font": {"color": INK_2, "size": 12}, "bgcolor": "rgba(0,0,0,0)", "itemsizing": "constant"},
         "barcornerradius": 4,
         "showlegend": False,
+        "dragmode": "zoom",
+        "modebar": {"bgcolor": "rgba(0,0,0,0)", "color": MUTED, "activecolor": INK},
     }
     settings.update(extra)
     return settings
@@ -151,6 +170,16 @@ def spread_labels(annotations, gap_share=0.05):
 
 def hover_number(unit):
     return "%{y:,.4~g} " + unit
+
+
+def year_step(years):
+    """Year axis tick spacing: every year for short spans, every 2 or 5 years for long ones."""
+    span = (max(years) - min(years)) if len(years) else 0
+    if span <= 12:
+        return 1
+    if span <= 24:
+        return 2
+    return 5
 
 
 def selection_years(frame):
@@ -251,7 +280,7 @@ def indexed_trend(frame):
     spread_labels(annotations)
     figure = layout(title, "Reporting year", "Index (first year with data = 100)", showlegend=True,
                     hovermode="x unified", annotations=annotations)
-    figure["xaxis"]["dtick"] = 1
+    figure["xaxis"]["dtick"] = year_step(years)
     figure["xaxis"]["range"] = [years[0] - 0.3, years[-1] + 0.3]
     figure["margin"]["r"] = 96
     note = ("Each line is the yearly total for the selected records divided by that line's first-year total. "
@@ -292,7 +321,7 @@ def trend(frame, key, split="none"):
 
     rows = [[year] + [values[i] for values in values_by_series] for i, year in enumerate(years)]
     figure = layout(title, "Reporting year", value_title(key), showlegend=len(series) > 1, hovermode="x unified")
-    figure["xaxis"]["dtick"] = 1
+    figure["xaxis"]["dtick"] = year_step(years)
     note = {
         "Overall ratio": "Each point divides the year's total of the numerator by the total of the denominator.",
         "Total": "Each point is the year's total over the selected records.",
@@ -372,7 +401,7 @@ def histogram(frame, key, scale="log"):
             "y": [int(c) for c in counts] + [int(counts[-1])],
             "customdata": ranges + [ranges[-1]],
             "line": {"shape": "hv", "color": SERIES[0], "width": 2},
-            "fill": "tozeroy", "fillcolor": "rgba(42,120,214,0.18)",
+            "fill": "tozeroy", "fillcolor": fill(SERIES[0], 0.16),
             "hovertemplate": "%{customdata[0]:,.4~g} to %{customdata[1]:,.4~g} " + item["unit"]
                              + "<br><b>%{customdata[2]:,} records</b><extra></extra>",
         }]
@@ -434,7 +463,7 @@ def box(frame, key, group, scale="log"):
         "lowerfence": [s["lower"] for s in stats], "upperfence": [s["upper"] for s in stats],
         "mean": [s["mean"] for s in stats],
         "boxpoints": False, "marker": {"color": SERIES[0]},
-        "line": {"color": SERIES[0], "width": 2}, "fillcolor": "rgba(42,120,214,0.18)",
+        "line": {"color": SERIES[0], "width": 2}, "fillcolor": fill(SERIES[0], 0.16),
     }]
     figure = layout(title, group_name, f"{item['label']} ({item['unit']})", height=420)
     if scale == "log":
@@ -698,8 +727,8 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
         "hovertemplate": "%{text}<br><b>%{marker.color:,.4~g} " + item["unit"] + "</b><extra></extra>",
     }]
     figure = layout(title, height=460)
-    figure["geo"] = {"scope": "usa", "bgcolor": SURFACE, "showland": True, "landcolor": "#f5f5f3",
-                     "subunitcolor": "#d9d8d1", "showlakes": False, "projection": {"type": "albers usa"}}
+    figure["geo"] = {"scope": "usa", "bgcolor": SURFACE, "showland": True, "landcolor": "#f5f5f7",
+                     "subunitcolor": "#d2d2d7", "showlakes": False, "projection": {"type": "albers usa"}}
     figure["margin"] = {"l": 0, "r": 0, "t": 72, "b": 0}
 
     columns = ["Facility ID", "Facility", "Latitude", "Longitude", value_title(key), "Gross load (MWh)"]

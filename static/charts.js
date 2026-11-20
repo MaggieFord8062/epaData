@@ -18,9 +18,14 @@
         return JSON.parse(block.textContent);
     }
 
+    // Phones and tablets show Plotly's tool bar all the time, on top of the title; the PNG button
+    // under every chart does the same job there
+    var touchOnly = window.matchMedia && window.matchMedia("(hover: none)").matches;
+
     function configFor(spec) {
         var config = {
             displaylogo: false,
+            displayModeBar: touchOnly || window.innerWidth < 735 ? false : "hover",
             responsive: true,
             modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d", "toggleSpikelines"],
             toImageButtonOptions: { format: "png", scale: 2, filename: spec.filename }

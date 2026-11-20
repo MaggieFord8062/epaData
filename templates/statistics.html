@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_chart.html" import hidden_filters %}
+{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}{{ info.label }} statistics - epaData{% endblock %}
 
@@ -6,272 +8,307 @@
 <a href="{{ sort_links[key] }}" class="{{ 'is-sorted' if choices.gsort == key else '' }}">{{ label }}{% if choices.gsort == key %} {{ '↓' if numeric else '↑' }}{% endif %}</a>
 {%- endmacro %}
 
-{% block content %}
+{% block localnav %}
+{{ analysis_nav(analysis_pages, request.path, request.full_path, (download_base ~ "&what=summary", "Download")) }}
+{% endblock %}
 
-<div class="page-head">
-    <h1>Statistics</h1>
-    <p>Summary statistics and derived indicators for any set of records you can find in Explore, for the whole selection or broken down by state, fuel, unit type, year, facility or pollution control.</p>
-</div>
+{% block main %}
 
-{% include "_selection.html" %}
-
-<form class="panel space-top" method="GET" action="/statistics" id="statistics-form">
-    {% for key, value in filters.items() %}
-    <input type="hidden" name="{{ key }}" value="{{ value }}">
-    {% endfor %}
-
-    <div class="form-grid">
-        <div class="field wide">
-            <label for="variable">Variable</label>
-            <select class="control" id="variable" name="variable" onchange="this.form.submit()">
-                {% for heading, items in variable_menu %}
-                <optgroup label="{{ heading }}">
-                    {% for key, item in items %}
-                    <option value="{{ key }}" {% if key == choices.variable %}selected{% endif %}>{{ item.label }} ({{ item.unit }})</option>
-                    {% endfor %}
-                </optgroup>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="field">
-            <label for="group">Group by</label>
-            <select class="control" id="group" name="group" onchange="this.form.submit()">
-                <option value="" {% if not choices.group %}selected{% endif %}>No grouping</option>
-                {% for key, label in group_options.items() %}
-                <option value="{{ key }}" {% if key == choices.group %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="field">
-            <label for="pct">Percentiles</label>
-            <input class="control" type="text" id="pct" name="pct" value="{{ choices.pct_text }}"
-                   placeholder="5, 10, 90, 95" inputmode="decimal" autocomplete="off">
-        </div>
+<section class="hero">
+    <div class="hero-inner">
+        <h1>Statistics</h1>
+        <p class="subhead">Every number behind the selection.</p>
+        <p class="lede">Summary statistics and derived indicators for any records you can find in Explore, for the whole selection or broken down by state, fuel, unit type, year, facility or pollution control.</p>
+        {% include "_selection.html" %}
     </div>
+</section>
 
-    <div class="form-actions">
-        <button class="btn btn-primary" type="submit">Calculate</button>
-        <span class="dim">The page address saves every choice, so you can bookmark or share this analysis.</span>
+<section class="band tight">
+    <div class="container wide">
+        <form class="controls-card" method="GET" action="/statistics" id="statistics-form">
+            {{ hidden_filters(filters) }}
+            <div class="form-grid">
+                <div class="field wide">
+                    <label for="variable">Variable</label>
+                    <select class="control" id="variable" name="variable" onchange="this.form.submit()">
+                        {% for heading, items in variable_menu %}
+                        <optgroup label="{{ heading }}">
+                            {% for key, item in items %}
+                            <option value="{{ key }}" {% if key == choices.variable %}selected{% endif %}>{{ item.label }} ({{ item.unit }})</option>
+                            {% endfor %}
+                        </optgroup>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="group">Group by</label>
+                    <select class="control" id="group" name="group" onchange="this.form.submit()">
+                        <option value="" {% if not choices.group %}selected{% endif %}>No grouping</option>
+                        {% for key, label in group_options.items() %}
+                        <option value="{{ key }}" {% if key == choices.group %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="pct">Percentiles</label>
+                    <input class="control" type="text" id="pct" name="pct" value="{{ choices.pct_text }}"
+                           placeholder="5, 10, 90, 95" inputmode="decimal" autocomplete="off">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn" type="submit">Calculate</button>
+                <span class="dim">The page address saves every choice, so you can bookmark or share this analysis.</span>
+            </div>
+        </form>
     </div>
-</form>
+</section>
 
 {% if selection.records == 0 %}
 
-<div class="empty">
-    <h3>No records in this selection</h3>
-    <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
-    <a class="btn btn-quiet" href="{{ explore_url }}">Back to Explore</a>
-</div>
+<section class="band flush-top">
+    <div class="container wide">
+        <div class="empty">
+            <h3>No records in this selection</h3>
+            <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
+            <a class="btn" href="{{ explore_url }}">Back to Explore</a>
+        </div>
+    </div>
+</section>
 
 {% else %}
 
-<section class="section">
-    <div class="section-head">
-        <div>
-            <h2 class="section-title">{{ info.label }} <span class="dim">({{ info.unit }})</span></h2>
-            <p class="section-intro">
-                {{ info.definition }}
-                Calculated over {{ "{:,}".format(selection.records) }} records:
-                {{ "{:,}".format(selection.facilities) }} facilities, {{ "{:,}".format(selection.units) }} units,
-                {% if selection.first_year == selection.last_year %}{{ selection.first_year }}{% else %}{{ selection.first_year }}–{{ selection.last_year }}{% endif %}.
-            </p>
+<section class="band flush-top">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">{{ info.label }}. <span class="gray">{{ info.unit }}.</span></h2>
+                <p class="section-intro">
+                    {{ info.definition }}
+                    Calculated over {{ "{:,}".format(selection.records) }} records:
+                    {{ "{:,}".format(selection.facilities) }} facilities, {{ "{:,}".format(selection.units) }} units,
+                    {% if selection.first_year == selection.last_year %}{{ selection.first_year }}{% else %}{{ selection.first_year }}–{{ selection.last_year }}{% endif %}.
+                </p>
+            </div>
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=summary" download>Download CSV</a>
+                <a class="btn-link" href="{{ download_base }}&what=summary&format=xlsx" download>Excel</a>
+            </div>
         </div>
-        <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=summary" download>Download CSV</a>
-            <a class="btn-link" href="{{ download_base }}&what=summary&format=xlsx" download>Excel</a>
+
+        <div class="card">
+            <div class="stats compact">
+                <div class="stat">
+                    <div class="value">{{ "{:,}".format(summary.count) }}</div>
+                    <div class="label">Values present</div>
+                </div>
+                <div class="stat {{ 'warn' if summary.missing else '' }}">
+                    <div class="value">{{ "{:,}".format(summary.missing) }}</div>
+                    <div class="label">Missing{% if summary.records %} ({{ "%.1f"|format(summary.missing / summary.records * 100) }}%){% endif %}</div>
+                </div>
+                <div class="stat">
+                    <div class="value">{{ summary.median|stat }}</div>
+                    <div class="label">Median</div>
+                </div>
+                <div class="stat">
+                    <div class="value">{{ summary.mean|stat }}</div>
+                    <div class="label">Mean</div>
+                </div>
+                {% if info.additive %}
+                <div class="stat wide">
+                    <div class="value">{{ summary.total|stat }}</div>
+                    <div class="label">Total</div>
+                </div>
+                {% endif %}
+                {% if info.ratio %}
+                <div class="stat wide">
+                    <div class="value">{{ summary.overall|stat }}</div>
+                    <div class="label">Overall ratio</div>
+                </div>
+                {% endif %}
+            </div>
+
+            <dl class="facts space-top">
+                <div class="fact"><dt>Minimum</dt><dd>{{ summary.min|stat }}</dd></div>
+                <div class="fact"><dt>First quartile (Q1)</dt><dd>{{ summary.q1|stat }}</dd></div>
+                <div class="fact"><dt>Median</dt><dd>{{ summary.median|stat }}</dd></div>
+                <div class="fact"><dt>Third quartile (Q3)</dt><dd>{{ summary.q3|stat }}</dd></div>
+                <div class="fact"><dt>Maximum</dt><dd>{{ summary.max|stat }}</dd></div>
+                <div class="fact"><dt>Interquartile range</dt><dd>{{ summary.iqr|stat }}</dd></div>
+                <div class="fact"><dt>Standard deviation</dt><dd>{{ summary.std|stat }}</dd></div>
+                <div class="fact"><dt>Mean</dt><dd>{{ summary.mean|stat }}</dd></div>
+                {% for p, value in summary.percentiles %}
+                <div class="fact"><dt>Percentile {{ percentile_label(p)[1:] }}</dt><dd>{{ value|stat }}</dd></div>
+                {% endfor %}
+                {% if info.ratio %}
+                <div class="fact wide"><dt>Overall ratio: {{ info.overall_label }}</dt><dd>{{ summary.overall|stat }} <small>{{ info.unit }}</small></dd></div>
+                {% endif %}
+            </dl>
         </div>
+
+        {% if summary.missing %}
+        <p class="note">
+            {{ "{:,}".format(summary.missing) }} of {{ "{:,}".format(summary.records) }} records have no value for this variable and are left out of every statistic above.
+            {% if summary.zero_denominator %}
+            {{ "{:,}".format(summary.zero_denominator) }} of them are missing because the denominator was 0 (for example, a unit that reported no gross load), so the ratio is undefined. They are not counted as 0.
+            {% endif %}
+        </p>
+        {% endif %}
     </div>
-
-    <div class="stats compact">
-        <div class="stat">
-            <div class="value">{{ "{:,}".format(summary.count) }}</div>
-            <div class="label">Values present</div>
-        </div>
-        <div class="stat {{ 'warn' if summary.missing else '' }}">
-            <div class="value">{{ "{:,}".format(summary.missing) }}</div>
-            <div class="label">Missing{% if summary.records %} ({{ "%.1f"|format(summary.missing / summary.records * 100) }}%){% endif %}</div>
-        </div>
-        <div class="stat">
-            <div class="value">{{ summary.median|stat }}</div>
-            <div class="label">Median</div>
-        </div>
-        <div class="stat">
-            <div class="value">{{ summary.mean|stat }}</div>
-            <div class="label">Mean</div>
-        </div>
-        {% if info.additive %}
-        <div class="stat wide">
-            <div class="value">{{ summary.total|stat }}</div>
-            <div class="label">Total</div>
-        </div>
-        {% endif %}
-        {% if info.ratio %}
-        <div class="stat wide">
-            <div class="value">{{ summary.overall|stat }}</div>
-            <div class="label">Overall ratio</div>
-        </div>
-        {% endif %}
-    </div>
-
-    <dl class="facts space-top">
-        <div class="fact"><dt>Minimum</dt><dd>{{ summary.min|stat }}</dd></div>
-        <div class="fact"><dt>First quartile (Q1)</dt><dd>{{ summary.q1|stat }}</dd></div>
-        <div class="fact"><dt>Median</dt><dd>{{ summary.median|stat }}</dd></div>
-        <div class="fact"><dt>Third quartile (Q3)</dt><dd>{{ summary.q3|stat }}</dd></div>
-        <div class="fact"><dt>Maximum</dt><dd>{{ summary.max|stat }}</dd></div>
-        <div class="fact"><dt>Interquartile range</dt><dd>{{ summary.iqr|stat }}</dd></div>
-        <div class="fact"><dt>Standard deviation</dt><dd>{{ summary.std|stat }}</dd></div>
-        <div class="fact"><dt>Mean</dt><dd>{{ summary.mean|stat }}</dd></div>
-        {% for p, value in summary.percentiles %}
-        <div class="fact"><dt>Percentile {{ percentile_label(p)[1:] }}</dt><dd>{{ value|stat }}</dd></div>
-        {% endfor %}
-        {% if info.ratio %}
-        <div class="fact wide"><dt>Overall ratio: {{ info.overall_label }}</dt><dd>{{ summary.overall|stat }} {{ info.unit }}</dd></div>
-        {% endif %}
-    </dl>
-
-    {% if summary.missing %}
-    <p class="note">
-        {{ "{:,}".format(summary.missing) }} of {{ "{:,}".format(summary.records) }} records have no value for this variable and are left out of every statistic above.
-        {% if summary.zero_denominator %}
-        {{ "{:,}".format(summary.zero_denominator) }} of them are missing because the denominator was 0 (for example, a unit that reported no gross load), so the ratio is undefined. They are not counted as 0.
-        {% endif %}
-    </p>
-    {% endif %}
 </section>
 
 {% if choices.group %}
-<section class="section">
-    <div class="section-head">
-        <div>
-            <h2 class="section-title">By {{ group_options[choices.group]|lower }}</h2>
-            <p class="section-intro">
-                {{ "{:,}".format(group_count) }} group{{ "" if group_count == 1 else "s" }}, sorted by {{ group_sorts[choices.gsort]|lower }}.
-                {% if group_count > group_limit %}The first {{ group_limit }} are shown; the download has all of them.{% endif %}
-                Click a column heading to sort by it.
-            </p>
+<section class="band alt">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">By {{ group_options[choices.group]|lower }}. <span class="gray">{{ "{:,}".format(group_count) }} group{{ "" if group_count == 1 else "s" }}.</span></h2>
+                <p class="section-intro">
+                    Sorted by {{ group_sorts[choices.gsort]|lower }}.
+                    {% if group_count > group_limit %}The first {{ group_limit }} are shown; the download has all of them.{% endif %}
+                    Click a column heading to sort by it.
+                </p>
+            </div>
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
+                <a class="btn-link" href="{{ download_base }}&what=groups&format=xlsx" download>Excel</a>
+            </div>
         </div>
-        <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
-            <a class="btn-link" href="{{ download_base }}&what=groups&format=xlsx" download>Excel</a>
-        </div>
-    </div>
 
-    <div class="table-wrap">
-        <table class="data">
-            <thead>
-                <tr>
-                    <th>{{ sort_head(group_options[choices.group], "group", False) }}</th>
-                    <th class="num">{{ sort_head("Records", "records") }}</th>
-                    <th class="num">Missing</th>
-                    <th class="num">{{ sort_head("Mean", "mean") }}</th>
-                    <th class="num">{{ sort_head("Median", "median") }}</th>
-                    <th class="num">Std dev</th>
-                    <th class="num">Min</th>
-                    <th class="num">Q1</th>
-                    <th class="num">Q3</th>
-                    <th class="num">Max</th>
-                    {% if info.additive %}<th class="num">{{ sort_head("Total", "total") }}</th>{% endif %}
-                    {% if info.ratio %}<th class="num">{{ sort_head("Overall ratio", "overall") }}</th>{% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in groups %}
-                <tr>
-                    <td class="name">{{ row.group }}</td>
-                    <td class="num">{{ "{:,}".format(row.records) }}</td>
-                    <td class="num">{% if row.missing %}{{ "{:,}".format(row.missing) }}{% else %}<span class="dim">0</span>{% endif %}</td>
-                    <td class="num">{{ row.mean|stat }}</td>
-                    <td class="num">{{ row.median|stat }}</td>
-                    <td class="num">{{ row.std|stat }}</td>
-                    <td class="num">{{ row.min|stat }}</td>
-                    <td class="num">{{ row.q1|stat }}</td>
-                    <td class="num">{{ row.q3|stat }}</td>
-                    <td class="num">{{ row.max|stat }}</td>
-                    {% if info.additive %}<td class="num">{{ row.total|stat }}</td>{% endif %}
-                    {% if info.ratio %}<td class="num">{{ row.overall|stat }}</td>{% endif %}
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-card">
+            <div class="table-wrap">
+                <table class="data">
+                    <thead>
+                        <tr>
+                            <th>{{ sort_head(group_options[choices.group], "group", False) }}</th>
+                            <th class="num">{{ sort_head("Records", "records") }}</th>
+                            <th class="num">Missing</th>
+                            <th class="num">{{ sort_head("Mean", "mean") }}</th>
+                            <th class="num">{{ sort_head("Median", "median") }}</th>
+                            <th class="num">Std dev</th>
+                            <th class="num">Min</th>
+                            <th class="num">Q1</th>
+                            <th class="num">Q3</th>
+                            <th class="num">Max</th>
+                            {% if info.additive %}<th class="num">{{ sort_head("Total", "total") }}</th>{% endif %}
+                            {% if info.ratio %}<th class="num">{{ sort_head("Overall ratio", "overall") }}</th>{% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in groups %}
+                        <tr>
+                            <td class="name">{{ row.group }}</td>
+                            <td class="num">{{ "{:,}".format(row.records) }}</td>
+                            <td class="num">{% if row.missing %}{{ "{:,}".format(row.missing) }}{% else %}<span class="dim">0</span>{% endif %}</td>
+                            <td class="num">{{ row.mean|stat }}</td>
+                            <td class="num">{{ row.median|stat }}</td>
+                            <td class="num">{{ row.std|stat }}</td>
+                            <td class="num">{{ row.min|stat }}</td>
+                            <td class="num">{{ row.q1|stat }}</td>
+                            <td class="num">{{ row.q3|stat }}</td>
+                            <td class="num">{{ row.max|stat }}</td>
+                            {% if info.additive %}<td class="num">{{ row.total|stat }}</td>{% endif %}
+                            {% if info.ratio %}<td class="num">{{ row.overall|stat }}</td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <p class="note">All values are in {{ info.unit }}. Records with no {{ group_options[choices.group]|lower }} are grouped as "Not reported" rather than dropped.</p>
     </div>
-    <p class="note">All values are in {{ info.unit }}. Records with no {{ group_options[choices.group]|lower }} are grouped as "Not reported" rather than dropped.</p>
 </section>
 {% endif %}
 
-<section class="section">
-    <div class="section-head">
-        <div>
-            <h2 class="section-title">Unusual observations</h2>
-            <p class="section-intro">
-                {{ unusual_rule }}
-                {% if unusual %}
-                For {{ info.label }} that means below {{ unusual.low|stat }} or above {{ unusual.high|stat }} {{ info.unit }}:
-                {{ "{:,}".format(unusual.below + unusual.above) }} of {{ "{:,}".format(unusual.count) }} values ({{ "%.1f"|format(unusual.share) }}%).
-                {% endif %}
-            </p>
+<section class="band{{ '' if choices.group else ' alt' }}">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">Unusual observations. <span class="gray">Values far from the rest.</span></h2>
+                <p class="section-intro">
+                    {{ unusual_rule }}
+                    {% if unusual %}
+                    For {{ info.label }} that means below {{ unusual.low|stat }} or above {{ unusual.high|stat }} {{ info.unit }}:
+                    {{ "{:,}".format(unusual.below + unusual.above) }} of {{ "{:,}".format(unusual.count) }} values ({{ "%.1f"|format(unusual.share) }}%).
+                    {% endif %}
+                </p>
+            </div>
+            {% if unusual and (unusual.above or unusual.below) %}
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=unusual" download>Download all</a>
+                <a class="btn-link" href="{{ download_base }}&what=unusual&format=xlsx" download>Excel</a>
+            </div>
+            {% endif %}
         </div>
-        {% if unusual and (unusual.above or unusual.below) %}
-        <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=unusual" download>Download all</a>
-            <a class="btn-link" href="{{ download_base }}&what=unusual&format=xlsx" download>Excel</a>
+
+        {% if not unusual %}
+        <div class="empty"><h3>Too few values</h3><p>At least four values are needed to find quartiles.</p></div>
+        {% elif not unusual.above and not unusual.below %}
+        <div class="empty"><h3>Nothing unusual</h3><p>Every value lies inside the fences.</p></div>
+        {% else %}
+        <div class="io-grid">
+            {% for title, rows, count in [("Highest", unusual.highest, unusual.above), ("Lowest", unusual.lowest, unusual.below)] %}
+            <div class="card">
+                <h3 class="card-title">{{ title }} <span class="dim">· {{ "{:,}".format(count) }} {{ "above the upper" if title == "Highest" else "below the lower" }} fence</span></h3>
+                {% if rows %}
+                <div class="table-wrap">
+                    <table class="data">
+                        <thead><tr><th>Unit</th><th>Year</th><th class="num">{{ info.unit }}</th><th class="num">Past fence</th></tr></thead>
+                        <tbody>
+                            {% for row in rows %}
+                            <tr>
+                                <td class="name">{% if row.unit_key %}<a href="/unit/{{ row.unit_key }}">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}</td>
+                                <td>{{ row.year or "—" }}</td>
+                                <td class="num">{{ row.value|stat }}</td>
+                                <td class="num">{% if row.distance is not none %}{{ "%.1f"|format(row.distance) }} × IQR{% else %}—{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="muted">None.</p>
+                {% endif %}
+            </div>
+            {% endfor %}
         </div>
         {% endif %}
+        <p class="note">{{ unusual_note }}</p>
     </div>
-    {% if unusual and (unusual.above or unusual.below) %}
-    <div class="table-wrap">
-        <table class="data">
-            <thead><tr><th>Unit</th><th>Year</th><th class="num">{{ info.unit }}</th><th>Side</th><th class="num">Past the fence</th></tr></thead>
-            <tbody>
-                {% for row in unusual.highest + unusual.lowest %}
-                <tr>
-                    <td class="name">{% if row.unit_key %}<a href="/unit/{{ row.unit_key }}">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}</td>
-                    <td>{{ row.year or "—" }}</td>
-                    <td class="num">{{ row.value|stat }}</td>
-                    <td>{{ "Above" if row.side == "above" else "Below" }}</td>
-                    <td class="num">{% if row.distance is not none %}{{ "%.1f"|format(row.distance) }} × IQR{% else %}—{% endif %}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% elif unusual %}
-    <p class="notice">Every value lies inside the fences.</p>
-    {% endif %}
-    <p class="note">{{ unusual_note }}</p>
 </section>
 
-<section class="section">
-    <div class="section-head">
-        <div>
-            <h2 class="section-title">Analytical dataset</h2>
-            <p class="section-intro">Every selected record with its measured values and every derived indicator, plus the filters, definitions and software version needed to reproduce it.</p>
+<section class="band{{ ' alt' if choices.group else '' }}">
+    <div class="container wide">
+        <div class="section-head">
+            <div>
+                <h2 class="section-title">Analytical dataset. <span class="gray">Take it with you.</span></h2>
+                <p class="section-intro">Every selected record with its measured values and every derived indicator, plus the filters, definitions and software version needed to reproduce it.</p>
+            </div>
+            <div class="results-tools">
+                <a class="btn btn-small" href="{{ download_base }}&what=dataset" download>Download CSV</a>
+                <a class="btn-link" href="{{ download_base }}&what=dataset&format=xlsx" download>Excel</a>
+            </div>
         </div>
-        <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=dataset" download>Download CSV</a>
-            <a class="btn-link" href="{{ download_base }}&what=dataset&format=xlsx" download>Excel</a>
-        </div>
-    </div>
 
-    <details class="analysis-details">
-        <summary>How these numbers are calculated</summary>
-        <h3>Definition</h3>
-        <p>{{ info.label }} ({{ info.unit }}): {{ info.definition }}</p>
-        <h3>Missing and undefined values</h3>
-        <p>{{ methods.missing }}</p>
-        {% if info.ratio %}
-        <h3>Mean versus overall ratio</h3>
-        <p>{{ methods.mean_vs_overall }}</p>
-        {% endif %}
-        <h3>Quartiles and percentiles</h3>
-        <p>{{ methods.percentiles }}</p>
-        <h3>Standard deviation</h3>
-        <p>{{ methods.std }}</p>
-        {% if choices.variable.endswith("_change") or choices.variable.endswith("_change_pct") %}
-        <h3>Year-over-year change</h3>
-        <p>The previous year's value comes from the whole database, not only from this selection, so a selection of one year still has a value to compare with.</p>
-        {% endif %}
-    </details>
+        <details class="analysis-details">
+            <summary>How these numbers are calculated</summary>
+            <h3>Definition</h3>
+            <p>{{ info.label }} ({{ info.unit }}): {{ info.definition }}</p>
+            <h3>Missing and undefined values</h3>
+            <p>{{ methods.missing }}</p>
+            {% if info.ratio %}
+            <h3>Mean versus overall ratio</h3>
+            <p>{{ methods.mean_vs_overall }}</p>
+            {% endif %}
+            <h3>Quartiles and percentiles</h3>
+            <p>{{ methods.percentiles }}</p>
+            <h3>Standard deviation</h3>
+            <p>{{ methods.std }}</p>
+            {% if choices.variable.endswith("_change") or choices.variable.endswith("_change_pct") %}
+            <h3>Year-over-year change</h3>
+            <p>The previous year's value comes from the whole database, not only from this selection, so a selection of one year still has a value to compare with.</p>
+            {% endif %}
+        </details>
+    </div>
 </section>
 
 {% endif %}

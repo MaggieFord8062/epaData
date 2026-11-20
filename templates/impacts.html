@@ -1,46 +1,65 @@
 {% extends "base.html" %}
 {% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
+{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Impacts - epaData{% endblock %}
 
 {% block head %}{{ chart_scripts() }}{% endblock %}
 
-{% block content %}
+{% block localnav %}
+{{ analysis_nav(analysis_pages, request.path, request.full_path, (download_base ~ "&what=totals", "Download")) }}
+{% endblock %}
 
-<div class="page-head">
-    <h1>Impacts</h1>
-    <p>Potential environmental and health impacts of the selection's CO2, SO2 and NOx emissions, using EPA's TRACI 2.2 characterization factors. Each impact category keeps its own unit, and categories are never added together.</p>
+{% block main %}
+
+<section class="hero">
+    <div class="hero-inner">
+        <h1>Impacts</h1>
+        <p class="subhead">From tons emitted to potential harm.</p>
+        <p class="lede">Potential environmental and health impacts of the selection's CO2, SO2 and NOx, using EPA's TRACI 2.2 characterization factors. Each impact category keeps its own unit, and categories are never added together.</p>
+        {% include "_selection.html" %}
+    </div>
+</section>
+
+<section class="band tight">
+<div class="container wide">
+<div class="callout" style="margin: 0">
+    <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="9.2" y="8.6" width="1.6" height="6" rx="0.8" fill="currentColor"/><circle cx="10" cy="6" r="1" fill="currentColor"/></svg>
+    <p>{{ disclaimer }}</p>
 </div>
-
-{% include "_selection.html" %}
-
-<p class="notice">{{ disclaimer }}</p>
+</div>
+</section>
 
 {% if not factors %}
 
+<section class="band flush-top"><div class="container wide">
 <div class="empty">
     <h3>No TRACI factors are loaded</h3>
     <p>Run <code>python traci.py import</code> in the project folder to load them, then reload this page.</p>
 </div>
+</div></section>
 
 {% elif selection.records == 0 %}
 
+<section class="band flush-top"><div class="container wide">
 <div class="empty">
     <h3>No records in this selection</h3>
     <p>Nothing in the database matches these filters. Change the search in Explore, then come back here.</p>
-    <a class="btn btn-quiet" href="{{ explore_url }}">Back to Explore</a>
+    <a class="btn" href="{{ explore_url }}">Back to Explore</a>
 </div>
+</div></section>
 
 {% else %}
 
-<section class="section">
+<section class="band alt">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">Totals for the selection</h2>
+            <h2 class="section-title">Totals. <span class="gray">Every category in its own unit.</span></h2>
             <p class="section-intro">Emissions in short tons × {{ short_ton_kg }} = kilograms, then kilograms × the TRACI factor for each category. Per MWh divides by the gross load of the same records.</p>
         </div>
         <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=totals" download>Download CSV</a>
+            <a class="btn btn-small" href="{{ download_base }}&what=totals" download>Download CSV</a>
             <a class="btn-link" href="{{ download_base }}&what=totals&format=xlsx" download>Excel</a>
         </div>
     </div>
@@ -65,16 +84,17 @@
         </article>
         {% endfor %}
     </div>
+    <div class="chart-grid space-top">
+        {{ chart_card(charts.impact_shares, download_base, wide=true) }}
+    </div>
+</div>
 </section>
 
-<section class="section">
-    {{ chart_card(charts.impact_shares, wide=true) }}
-</section>
-
-<section class="section">
+<section class="band">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">By {{ group_options[choices.by]|lower }}</h2>
+            <h2 class="section-title">By {{ group_options[choices.by]|lower }}. <span class="gray">Where the impacts come from.</span></h2>
             <p class="section-intro">
                 {{ "{:,}".format(group_count) }} group{{ "" if group_count == 1 else "s" }}, sorted by {{ (categories|selectattr(0, "equalto", choices.isort)|first)[1] }}{{ " per MWh" if choices.per_mwh else "" }}.
                 {% if group_count > group_limit %}The first {{ group_limit }} are shown; the download has all of them.{% endif %}
@@ -82,7 +102,7 @@
             </p>
         </div>
         <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
+            <a class="btn btn-small" href="{{ download_base }}&what=groups" download>Download CSV</a>
             <a class="btn-link" href="{{ download_base }}&what=groups&format=xlsx" download>Excel</a>
         </div>
     </div>
@@ -97,15 +117,19 @@
             <option value="{{ key }}" {% if key == choices.by %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
-        <a class="btn btn-quiet btn-small" href="{{ per_mwh_link }}">{{ "Show totals" if choices.per_mwh else "Show per MWh" }}</a>
-        <noscript><button class="btn btn-quiet btn-small" type="submit">Apply</button></noscript>
+        <nav class="segmented" aria-label="Show">
+            <a href="{{ per_mwh_link if choices.per_mwh else request.full_path }}" {% if not choices.per_mwh %}class="is-active" aria-current="true"{% endif %}>Totals</a>
+            <a href="{{ per_mwh_link if not choices.per_mwh else request.full_path }}" {% if choices.per_mwh %}class="is-active" aria-current="true"{% endif %}>Per MWh</a>
+        </nav>
+        <noscript><button class="btn btn-gray btn-small" type="submit">Apply</button></noscript>
     </form>
 
-    <div class="space-top">
-        {{ chart_card(charts.impact_groups, wide=true) }}
+    <div class="chart-grid space-top">
+        {{ chart_card(charts.impact_groups, download_base, wide=true) }}
     </div>
 
-    <div class="table-wrap space-top">
+    <div class="table-card space-top">
+    <div class="table-wrap">
         <table class="data">
             <thead>
                 <tr>
@@ -134,19 +158,23 @@
             </tbody>
         </table>
     </div>
+    </div>
+</div>
 </section>
 
-<section class="section">
+<section class="band alt">
+<div class="container wide">
     <div class="section-head">
         <div>
-            <h2 class="section-title">TRACI factors used</h2>
+            <h2 class="section-title">TRACI factors used. <span class="gray">Exact matches only.</span></h2>
             <p class="section-intro">Every factor, where it came from, and how its TRACI row was matched to the CAMPD pollutant. No approximate name matching is used.</p>
         </div>
         <div class="results-tools">
-            <a class="btn btn-primary btn-small" href="{{ download_base }}&what=factors" download>Download CSV</a>
+            <a class="btn btn-small" href="{{ download_base }}&what=factors" download>Download CSV</a>
             <a class="btn-link" href="{{ download_base }}&what=records" download>Every record's impacts</a>
         </div>
     </div>
+    <div class="table-card">
     <div class="table-wrap">
         <table class="data">
             <thead>
@@ -175,6 +203,7 @@
             </tbody>
         </table>
     </div>
+    </div>
     <p class="note">{{ factors[0].traci_version }}. Official file: <a href="{{ official_url }}" target="_blank" rel="noopener">traci_2_2.xlsx</a> (<a href="{{ traci_page }}" target="_blank" rel="noopener">EPA TRACI page</a>). Source file SHA-256 <code>{{ factors[0].source_sha256[:16] }}…</code></p>
 
     <details class="analysis-details space-top">
@@ -190,6 +219,7 @@
         <p>{{ limitation }}</p>
         {% endfor %}
     </details>
+</div>
 </section>
 
 {% endif %}
