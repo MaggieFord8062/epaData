@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 
 import analysis
+import explain
 
 # ---------- Look ----------
 #
@@ -244,6 +245,9 @@ def bar_rows(figure, names, values=None, show_axis=False, suffix="", axis_title=
     figure["margin"] = dict(figure["margin"], l=4, t=22, r=8, b=bottom)
     figure["height"] = BAR_ROW * count + 22 + bottom
     figure["bargap"] = BAR_GAP
+    if show_axis:
+        # room for the first and last tick labels
+        figure["margin"].update(l=14, r=22)
     figure["yaxis"].update(showgrid=False, showticklabels=False, autorange="reversed", title={"text": ""},
                            fixedrange=True, automargin=False, type="category")
     bar_half = BAR_ROW * (1 - BAR_GAP) / 2
@@ -321,7 +325,7 @@ def spread_labels(annotations, gap_share=0.05):
 
 
 def hover_number(unit):
-    return "%{y:,.4~g} " + unit
+    return "%{y:,.4~r} " + unit
 
 
 def year_step(years):
@@ -399,6 +403,7 @@ def indexed_trend(frame):
     totals = frame.groupby("year")[keys].sum(min_count=1).reindex(years)
 
     data, dots, annotations, legend = [], [], [], []
+    details = {}
     columns = ["Year"] + [f"{names[k]} total ({unit_of(k)})" for k in keys] + [f"{names[k]} index" for k in keys]
     indexes = {}
     for key in keys:
@@ -418,6 +423,11 @@ def indexed_trend(frame):
             "hovertemplate": f"{names[key]}  <b>%{{y:.1f}}</b>  (total %{{customdata[0]:,.0f}} {unit_of(key)})"
                              "<extra></extra>",
         })
+        for point, year in enumerate(years):
+            if pd.notna(index[year]):
+                details[f"{len(data) - 1}:{point}"] = explain.index_detail(
+                    names[key], year, float(series[year]), float(series[base_year]), base_year, float(index[year]),
+                    unit_of(key))
         last = next((year for year in reversed(years) if pd.notna(index[year])), None)
         if last is not None:
             dots.append(end_dot(last, clean(index[last]), color, names[key]))
@@ -444,6 +454,18 @@ def indexed_trend(frame):
     spec = chart("indexed", title, data + dots, figure, columns, rows, note)
     spec["eyebrow"] = "Indexed to the first year = 100"
     spec["legend"] = legend
+    spec["details"] = details
+    spec["about"] = explain.about(
+        "How the yearly totals of CO2, SO2, NOx and gross load changed, all on one scale.",
+        "For each measure, every year's total over the selected records is divided by the same measure's total in "
+        "its first year with data, then multiplied by 100. A value of 80 means 20% below that first year; 150 "
+        "means 50% above it.",
+        "The four measures have different units (short tons and MWh) and very different sizes, so one axis in "
+        "real units would flatten SO2 and NOx, and two axes would invite false comparisons. Indexing puts every "
+        "line on the same scale, starting together at 100.",
+        "Lines under the dashed line at 100 are below their first year. When emissions fall faster than gross load, "
+        "each MWh is being generated with less pollution.",
+        explain.source_text(frame))
     return spec
 
 
@@ -453,6 +475,20 @@ def signed_percent(value):
     if abs(value) < 0.5:
         return "0%"
     return ("+" if value > 0 else "−") + f"{abs(value):,.0f}%"
+
+
+def split_words(split):
+    """'SO2 control' -> 'SO2 control', 'Fuel family' -> 'fuel family'."""
+    return lower_first(SPLITS[split])
+
+
+def series_drill(split, name):
+    """Explore filters for one line of a split trend, or None when Explore can't pick out exactly that group."""
+    if split == "none":
+        return {}
+    if split in ("so2_control", "nox_control") and name.startswith("No "):
+        return {split: "none"}
+    return None
 
 
 def trend(frame, key, split="none"):
@@ -469,10 +505,28 @@ def trend(frame, key, split="none"):
         series = [(name, frame[labels == name], colors[name]) for name in order if (labels == name).any()]
 
     single = len(series) == 1
+    changes = item["group"] != "Year-over-year change"
     data, dots, legend = [], [], []
+    details = {}
     columns = ["Year"]
     values_by_series = []
     for name, part, color in series:
+        found = explain.parts(part, key, part["year"])
+        filter_for = series_drill(split, name)
+        previous = None
+        for point, year in enumerate(years):
+            if year not in found.index or pd.isna(found.loc[year, "value"]):
+                previous = None
+                continue
+            row = found.loc[year]
+            facts = []
+            if changes and previous is not None and previous[1] != 0:
+                facts.append([f"Change from {previous[0]}",
+                              explain.signed_percent((row["value"] - previous[1]) / abs(previous[1]) * 100)])
+            drill = None if filter_for is None else dict(filter_for, reporting_year=int(year))
+            details[f"{len(data)}:{point}"] = explain.aggregate_detail(
+                key, row, str(year), "" if single else name, drill, facts)
+            previous = (year, float(row["value"]))
         table = analysis.aggregate(part, key, part["year"]).reindex(years)
         values = [clean(v) for v in table["value"]]
         counts = [0 if pd.isna(c) else int(c) for c in table["records"]]
@@ -482,7 +536,7 @@ def trend(frame, key, split="none"):
             "type": "scatter", "mode": "lines", "name": name, "legendgroup": name, "x": years, "y": values,
             "customdata": [[c] for c in counts],
             "line": {"color": color, "width": 3},
-            "hovertemplate": f"{text(name)}  <b>%{{y:,.4~g}} {item['unit']}</b>  (%{{customdata[0]:,}} records)"
+            "hovertemplate": f"{text(name)}  <b>%{{y:,.4~r}} {item['unit']}</b>  (%{{customdata[0]:,}} records)"
                              "<extra></extra>",
             "connectgaps": False,
         }
@@ -508,9 +562,20 @@ def trend(frame, key, split="none"):
         "Mean": "Each point is the year's average over the selected records.",
     }[word]
     spec = chart("trend", title, data + dots, figure, columns, rows, note)
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"{word if word != 'Overall ratio' else 'The overall'} {lower_first(item['label'])} for each year of the "
+        f"selection{'' if single else ', one line per ' + split_words(split)}.",
+        explain.how_aggregated(key) + " " + item["definition"],
+        "A line shows direction and turning points over time, and the years are evenly spaced, so slopes can be "
+        "compared directly. One measure, one axis.",
+        ("Move along the line to see each year in the headline; the pill compares it with the first year shown. "
+         "Use 5Y, 10Y or 20Y to look at recent years." if single else
+         "Each color is one group; select a name in the legend to hide or show its line."),
+        explain.source_text(frame))
     eyebrow = "Overall" if word == "Overall ratio" else word
     if not single:
-        spec["eyebrow"] = f"{eyebrow}, by {SPLITS[split].lower()}"
+        spec["eyebrow"] = f"{eyebrow}, by {split_words(split)}"
         spec["legend"] = legend
         return spec
 
@@ -520,7 +585,6 @@ def trend(frame, key, split="none"):
     first_year, first = present[0]
     last_year, last = present[-1]
     peak_year, peak = max(present, key=lambda pair: pair[1])
-    changes = item["group"] != "Year-over-year change"
     spec["headline"] = headline(
         last, item["unit"], f"In {last_year}",
         delta(percent_change(last, first), f"since {first_year}") if changes else None,
@@ -549,21 +613,37 @@ def bars(frame, key, group):
         "type": "bar", "orientation": "h", "x": values, "y": names,
         "customdata": [[int(r)] for r in shown["records"]],
         "marker": {"color": SERIES[0]},
-        "hovertemplate": "%{y}<br><b>%{x:,.4~g} " + item["unit"] + "</b>  (%{customdata[0]:,} records)<extra></extra>",
+        "hovertemplate": "%{y}<br><b>%{x:,.4~r} " + item["unit"] + "</b>  (%{customdata[0]:,} records)<extra></extra>",
     }, **value_labels(values))]
     figure = layout(title)
     bar_rows(figure, names, values)
 
     columns = [group_name, value_title(key), "Records"]
     rows = [[name, clean(row["value"]), int(row["records"])] for name, row in table.iterrows()]
+    found = explain.parts(frame, key, analysis.group_labels(frame, group))
+    total = float(table["value"].sum())
+    details = {}
+    for point, name in enumerate(shown.index):
+        facts = [["Rank", f"{point + 1} of {len(table)}"]]
+        if item["group"] == "Measured" and total > 0:
+            facts.append(["Share of the selection's total", f"{found.loc[name, 'value'] / total * 100:.1f}%"])
+        details[f"0:{point}"] = explain.aggregate_detail(key, found.loc[name], str(name), group_name,
+                                                         explain.drill_for(group, name), facts)
     note = f"Highest {len(shown)} of {len(table)} groups shown; the table and download have all of them."
     if len(table) <= BAR_LIMIT:
         note = f"All {len(table)} groups, highest first."
     spec = chart("bars", title, data, figure, columns, rows, note)
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"{value_title(key).rsplit(' (', 1)[0]} for each {group_name.lower()} in the selection, highest first.",
+        explain.how_aggregated(key) + " " + item["definition"],
+        "Bars compare amounts across categories: length is easy to judge, and sorting puts the ranking in reading "
+        "order. Names sit above the bars so long ones never squeeze them.",
+        "Each bar's number is its value; select a bar for the records and calculation behind it.",
+        explain.source_text(frame))
     word = analysis.aggregate_label(key)
     top = headline(values[0], item["unit"], f"{shown.index[0]}, the highest of {len(table)}",
                    eyebrow=f"Highest {group_name.lower()}")
-    total = float(table["value"].sum())
     if word == "Total" and len(table) > 1 and total > 0 and values[0] > 0:
         top["note"] = f"{values[0] / total * 100:.1f}% of the selection's total"
     spec["headline"] = top
@@ -617,7 +697,7 @@ def histogram(frame, key, scale="log"):
         "type": "bar", "x": [(a + b) / 2 for a, b in zip(lefts, rights)], "y": [int(c) for c in counts],
         "width": [(b - a) * 0.8 for a, b in zip(lefts, rights)],
         "customdata": ranges, "marker": {"color": SERIES[0]},
-        "hovertemplate": "%{customdata[0]:,.4~g} to %{customdata[1]:,.4~g} " + item["unit"]
+        "hovertemplate": "%{customdata[0]:,.4~r} to %{customdata[1]:,.4~r} " + item["unit"]
                          + "<br><b>%{customdata[2]:,} records</b><extra></extra>",
     }]
     figure = layout(title, f"{item['label']} ({item['unit']}{', log scale' if scale == 'log' else ''})", "",
@@ -646,6 +726,20 @@ def histogram(frame, key, scale="log"):
         note += " Some values are below 0, which a log scale can't show, so this chart uses a linear scale."
     columns = [f"From ({item['unit']})", f"To ({item['unit']})", "Records"]
     spec = chart("histogram", title, data, figure, columns, ranges, note)
+    spec["details"] = {f"0:{i}": explain.bin_detail(key, ranges[i][0], ranges[i][1], ranges[i][2], len(values), scale,
+                                                     i, bins) for i in range(len(ranges))}
+    spec["about"] = explain.about(
+        f"How many records have each value of {item['label']}: every bar counts the records in one range.",
+        f"The range from the smallest to the largest value is cut into {bins} bins of equal width"
+        + (" in powers of ten (a log scale)" if scale == "log" else "") + ", and the records in each bin are "
+        "counted. The dotted line is the median: half of the records are below it, half above.",
+        "A histogram shows the shape of the data: where most records fall, whether there are several groups, and "
+        "how long the tail of very large values is. Emissions are heavily skewed (a few large plants emit far more "
+        "than most units), so a log scale spreads small and large values evenly instead of crowding most records "
+        "into the first bar.",
+        "Taller bars mean more records in that range. Each label on the axis is ten times the one before on a log "
+        "scale.",
+        explain.source_text(frame))
     busiest = max(range(len(counts)), key=lambda index: counts[index])
     spec["headline"] = headline(median, item["unit"], f"half of the {len(values):,} records are above it", eyebrow="Median",
                                 note=f"Most common: {short_number(ranges[busiest][0])} to "
@@ -716,6 +810,20 @@ def box(frame, key, group, scale="log"):
     if switched:
         note += " Some values are below 0, which a log scale can't show, so this chart uses a linear scale."
     spec = chart("box", title, data, figure, columns, rows, note)
+    spec["detail_key"] = "x"
+    spec["details"] = {text(name): explain.box_detail(name, stats[index], item["label"], item["unit"],
+                                                       explain.drill_for(group, name), f"{group_name} · spread")
+                       for index, name in enumerate(names)}
+    spec["about"] = explain.about(
+        f"How the {item['label']} of individual records spreads out within each of the largest groups.",
+        "For each group, the records' values are sorted. The box runs from the 25th percentile (Q1) to the 75th "
+        "(Q3), so it holds the middle half; the line inside is the median and the dashed line the mean. The "
+        "whiskers reach the furthest values within 1.5 × the box's height.",
+        "One average per group hides how different the records inside it are. A box plot shows the middle, the "
+        "spread and the extremes of every group side by side.",
+        "A tall box means the group's records vary a lot. A median far below the mean means a few very large "
+        "values pull the average up.",
+        explain.source_text(frame))
     top = max(range(len(stats)), key=lambda index: stats[index]["median"])
     spec["headline"] = headline(stats[top]["median"], item["unit"], f"median of {names[top]}",
                                 eyebrow="Highest median")
@@ -727,9 +835,9 @@ def box(frame, key, group, scale="log"):
 def strength(r):
     size = abs(r)
     if size < 0.2:
-        return "little or no relationship"
+        return "Little or no relationship"
     word = "very strong" if size >= 0.9 else "strong" if size >= 0.7 else "moderate" if size >= 0.4 else "weak"
-    return f"{word}: {'they rise together' if r > 0 else 'one falls as the other rises'}"
+    return f"{word.capitalize()}: {'they rise together' if r > 0 else 'one falls as the other rises'}"
 
 
 def scatter(frame, x_key, y_key, scale="log"):
@@ -740,6 +848,7 @@ def scatter(frame, x_key, y_key, scale="log"):
         "x": frame[x_key], "y": frame[y_key],
         "family": frame["primary_fuel"].map(analysis.fuel_family),
         "name": analysis.unit_labels(frame), "year": frame["year"],
+        "facility": frame["facility_id"], "unit": frame["unit_id"],
     }).dropna(subset=["x", "y"])
     if scale == "log":
         data_frame = data_frame[(data_frame["x"] > 0) & (data_frame["y"] > 0)]
@@ -761,10 +870,12 @@ def scatter(frame, x_key, y_key, scale="log"):
             "type": "scattergl", "mode": "markers", "name": family, "legendgroup": family,
             "x": [float(v) for v in part["x"]], "y": [float(v) for v in part["y"]],
             "text": [f"{text(n)}, {int(y)}" for n, y in zip(part["name"], part["year"])],
+            "customdata": [[None if pd.isna(f) else int(f), "" if pd.isna(u) else str(u), int(y)]
+                           for f, u, y in zip(part["facility"], part["unit"], part["year"])],
             "marker": {"size": 7, "color": FAMILY_COLORS[family], "opacity": 0.7,
                        "line": {"color": SURFACE, "width": 0.5}},
-            "hovertemplate": "<b>%{text}</b><br>" + x_item["label"] + "  %{x:,.4~g} " + x_item["unit"]
-                             + "<br>" + y_item["label"] + "  %{y:,.4~g} " + y_item["unit"]
+            "hovertemplate": "<b>%{text}</b><br>" + x_item["label"] + "  %{x:,.4~r} " + x_item["unit"]
+                             + "<br>" + y_item["label"] + "  %{y:,.4~r} " + y_item["unit"]
                              + "<extra>" + family + "</extra>",
         })
         legend.append(legend_item(family, FAMILY_COLORS[family],
@@ -792,6 +903,23 @@ def scatter(frame, x_key, y_key, scale="log"):
     rows.append(["All", int(len(data_frame)), clean(spearman), clean(pearson)])
     spec = chart("scatter", title, data, figure, columns, rows, note)
     spec["legend"] = legend
+    spec["detail_template"] = {
+        "kind": "record",
+        "x": {"label": x_item["label"], "unit": x_item["unit"], "definition": x_item["definition"]},
+        "y": {"label": y_item["label"], "unit": y_item["unit"], "definition": y_item["definition"]},
+    }
+    spec["about"] = explain.about(
+        f"Each dot is one record (one unit in one year): its {x_item['label']} across and its {y_item['label']} up, "
+        "colored by fuel family.",
+        "Both values come straight from the record (or from its own reported values, for derived indicators). The "
+        "correlations in the headline use every record with both values; Spearman compares their ranks, Pearson "
+        "the values themselves.",
+        "A scatter plot shows whether two measurements rise together, one record at a time, including the records "
+        "that don't follow the pattern. Coal, gas and oil burn differently, so coloring by fuel separates lines "
+        "that would otherwise blur together.",
+        "Dots along a rising band mean the two rise together. Separate bands by color mean the relationship "
+        "differs by fuel." + (" Both axes are log scales." if scale == "log" else ""),
+        explain.source_text(frame))
     if pd.notna(spearman):
         spec["headline"] = {"value": f"{spearman:.2f}".replace("-", "−"), "unit": "Spearman correlation",
                             "context": strength(spearman), "delta": None, "eyebrow": "Relationship",
@@ -846,6 +974,20 @@ def correlation(frame, method="spearman"):
     if method == "spearman":
         note += " Spearman compares ranks, so a few very large plants don't dominate it."
     spec = chart("correlation", title, data, figure, columns, rows, note)
+    spec["detail_key"] = "yx"
+    spec["details"] = {f"{names[i]}|{names[j]}": explain.correlation_detail(names[j], names[i], z[i][j], counts[i][j],
+                                                                            method)
+                       for i in range(len(keys)) for j in range(len(keys)) if z[i][j] is not None}
+    spec["about"] = explain.about(
+        "How strongly each pair of measured and derived variables moves together, for every pair at once.",
+        ("Spearman correlation ranks each variable's values and correlates the ranks" if method == "spearman" else
+         "Pearson correlation measures how closely the two variables follow a straight line")
+        + f", using the records that have both values (at least {CORRELATION_MINIMUM}). It runs from −1 (one "
+        "falls as the other rises) through 0 (no relationship) to 1 (they rise together).",
+        "A heat map shows all the pairs in one view, with color for direction (blue together, red opposite) and "
+        "strength (darker is stronger), so the strong relationships stand out.",
+        "Read across a row and down a column to find a pair. The table is symmetric, and the diagonal is 1.",
+        explain.source_text(frame))
     if strongest:
         spec["headline"] = {"value": f"{strongest[0]:.2f}".replace("-", "−"), "unit": "correlation",
                             "context": f"{strongest[1]} and {strongest[2]}", "delta": None, "note": "",
@@ -896,6 +1038,19 @@ def rankings(frame, key, level="facility", min_load=DEFAULT_MIN_LOAD):
         common = (f" Only {noun} with at least {min_load:,.0f} MWh of gross load in the selection are ranked, so "
                   f"very small ones don't top the list by chance ({excluded:,} left out).")
 
+    labels = analysis.unit_labels(frame) if level == "unit" else analysis.group_labels(frame, "facility")
+    found = explain.parts(frame, key, labels)
+    ids = pd.DataFrame({"label": labels, "facility": frame["facility_id"], "unit": frame["unit_id"]}) \
+        .drop_duplicates("label").set_index("label")
+
+    def drill(name):
+        if name not in ids.index or pd.isna(ids.at[name, "facility"]):
+            return {}
+        filters = {"epa_facility_id": int(ids.at[name, "facility"])}
+        if level == "unit" and pd.notna(ids.at[name, "unit"]):
+            filters["epa_unit_id"] = str(ids.at[name, "unit"])
+        return filters
+
     def bar_chart(chart_id, title, part, note, eyebrow):
         names = [text(n) for n in part.index]
         values = [clean(v) for v in part["value"]]
@@ -903,7 +1058,7 @@ def rankings(frame, key, level="facility", min_load=DEFAULT_MIN_LOAD):
             "type": "bar", "orientation": "h", "x": values, "y": names,
             "customdata": [[clean(g)] for g in part["gross_load"]],
             "marker": {"color": SERIES[0]},
-            "hovertemplate": "%{y}<br><b>%{x:,.4~g} " + item["unit"]
+            "hovertemplate": "%{y}<br><b>%{x:,.4~r} " + item["unit"]
                              + "</b><br>Gross load %{customdata[0]:,.0f} MWh<extra></extra>",
         }, **value_labels(values))]
         figure = layout(title)
@@ -913,6 +1068,24 @@ def rankings(frame, key, level="facility", min_load=DEFAULT_MIN_LOAD):
         for rank, (name, row) in enumerate(part.iterrows(), start=1):
             rows.append([rank, name, clean(row["value"]), clean(row["gross_load"]), int(row["records"])])
         spec = chart(chart_id, title, data, figure, columns, rows, note)
+        pool = len(table) if chart_id == "rank_high" else len(lowest_pool)
+        spec["details"] = {
+            f"0:{point}": explain.aggregate_detail(
+                key, found.loc[name], str(name), "Unit" if level == "unit" else "Facility", drill(name),
+                [["Rank", f"{point + 1} {'highest' if chart_id == 'rank_high' else 'lowest'} of {pool:,}"],
+                 ["Gross load", explain.with_unit(clean(part.loc[name, "gross_load"]), "MWh")]])
+            for point, name in enumerate(part.index)}
+        spec["about"] = explain.about(
+            f"The {noun} at the {'top' if chart_id == 'rank_high' else 'bottom'} of the ranking by "
+            f"{value_title(key).rsplit(' (', 1)[0].lower()}.",
+            explain.how_aggregated(key) + f" Each of the {noun} is ranked by that value."
+            + (f" Only {noun} with at least {min_load:,.0f} MWh of gross load are ranked, so tiny ones with "
+               "unusual ratios don't top the list by chance." if item["ratio"] else "")
+            + (" Zeros are left out of the lowest, so they show the lowest that reported any." if item["additive"]
+               and chart_id == "rank_low" else ""),
+            "Horizontal bars leave room for long names and make the order easy to read from top to bottom.",
+            "Select a bar for the records behind it and a link to them in Explore.",
+            explain.source_text(frame))
         if len(part):
             spec["headline"] = headline(values[0], item["unit"], str(part.index[0]), eyebrow=eyebrow)
         return spec
@@ -960,7 +1133,7 @@ def state_map(frame, key):
         "customdata": [[int(r)] for r in table["records"]],
         "colorscale": SEQUENTIAL, "marker": {"line": {"color": SURFACE, "width": 1.5}},
         "colorbar": map_colorbar(item["unit"]),
-        "hovertemplate": "<b>%{text}</b><br>%{z:,.4~g} " + item["unit"] + "  (%{customdata[0]:,} records)<extra></extra>",
+        "hovertemplate": "<b>%{text}</b><br>%{z:,.4~r} " + item["unit"] + "  (%{customdata[0]:,} records)<extra></extra>",
     }]
     figure = map_layout(title, "#f5f5f7")
     columns = ["State", "State code", value_title(key), "Records"]
@@ -969,6 +1142,18 @@ def state_map(frame, key):
     note = (f"{analysis.aggregate_label(key)} for each state with records in the selection. Darker means higher; "
             "states in light gray have no records.")
     spec = chart("state_map", title, data, figure, columns, rows, note)
+    found = explain.parts(frame, key, frame["state"].fillna(analysis.NOT_REPORTED))
+    order = sorted(codes, key=lambda code: -(found.loc[code, "value"] or 0))
+    spec["details"] = {f"0:{point}": explain.aggregate_detail(
+        key, found.loc[code], f"{name} ({code})", "State", {"state": code},
+        [["Rank", f"{order.index(code) + 1} of {len(codes)}"]]) for point, (code, name) in enumerate(zip(codes, names))}
+    spec["about"] = explain.about(
+        f"{value_title(key).rsplit(' (', 1)[0]} for each state with records in the selection.",
+        explain.how_aggregated(key) + " Each state's records are combined that way; darker blue means higher.",
+        "A map shows where values are concentrated, which a list of states can't show at a glance. One blue from "
+        "light to dark keeps the order clear without suggesting good or bad.",
+        "States in light gray have no records in the selection. Select a state for its numbers.",
+        explain.source_text(frame))
     spec["headline"] = headline(rows[0][2], item["unit"], rows[0][0],
                                 eyebrow=f"Highest of {len(rows)} state{'' if len(rows) == 1 else 's'}")
     return spec
@@ -1005,14 +1190,22 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
 
     info = frame.drop_duplicates("facility_id").set_index("facility_id")
     names = [f"{text(info.at[i, 'facility_name'])} ({info.at[i, 'state']})" for i in shown.index]
+    found = explain.parts(frame, key, labels)
+    # For the detail drawn on click: id, records, records used, total (or numerator), denominator
+    facility_numbers = []
+    for i in shown.index:
+        row = found.loc[i]
+        first = row["num"] if item["ratio"] else row["value"]
+        second = row["den"] if item["ratio"] else None
+        facility_numbers.append([int(i), int(row["records"]), int(row["used"]), clean(first), clean(second)])
     data = [{
         "type": "scattergeo", "mode": "markers",
         "lat": [places[int(i)][0] for i in shown.index], "lon": [places[int(i)][1] for i in shown.index],
-        "text": names, "customdata": [[int(i)] for i in shown.index],
+        "text": names, "customdata": facility_numbers,
         "marker": {"size": 9, "color": [clean(v) for v in shown["value"]], "colorscale": SEQUENTIAL,
                    "line": {"color": SURFACE, "width": 1.5}, "opacity": 0.95,
                    "colorbar": map_colorbar(item["unit"])},
-        "hovertemplate": "<b>%{text}</b><br>%{marker.color:,.4~g} " + item["unit"] + "<extra></extra>",
+        "hovertemplate": "<b>%{text}</b><br>%{marker.color:,.4~r} " + item["unit"] + "<extra></extra>",
     }]
     figure = map_layout(title, "#f0f0f2")
     figure["geo"]["subunitcolor"] = "#d2d2d7"
@@ -1030,6 +1223,20 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
     if item["ratio"]:
         note += f" Facilities with under {min_load:,.0f} MWh of gross load are left out."
     spec = chart("facility_map", title, data, figure, columns, rows, note)
+    parts = explain.RATIO_PARTS.get(key)
+    spec["detail_template"] = {
+        "kind": "facility", "label": item["label"], "unit": item["unit"], "ratio": item["ratio"],
+        "kicker": explain.kicker_for(key),
+        "num": [parts[0], parts[1]] if parts else None, "den": [parts[2], parts[3]] if parts else None,
+        "scale": list(parts[4]) if parts and parts[4] else None,
+    }
+    spec["about"] = explain.about(
+        f"Every facility with a stored location, colored by its {value_title(key).rsplit(' (', 1)[0].lower()}.",
+        explain.how_aggregated(key) + " Each facility's records (all its units and years in the selection) are "
+        "combined that way.",
+        "Plotting each facility where it is shows clusters and outliers that a state total hides.",
+        "Darker dots are higher, and the highest are drawn on top. Select a dot for its numbers.",
+        explain.source_text(frame))
     top = max(rows, key=lambda row: row[4] if row[4] is not None else float("-inf"))
     spec["headline"] = headline(top[4], item["unit"], str(top[1]),
                                 eyebrow=f"Highest of {len(shown):,} facilit{'y' if len(shown) == 1 else 'ies'}")
@@ -1160,6 +1367,14 @@ def impact_share_chart(totals):
     spec = chart("impact_shares", title, data, figure, columns, rows, note)
     spec["explain"] = "Click any part of a bar to see exactly how its number was calculated."
     spec["eyebrow"] = "Share of each category, by pollutant"
+    spec["about"] = explain.about(
+        "For each potential impact category, how much of the selection's total comes from CO2, SO2 and NOx.",
+        "Each pollutant's mass is converted from short tons to kilograms (× 907.18474) and multiplied by its TRACI "
+        "2.2 characterization factor for the category. A pollutant's share is its part ÷ the category total × 100.",
+        "Categories have different units (kg CO2 eq, kg SO2 eq, ...) and must never be added together, so each "
+        "gets its own 100% bar; shares are comparable across categories even though the totals are not.",
+        "Select any colored part for its full calculation.",
+        "EPA CAMPD annual emissions (as selected in Explore) × EPA TRACI 2.2 characterization factors.")
     spec["legend"] = legend
     return spec
 
@@ -1249,6 +1464,18 @@ def impact_group_chart(rows, categories, choices, group_name):
         note += " Each bar is split by the pollutant it comes from."
     spec = chart("impact_groups", title, data, figure, columns, table, note)
     spec["explain"] = "Click any bar to see exactly how its number was calculated."
+    spec["about"] = explain.about(
+        f"The potential {name.lower()} impact of each {group_name.lower()}"
+        + (", per MWh of gross load." if per_mwh else ", split by the pollutant it comes from."),
+        "For every record, each pollutant's short tons × 907.18474 kg per short ton × its TRACI 2.2 factor; the "
+        "group's records are added up"
+        + (" and divided by their gross load." if per_mwh else ". Records missing a pollutant the category needs are "
+           "left out rather than counted as 0."),
+        "Horizontal bars rank the groups and leave room for long names" + ("" if per_mwh else
+        "; stacking shows which pollutant drives each group's impact") + ".",
+        "These are potential-impact indicators, not measured health or environmental outcomes. Select a bar for "
+        "its full calculation.",
+        "EPA CAMPD annual emissions (as selected in Explore) × EPA TRACI 2.2 characterization factors.")
     top = shown[0][key][field]
     spec["headline"] = headline(top, value_unit, f"{shown[0]['group']}, the highest of {len(usable)}",
                                 eyebrow=f"Highest {group_name.lower()}")

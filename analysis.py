@@ -423,6 +423,90 @@ def describe(frame, key, percentiles=None):
     return result
 
 
+# ---------- What the numbers say ----------
+
+def interpret(summary, key, groups=None, unusual_result=None):
+    """
+    Plain-language findings from the statistics, so the page explains the numbers instead of only
+    listing them. Returns a list of (heading, sentence). Every sentence is worked out from the
+    numbers passed in; nothing is assumed about the data.
+    """
+    item = VARIABLES[key]
+    unit = item["unit"]
+    label = item["label"]
+    findings = []
+    if not summary or not summary.get("count"):
+        return findings
+
+    def amount(value):
+        return f"{format_number(value)} {unit}"
+
+    median, mean = summary["median"], summary["mean"]
+    if summary.get("q1") is not None:
+        findings.append(("Typical value",
+                         f"Half of the records with a value are below {amount(median)}, and the middle half lies "
+                         f"between {amount(summary['q1'])} and {amount(summary['q3'])}."))
+
+    if median is not None and mean is not None and median > 0 and mean > 0:
+        ratio = mean / median
+        if ratio >= 1.25:
+            findings.append(("Skewed by large values",
+                             f"The mean ({amount(mean)}) is {ratio:.1f}× the median, so a few very large values pull "
+                             "the average up. The median describes a typical record better."))
+        elif ratio <= 0.8:
+            findings.append(("Pulled down by small values",
+                             f"The mean ({amount(mean)}) is below the median, so a group of small values pulls the "
+                             "average down."))
+        else:
+            findings.append(("Balanced",
+                             f"The mean ({amount(mean)}) and the median are close, so the values are spread fairly "
+                             "evenly around the middle."))
+
+    if summary.get("std") is not None and mean:
+        spread = summary["std"] / abs(mean)
+        if spread >= 1:
+            findings.append(("Wide spread",
+                             f"The standard deviation is {spread:.1f}× the mean: records differ enormously, which is "
+                             "why the charts use log scales."))
+        elif spread <= 0.25:
+            findings.append(("Narrow spread",
+                             f"The standard deviation is only {spread * 100:.0f}% of the mean: most records are "
+                             "close to each other."))
+
+    if item["ratio"] and summary.get("overall") is not None and mean:
+        overall = summary["overall"]
+        if abs(overall - mean) / abs(mean) >= 0.05:
+            findings.append(("Large units weigh more",
+                             f"The overall ratio ({amount(overall)}) is {'lower' if overall < mean else 'higher'} "
+                             f"than the average record ({amount(mean)}). Total ÷ total weights each record by its "
+                             f"size, so the large units have {'lower' if overall < mean else 'higher'} {label} than "
+                             "the small ones."))
+
+    # Missing values are explained in the note under the statistics; only say so when there are none
+    if not summary["missing"]:
+        findings.append(("Complete", f"Every one of the {summary['records']:,} records has a value."))
+
+    usable = [row for row in (groups or []) if row["group"] != NOT_REPORTED]
+    measure = "overall" if item["ratio"] else ("total" if item["additive"] else "mean")
+    usable = [row for row in usable if row.get(measure) is not None]
+    if len(usable) >= 2:
+        high = max(usable, key=lambda row: row[measure])
+        low = min(usable, key=lambda row: row[measure])
+        text = (f"{high['group']} has the highest {('overall ' if item['ratio'] else measure + ' ')}{label} "
+                f"({amount(high[measure])}) and {low['group']} the lowest ({amount(low[measure])})")
+        if low[measure] and low[measure] > 0 and high[measure] > 0:
+            text += f", {high[measure] / low[measure]:,.1f}× apart"
+        findings.append(("Groups", text + "."))
+
+    flagged = (unusual_result["above"] + unusual_result["below"]) if unusual_result else 0
+    if flagged:
+        findings.append(("Unusual values",
+                         f"{flagged:,} records ({unusual_result['share']:.1f}%) lie outside Tukey's "
+                         f"fences: {unusual_result['above']:,} above {amount(unusual_result['high'])} and "
+                         f"{unusual_result['below']:,} below {amount(unusual_result['low'])}."))
+    return findings
+
+
 # ---------- Unusual observations (proposal goal 5) ----------
 
 UNUSUAL_RULE = ("A value is unusual when it is more than 1.5 × the interquartile range (IQR) below the first "

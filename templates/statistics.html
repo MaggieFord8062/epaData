@@ -145,6 +145,20 @@
             </dl>
         </div>
 
+        {% if findings %}
+        <div class="findings" aria-labelledby="findings-title">
+            <h3 class="findings-title" id="findings-title">What the numbers say</h3>
+            <div class="findings-grid">
+                {% for heading, sentence in findings %}
+                <article class="finding">
+                    <h4>{{ heading }}</h4>
+                    <p>{{ sentence }}</p>
+                </article>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if summary.missing %}
         <p class="note">
             {{ "{:,}".format(summary.missing) }} of {{ "{:,}".format(summary.records) }} records have no value for this variable and are left out of every statistic above.

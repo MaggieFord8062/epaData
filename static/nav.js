@@ -153,6 +153,60 @@
         attachSuggest(searchInput, document.getElementById("gn-search-results"));
     }
 
+    // Chapter links (the dashboard's sections): the one being read is highlighted, and it stays in view
+    var chapters = document.querySelector("[data-chapters]");
+    if (chapters) {
+        var links = Array.prototype.slice.call(chapters.querySelectorAll("a[href^='#']"));
+        var sections = links.map(function (link) {
+            return document.getElementById(link.getAttribute("href").slice(1));
+        });
+        var current = null;
+        var mark = function (id) {
+            if (id === current) {
+                return;
+            }
+            current = id;
+            links.forEach(function (link) {
+                var active = link.getAttribute("href") === "#" + id;
+                if (active) {
+                    link.setAttribute("aria-current", "true");
+                    var box = link.getBoundingClientRect();
+                    var bar = chapters.firstElementChild;
+                    var edge = bar.getBoundingClientRect();
+                    if (box.left < edge.left || box.right > edge.right) {
+                        bar.scrollLeft += box.left - edge.left - 16;
+                    }
+                } else {
+                    link.removeAttribute("aria-current");
+                }
+            });
+        };
+        var update = function () {
+            // the last section whose top has passed a line just under the bars
+            var found = null;
+            sections.forEach(function (section) {
+                if (section && section.getBoundingClientRect().top <= 140) {
+                    found = section.id;
+                }
+            });
+            mark(found || (sections[0] && sections[0].id));
+        };
+        update();
+        window.addEventListener("scroll", update, { passive: true });
+        var smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+        links.forEach(function (link) {
+            link.addEventListener("click", function (event) {
+                var target = document.getElementById(link.getAttribute("href").slice(1));
+                if (!target) {
+                    return;
+                }
+                event.preventDefault();
+                target.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+                history.replaceState(null, "", link.getAttribute("href"));
+            });
+        });
+    }
+
     // Local nav: on small screens the page links fold into a menu under the title
     var localNav = document.getElementById("ln");
     var localToggle = document.getElementById("ln-toggle");

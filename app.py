@@ -1666,6 +1666,7 @@ def statistics():
         key: statistics_url(filters, choices, gsort=key) for key in analysis.GROUP_SORTS
     }
     download_base = statistics_url(filters, choices).replace("/statistics?", "/statistics/download?", 1)
+    unusual = analysis.unusual(frame, variable)
 
     return render_template(
         "statistics.html",
@@ -1682,7 +1683,8 @@ def statistics():
         group_options=analysis.GROUPS,
         group_sorts=analysis.GROUP_SORTS,
         percentile_label=analysis.percentile_label,
-        unusual=analysis.unusual(frame, variable),
+        unusual=unusual,
+        findings=analysis.interpret(summary, variable, groups, unusual),
         unusual_rule=analysis.UNUSUAL_RULE,
         unusual_note=analysis.UNUSUAL_NOTE,
         methods={

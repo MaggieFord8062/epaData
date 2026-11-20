@@ -14,6 +14,7 @@ the same card above each chart (eyebrow, headline number, legend).
 """
 
 import analysis
+import explain
 import prediction
 from dashboard import (FAMILY_COLORS, INK, INK_2, OTHER, SERIES, SURFACE, bar_rows, chart, clean,
                        delta, empty_chart, end_dot, gradient, headline, layout, legend_item, percent_change,
@@ -66,7 +67,7 @@ def model_errors(result):
         "type": "bar", "orientation": "h", "x": values, "y": names,
         "marker": {"color": colors},
         "customdata": [[result["validation"][kind]["mae"], result["test"][kind]["r2"]] for kind in kinds],
-        "hovertemplate": "<b>%{y}</b><br>Test MAE %{x:,.4~g} short tons<br>Validation MAE %{customdata[0]:,.4~g}"
+        "hovertemplate": "<b>%{y}</b><br>Test MAE %{x:,.4~r} short tons<br>Validation MAE %{customdata[0]:,.4~r}"
                          "<extra></extra>",
     }, **value_labels(values))]
     figure = layout(title)
@@ -79,6 +80,41 @@ def model_errors(result):
             "was refit on the training and validation years and scored once on the test year; the chosen model had "
             "the lowest error on the validation years.")
     spec = chart("model_errors", title, data, figure, columns, rows, note)
+    details = {}
+    for point, kind in enumerate(kinds):
+        test = result["test"][kind]
+        name = prediction.MODELS[kind]["name"]
+        records = test.get("n") or result["counts"]["test"]
+        details[f"0:{point}"] = {
+            "kicker": f"Test year {year} · {target}", "title": names[point],
+            "value": explain.number(test["mae"]), "unit": "short tons, average miss",
+            "summary": (f"On average, the {name.lower()}'s prediction for a {year} record was "
+                        f"{explain.number(test['mae'])} short tons away from what the unit actually reported."),
+            "calc": [{"op": "Σ", "label": f"|predicted − actual| over {records:,} test-year records", "value": ""},
+                     {"op": "÷", "label": "Records", "value": f"{records:,}"},
+                     {"op": "=", "label": "Mean absolute error", "value": explain.with_unit(test["mae"], "short tons"),
+                      "result": True}],
+            "facts": [["Validation MAE", explain.with_unit(result["validation"][kind]["mae"], "short tons")],
+                      ["Test RMSE", explain.with_unit(test["rmse"], "short tons")],
+                      ["Test R²", "—" if test["r2"] is None else f"{test['r2']:.3f}".replace("-", "−")],
+                      ["Weighted % error", "—" if test["wape"] is None else f"{test['wape']:.1f}%"],
+                      ["Mean error (bias)", explain.with_unit(test["bias"], "short tons")]],
+            "note": ("The baseline ignores every input and always predicts the training years' average; a useful "
+                     "model has to beat it." if kind == "mean" else
+                     "Chosen because it had the lowest error on the validation years, before the test year was "
+                     "scored." if kind == result["chosen"] else ""),
+            "drill": {},
+        }
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"How far each model's predictions were from the actual {target} of the {year} records it never saw.",
+        "Each model is fitted on the training years, compared on the validation years, then refitted on both and "
+        "scored once on the test year. Mean absolute error is the average of |predicted − actual| over the "
+        "test-year records, in short tons.",
+        "Bars make it easy to see how much smaller the models' errors are than the baseline's; a model is only "
+        "useful if its bar is clearly shorter than the gray one.",
+        "Shorter is better. Select a bar for every score of that model.",
+        f"{explain.SOURCE}. Test year {year}: {result['counts']['test']:,} unit records.")
     chosen = result["chosen"]
     baseline = result["test"]["mean"]["mae"]
     mae = result["test"][chosen]["mae"]
@@ -115,10 +151,13 @@ def predicted_actual(result):
         data.append({
             "type": "scattergl", "mode": "markers", "name": family, "legendgroup": family,
             "x": part["actual"].tolist(), "y": part[column].tolist(),
-            "customdata": [[text(label), pct] for label, pct in zip(part["label"], error_pct)],
+            "customdata": [[text(label), pct, load, heat, hours, unit_type]
+                           for label, pct, load, heat, hours, unit_type in zip(
+                               part["label"], error_pct, part["gross_load"], part["heat_input"],
+                               part["operating_time"], part["unit_type"].fillna("Not reported"))],
             "marker": {"color": color, "size": 7, "opacity": 0.72, "line": {"color": SURFACE, "width": 0.5}},
-            "hovertemplate": "<b>%{customdata[0]}</b><br>Actual  %{x:,.4~g} short tons<br>"
-                             "Predicted  %{y:,.4~g} short tons<br>Miss  %{customdata[1]:+.1f}%<extra>" + family
+            "hovertemplate": "<b>%{customdata[0]}</b><br>Actual  %{x:,.4~r} short tons<br>"
+                             "Predicted  %{y:,.4~r} short tons<br>Miss  %{customdata[1]:+.1f}%<extra>" + family
                              + "</extra>",
         })
         legend.append(legend_item(family, color, f"{int((shown['fuel_family'] == family).sum()):,} records", "dot"))
@@ -148,6 +187,19 @@ def predicted_actual(result):
         note += f" A random sample of {SCATTER_LIMIT:,} of {len(shown):,} records is drawn; the table has all of them."
     spec = chart("predicted_actual", title, data, figure, columns, rows, note)
     spec["legend"] = legend
+    spec["detail_template"] = {"kind": "prediction", "target": target, "year": year,
+                               "model": prediction.MODELS[chosen]["name"]}
+    spec["about"] = explain.about(
+        f"Every {year} record: the {target} the unit actually reported (across) and what the "
+        f"{prediction.MODELS[chosen]['name'].lower()} predicted from its inputs (up).",
+        "The model was trained on earlier years only. For each test-year record it takes the unit's gross load, "
+        "heat input, operating time, fuel family, unit type and control flags, and predicts the year's emissions; "
+        "the miss is predicted − actual.",
+        "Plotting predicted against actual shows every miss at once, including which kinds of units the model gets "
+        "wrong; one summary score can't show that. Log scales because units range from a few tons to millions.",
+        "Points on the dashed line are perfect predictions; above it the model predicted too much, below it too "
+        "little. Select a point for that record's inputs and miss.",
+        f"{explain.SOURCE}. Test year {year}: {len(tested):,} unit records.")
     r2 = result["test"][chosen]["r2"]
     if r2 is not None:
         spec["headline"] = big_number(f"{r2:.2f}".replace("-", "−"), "R²",
@@ -170,7 +222,7 @@ def trend_forecast(trend, target):
         "x": years, "y": actual, "line": {"color": SERIES[0], "width": 3},
         "fill": "tozeroy", "fillgradient": gradient(SERIES[0], 0.18),
         "customdata": [row["units"] for row in totals],
-        "hovertemplate": "Actual  <b>%{y:,.4~g} short tons</b>  (%{customdata:,} units)<extra></extra>",
+        "hovertemplate": "Actual  <b>%{y:,.4~r} short tons</b>  (%{customdata:,} units)<extra></extra>",
     }]
     styles = {"linear": (SERIES[1], "dash"), "tree": (SERIES[2], "dash"), "mean": (REFERENCE, "dot")}
     legend = [legend_item("Actual total", SERIES[0], f"{short_number(actual[-1])} in {years[-1]}")]
@@ -183,7 +235,7 @@ def trend_forecast(trend, target):
             "type": "scatter", "mode": "lines", "name": name, "legendgroup": name,
             "x": years + future, "y": values,
             "line": {"color": color, "width": 2, "dash": dash, "shape": "hv" if kind == "tree" else "linear"},
-            "hovertemplate": name + "  %{y:,.4~g} short tons<extra></extra>",
+            "hovertemplate": name + "  %{y:,.4~r} short tons<extra></extra>",
         })
         if future:
             legend.append(legend_item(name, color, f"{short_number(values[-1])} in {future[-1]}", "dash"))
@@ -224,6 +276,60 @@ def trend_forecast(trend, target):
             "validation and test years, the blue band the forecast.")
     spec = chart("trend_forecast", title, data + dots, figure, columns, rows, note)
     spec["legend"] = legend
+    role = {}
+    for name, band in (("training", split["train"]), ("validation", split["validation"]), ("test", split["test"])):
+        for item in band:
+            role[item] = name
+    details = {}
+    for point, row in enumerate(totals):
+        details[f"0:{point}"] = {
+            "kicker": f"Total {label} · actual", "title": str(row["year"]),
+            "value": explain.big(row["total"], "short tons")[0], "unit": explain.big(row["total"], "short tons")[1],
+            "summary": f"The {label} of every unit in the selection that reported in {row['year']}, added up.",
+            "calc": [{"op": "Σ", "label": f"{label} of {row['units']:,} units", "value": ""},
+                     {"op": "=", "label": f"Total {label}", "value": explain.with_unit(row["total"], "short tons"),
+                      "result": True}],
+            "facts": [["Units reporting", f"{row['units']:,}"],
+                      ["Used for", {"training": "Training the trend models", "validation": "Choosing a model",
+                                    "test": "The final test"}.get(role.get(row["year"]), "—")]],
+            "note": "Totals also change when units start or stop reporting.",
+            "drill": {"reporting_year": int(row["year"])},
+        }
+    by_year = {row["year"]: row["total"] for row in totals}
+    for offset, kind in enumerate(("linear", "tree", "mean"), start=1):
+        name = prediction.MODELS[kind]["name"]
+        values = trend["forecast"]["fitted"][kind] + [row[kind] for row in trend["forecast"]["rows"]]
+        for point, (year_value, value) in enumerate(zip(years + future, values)):
+            actual_value = by_year.get(year_value)
+            facts = [["Actual total", explain.with_unit(actual_value, "short tons")]] if actual_value is not None else []
+            if actual_value is not None:
+                facts.append(["Difference", explain.signed_percent((value - actual_value) / actual_value * 100)
+                              if actual_value else "—"])
+            details[f"{offset}:{point}"] = {
+                "kicker": name, "title": f"{year_value}{' forecast' if year_value in future else ''}",
+                "value": explain.big(value, "short tons")[0], "unit": explain.big(value, "short tons")[1],
+                "summary": ({"linear": "A straight line through every year's total, extended past the last year.",
+                             "tree": "A shallow decision tree splits the years into periods and predicts each "
+                                     "period's average; it can't extend a trend, so its forecast stays flat.",
+                             "mean": "The average of every year's total, the same for every year."}[kind]),
+                "calc": [{"op": "=", "label": f"{name} for {year_value}", "value": explain.with_unit(value, "short tons"),
+                          "result": True}],
+                "facts": facts,
+                "note": ("A forecast assumes the past pattern continues; it can't know about new plants, closures or "
+                         "rules." if year_value in future else ""),
+                "drill": {},
+            }
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"The selection's total {label} for each year, three simple models of the trend, and where each would "
+        "go next.",
+        "Each year's total adds up every reporting unit. The models use only the year: a straight line (linear "
+        "regression), a shallow decision tree, and the average of all years as a baseline. They are scored on the "
+        "validation and test years (shaded), then refitted on every year for the forecast.",
+        "A line chart shows the history and the forecasts on one time axis, so you can judge whether a model "
+        "follows the pattern before trusting where it goes.",
+        "Solid is what happened; dashed and dotted are models. The blue band is the future.",
+        f"{explain.SOURCE}, totals of every unit in the selection.")
     chosen = trend.get("chosen")
     forecast_note = ""
     if chosen and future:
@@ -248,8 +354,8 @@ def sensitivity(rows, baseline, variable, target, kind, ranges, base_prediction)
     def details(row):
         return [percent(row["input_change_pct"]), signed(row["change"], " short tons"), percent(row["change_pct"])]
 
-    hover = ("<b>" + info["label"] + " %{x:,.4~g} " + info["unit"] + "</b> (%{customdata[0]})<br>"
-             "Predicted %{y:,.4~g} short tons<br>Change %{customdata[1]} (%{customdata[2]})")
+    hover = ("<b>" + info["label"] + " %{x:,.4~r} " + info["unit"] + "</b> (%{customdata[0]})<br>"
+             "Predicted %{y:,.4~r} short tons<br>Change %{customdata[1]} (%{customdata[2]})")
     data = [{
         "type": "scatter", "mode": "lines", "name": "Prediction", "showlegend": False,
         "x": [row["value"] for row in rows], "y": [row["prediction"] for row in rows],
@@ -281,8 +387,8 @@ def sensitivity(rows, baseline, variable, target, kind, ranges, base_prediction)
         "x": [base_x], "y": [base_prediction], "text": ["Baseline"], "textposition": "top left",
         "textfont": {"color": INK, "size": 12}, "cliponaxis": False,
         "marker": {"color": INK, "size": 12, "line": {"color": SURFACE, "width": 3}},
-        "hovertemplate": ("<b>Baseline</b><br>" + info["label"] + " %{x:,.4~g} " + info["unit"]
-                          + "<br>Predicted %{y:,.4~g} short tons<extra></extra>"),
+        "hovertemplate": ("<b>Baseline</b><br>" + info["label"] + " %{x:,.4~r} " + info["unit"]
+                          + "<br>Predicted %{y:,.4~r} short tons<extra></extra>"),
     })
     legend.append(legend_item("Baseline", INK, "", "dot"))
     figure = layout(title, f"{info['label']} ({info['unit']})", "", height=400)
@@ -325,6 +431,53 @@ def sensitivity(rows, baseline, variable, target, kind, ranges, base_prediction)
             f"{analysis.format_number(train_high)} {info['unit']}.")
     spec = chart("sensitivity", title, data, figure, columns, table, note)
     spec["legend"] = legend
+    held = [fact for fact in explain.model_inputs(baseline["inputs"]) if fact[0] != info["label"]]
+
+    def sweep_detail(row):
+        return {
+            "kicker": f"Only {info['label'].lower()} changes",
+            "title": f"{info['label']} {explain.with_unit(row['value'], info['unit'])}",
+            "value": explain.big(row["prediction"], "short tons")[0],
+            "unit": "predicted " + explain.big(row["prediction"], "short tons")[1],
+            "summary": (f"This is the baseline unit's own {info['label'].lower()}, so the prediction is the baseline "
+                        "prediction." if row["input_change_pct"] is not None and abs(row["input_change_pct"]) < 0.05
+                        else f"Setting {info['label'].lower()} {explain.signed_percent(row['input_change_pct'])} away "
+                             f"from the baseline changes the predicted {label} by "
+                             f"{explain.signed_percent(row['change_pct'])}, with every other input unchanged."),
+            "calc": [{"op": "", "label": "Prediction at this value", "value": explain.with_unit(row["prediction"], "short tons")},
+                     {"op": "−", "label": "Baseline prediction", "value": explain.with_unit(base_prediction, "short tons")},
+                     {"op": "=", "label": "Change", "value": signed(row["change"], " short tons"), "result": True},
+                     {"op": "÷", "label": "Baseline prediction", "value": explain.with_unit(base_prediction, "short tons")},
+                     {"op": "=", "label": "Change in %", "value": percent(row["change_pct"]), "result": True}],
+            "facts": [["Input change", percent(row["input_change_pct"])],
+                      ["Inside the training range", "No ⚠" if row["outside"] else "Yes"]] + held,
+            "note": ("⚠ This value is outside what the model saw in training, so the prediction is an extrapolation."
+                     if row["outside"] else ""),
+            "drill": {},
+        }
+
+    details = {f"1:{point}": sweep_detail(row) for point, row in enumerate(inside)}
+    if beyond:
+        details.update({f"2:{point}": sweep_detail(row) for point, row in enumerate(beyond)})
+    details[f"{len(data) - 1}:0"] = {
+        "kicker": "Baseline", "title": baseline.get("label", "Baseline unit"),
+        "value": explain.big(base_prediction, "short tons")[0],
+        "unit": "predicted " + explain.big(base_prediction, "short tons")[1],
+        "summary": f"The model's prediction for the baseline unit's actual {baseline['year']} inputs.",
+        "calc": [], "facts": explain.model_inputs(baseline["inputs"]), "note": "", "drill": {},
+    }
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"How the predicted {label} responds when only {info['label'].lower()} changes.",
+        f"Starting from the baseline unit's actual inputs, {info['label'].lower()} is set to each value along the "
+        "axis while every other input stays exactly at the baseline, and the fitted model predicts each time. "
+        "Change = prediction − baseline prediction; % change = change ÷ baseline prediction × 100.",
+        "A sensitivity curve shows the whole response, not just one what-if: where it is steep, flat, or (for a "
+        "decision tree) jumps in steps.",
+        "The dashed lines cross at the baseline. Open orange circles and the shaded side are outside the training "
+        "range. This is how the model responds, not a promise of how a real plant would.",
+        f"Model trained on {explain.SOURCE.split(',')[0]}; baseline: {baseline.get('label', 'the chosen unit')}, "
+        f"{baseline['year']}.")
     predictions = [row["prediction"] for row in rows]
     spec["headline"] = headline(base_prediction, "short tons",
                                 f"predicted at the baseline's {analysis.format_number(base_x)} {info['unit']}",
@@ -355,7 +508,7 @@ def scenario_bars(rows, target, base_prediction):
         "textfont": {"color": INK, "size": 12},
         "customdata": [[row["about"], signed(row["change"], " short tons"), percent(row["change_pct"]),
                         "<br>⚠ " + "<br>⚠ ".join(row["warnings"]) if row["warnings"] else ""] for row in rows],
-        "hovertemplate": ("<b>%{y}</b><br>%{customdata[0]}<br>Predicted %{x:,.4~g} short tons<br>"
+        "hovertemplate": ("<b>%{y}</b><br>%{customdata[0]}<br>Predicted %{x:,.4~r} short tons<br>"
                           "Change %{customdata[1]} (%{customdata[2]})%{customdata[3]}<extra></extra>"),
     }]
     figure = layout(title)
@@ -371,6 +524,34 @@ def scenario_bars(rows, target, base_prediction):
     note = ("The gray bar and the dashed line are the baseline prediction. Striped bars and ⚠ mark scenarios with an "
             "input outside what the model saw in training; treat them as extrapolations.")
     spec = chart("scenarios", title, data, figure, columns, table, note)
+    details = {}
+    for point, row in enumerate(rows):
+        calc = [{"op": "", "label": "Scenario prediction", "value": explain.with_unit(row["prediction"], "short tons")},
+                {"op": "−", "label": "Baseline prediction", "value": explain.with_unit(base_prediction, "short tons")},
+                {"op": "=", "label": "Change", "value": signed(row["change"], " short tons"), "result": True},
+                {"op": "÷", "label": "Baseline prediction", "value": explain.with_unit(base_prediction, "short tons")},
+                {"op": "=", "label": "Change in %", "value": percent(row["change_pct"]), "result": True}]
+        details[f"0:{point}"] = {
+            "kicker": "Scenario" if row["key"] != "baseline" else "Baseline",
+            "title": row["name"],
+            "value": explain.big(row["prediction"], "short tons")[0],
+            "unit": "predicted " + explain.big(row["prediction"], "short tons")[1],
+            "summary": row["about"],
+            "calc": calc if row["key"] != "baseline" else [],
+            "facts": explain.model_inputs(row["inputs"]),
+            "note": " ".join("⚠ " + warning for warning in row["warnings"]),
+            "drill": {},
+        }
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"The predicted {label} for the baseline unit and for each named what-if.",
+        "Each scenario copies the baseline unit's inputs, changes only the ones it names, and runs the same fitted "
+        "model. Change = scenario − baseline; % change = change ÷ baseline × 100.",
+        "Bars put every scenario beside the baseline, so the size and direction of each change is clear at a "
+        "glance.",
+        "The gray bar and dashed line are the baseline. Striped bars have an input outside the training range; "
+        "treat them as extrapolations. Select a bar for its inputs.",
+        f"{explain.SOURCE}; predictions from the model trained on this selection.")
     changed = [row for row in rows if row["key"] != "baseline" and row["change_pct"] is not None]
     if changed:
         biggest = max(changed, key=lambda row: abs(row["change_pct"]))

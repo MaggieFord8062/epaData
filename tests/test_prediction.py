@@ -13,7 +13,9 @@ The chronological split for 2018–2023 is: train 2018–2020, validate 2021–2
 """
 
 import io
+import json
 import os
+import re
 
 import numpy as np
 import pandas as pd
@@ -262,6 +264,12 @@ def test_predictions_page_and_downloads(client, synthetic_explore):
     for text in ("Three models. One honest test.", "Mean baseline", "Linear regression", "Decision tree",
                  "No target leakage", "2018–2020", "2021–2022", "Chosen", "Year-trend forecast", "Biggest misses"):
         assert text in page
+    # Every chart explains itself, and selecting a bar shows how its error was calculated
+    for chart_id in ("model_errors", "predicted_actual", "trend_forecast"):
+        assert f'id="about-{chart_id}"' in page and f'id="explain-{chart_id}"' in page
+    errors = json.loads(re.search(r'<script type="application/json" id="spec-model_errors">(.*?)</script>', page,
+                                  re.S).group(1))
+    assert errors["details"]["0:0"]["calc"][-1]["label"] == "Mean absolute error"
     evaluation = client.get("/predictions/download?what=evaluation")
     text = evaluation.get_data(as_text=True)
     for line in ("# Prediction target", "# Training years,2018–2020 (120 records)", "# Test year,2023 (40 records)",
@@ -287,6 +295,10 @@ def test_scenarios_page_and_downloads(client, synthetic_explore):
     assert "# Held constant,Every other input at the baseline value" in text
     assert '# Baseline,"Plant 7 (KY) unit 1, 2023 (unit key 7)"' in text
     assert len(read_csv(sweep)) == 11
+    scenarios_spec = json.loads(re.search(r'<script type="application/json" id="spec-scenarios">(.*?)</script>',
+                                          page, re.S).group(1))
+    heat = next(detail for detail in scenarios_spec["details"].values() if detail["title"] == "Heat input −5%")
+    assert heat["calc"][-1]["value"] == "−5.0%"
     compared = read_csv(client.get("/scenarios/download?model=linear&unit=7&what=scenarios"))
     assert compared.loc[compared["Scenario"] == "Heat input −5%", "Change from baseline (%)"].iloc[0] == \
         pytest.approx(-5.0, abs=1e-6)

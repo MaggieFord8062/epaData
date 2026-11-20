@@ -180,7 +180,7 @@ After step 3, each of these should work exactly as described.
 | 17 | **Download CSV** in the analytical dataset section | Every selected record with all derived indicators, with the filters, definitions and software version at the top of the file |
 | 18 | Explore sidebar → **NOx control: None reported**, **Emissions program: ARP**, **Reporting years 2020 to 2025** | Only ARP units without a NOx control from 2020 on; **Variables available for analysis** lists every variable with its missing values |
 | 19 | Explore `coal` → **Analyze: Dashboard** | Indexed trend of CO2, SO2, NOx and gross load, bar chart by state, distribution, scatter, correlation heat map, highest and lowest facilities, and two maps |
-| 20 | On the dashboard choose **Variable: CO2 intensity** and **Compare by: Primary fuel** | Charts switch to overall CO2 intensity; hover any chart for values, **PNG image** saves it, **Data CSV** saves its numbers with metadata |
+| 20 | On the dashboard choose **Variable: CO2 intensity** and **Compare by: Primary fuel**, then click the **Coal** bar | Charts switch to overall CO2 intensity; the Coal bar opens its calculation (total CO2 ÷ total gross load, with both totals), the records, units and years behind it, and **See these records in Explore**; **About** explains each chart, **PNG image** saves it, **Data CSV** saves its numbers with metadata |
 | 21 | **Compare** → **Reporting periods**, A = 2015 to 2017, B = 2023 to 2025, tick **Only units with records in both periods** | Summary statistics for both periods, differences, every normalized indicator, Welch's t-test and Mann–Whitney results in plain language, and every year ranked |
 | 22 | **Compare** → **With vs. without an SO2 control**, variable **SO2 intensity** | Units without an SO2 control against units with one |
 | 23 | **Impacts** | Potential global warming, acidification, particulate matter and smog totals, per MWh, with each pollutant's share and the TRACI factors used; click any bar, or open **How this was calculated**, to see the arithmetic |
@@ -273,6 +273,7 @@ epaData/
 ├── prediction.py        Phase 2: unit models and year-trend forecast; saving models with joblib
 ├── scenarios.py         Phase 2: one-variable-at-a-time sensitivity and scenario comparison
 ├── model_charts.py      Phase 2: the Predictions and Scenarios charts
+├── explain.py           Phase 2: what each chart explains about itself (About this chart, click-for-calculation)
 ├── data/
 │   └── traci_2_2_campd_factors.csv   The 6 TRACI 2.2 factors used, extracted from EPA's workbook
 ├── requirements.txt     Python packages
@@ -362,6 +363,8 @@ The Explore sidebar selects the records: reporting-year range or a single year, 
 
 The **Statistics** page (`/statistics`) analyzes exactly the records the **Explore** page shows. Search or refine in Explore, then click **Statistics** next to the download buttons; every Explore filter carries over in the URL, so any analysis can be bookmarked, shared and reopened.
 
+Under the statistics, **What the numbers say** puts them into words: where a typical record falls, whether a few large values pull the mean above the median, how wide the spread is, why an overall ratio differs from the average record (large units weigh more), which group is highest and lowest, and how many values are unusual. Each sentence is worked out from the numbers on the page (`analysis.interpret`).
+
 **Choices** (also saved in the URL):
 
 | URL parameter | What it does | Values |
@@ -409,6 +412,8 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 | Highest and lowest | The 10 facilities or units at each end (ratios only rank those above a minimum gross load, 10,000 MWh by default) |
 | State map | The variable by state |
 | Facility map | Facility locations colored by the variable (needs latitude and longitude from `python ingest.py --attributes-only`) |
+
+**Every number explains itself.** Select any point, bar, box, state or cell and a sheet opens under the chart with that value, the calculation behind it written out with the real numbers (for example total CO2 mass ÷ total gross load = CO2 intensity), how many records, units, facilities and years went into it, anything left out and why (missing values, zero gross load), and a link that opens exactly those records in Explore. **About** at the top of each chart says what it shows, how each value is calculated, why that kind of chart fits the data, how to read it, and where the data comes from (`explain.py` writes these for every chart, including the Compare, Impacts, Predictions and Scenarios charts). The dashboard's section links stay at the top of the screen while it scrolls.
 
 Every chart sits in a card laid out like the charts in Apple's Health and Stocks apps: a short label, the title, a headline number with its unit and how much it changed, and a legend where there is more than one series (select a legend entry to hide or show that series). On a single trend line, moving the pointer along the line shows that year's value and its change in the headline, and **5Y / 10Y / 20Y / All** change the years shown. Other charts have tooltips; after zooming in, **Reset zoom** goes back. Cards rise into view and lines draw in as the page scrolls (switched off when the system asks for reduced motion). **PNG image** saves the chart with its title and headline, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Plotly.js 2.35.2 and the U.S. map outline are kept in `static/vendor/`, so the charts and maps work without an internet connection (useful for a demo).
 
@@ -516,9 +521,9 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 |---|---|
 | `tests/test_analysis.py` | Derived indicators, missing and zero-denominator handling, descriptive statistics, grouping |
 | `tests/test_statistics_page.py` | The Statistics page and its CSV/Excel exports with metadata |
-| `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart and the headline above it; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
+| `tests/test_phase2_pages.py` | Explore filters for controls, programs and years; variable and hourly summaries; every dashboard chart, the headline above it, its About notes and the calculation shown when a point is selected; the Statistics findings; comparisons, with the t-test and Mann–Whitney results checked against SciPy |
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 | `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
 | `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
 
-Expected result: all 88 tests pass.
+Expected result: all 90 tests pass.

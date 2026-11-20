@@ -1,5 +1,5 @@
 {# What an analysis page is analyzing: the Explore filters as chips, with counts and a way back to Explore. #}
-<div class="selection">
+<div class="selection" data-explore-base="{{ explore_url }}">
     <span class="lead">Analyzing</span>
     {% if labels %}
         {% for label in labels %}

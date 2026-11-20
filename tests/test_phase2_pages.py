@@ -162,6 +162,34 @@ def test_chart_headlines_and_legends():
     assert co2["value"] == "−33% since 2023"
 
 
+def test_chart_details_show_the_calculation():
+    frame = selection()
+    trend = dashboard.trend(frame, "co2_intensity")
+    detail = trend["details"]["0:2"]                      # 2025
+    assert detail["title"] == "2025"
+    assert detail["calc"][0]["value"] == "710,000 short tons"
+    assert detail["calc"][1]["value"] == "1,050,000 MWh"
+    assert detail["calc"][-1]["value"] == "0.6762 short tons/MWh" and detail["calc"][-1]["result"]
+    assert detail["drill"] == {"reporting_year": 2025}
+    assert "1 record is left out" in detail["note"]        # the zero-load record
+    bars = dashboard.bars(frame, "co2_mass", "state")
+    assert bars["details"]["0:0"]["drill"] == {"state": "KY"}
+    assert bars["details"]["0:0"]["calc"][-1]["value"] == "2,780,000 short tons"
+    choices = {"variable": "co2_mass", "group": "state", "split": "none", "x": "heat_input", "y": "co2_mass",
+               "scale": "log", "corr": "spearman", "level": "facility", "min_load": 0}
+    for spec in dashboard.build_all(frame, choices):
+        if not spec["empty"]:
+            assert spec["about"]["what"] and spec["about"]["why"] and spec["about"]["source"]
+            assert spec.get("details") or spec.get("detail_template")
+
+
+def test_statistics_explain_the_numbers(client):
+    findings = dict(analysis.interpret(analysis.describe(selection(), "co2_intensity"), "co2_intensity"))
+    assert "Typical value" in findings and "Large units weigh more" in findings
+    page = client.get("/statistics?variable=co2_intensity").get_data(as_text=True)
+    assert "What the numbers say" in page
+
+
 def test_short_numbers():
     assert dashboard.short_number(1_260_000_000) == "1.26B"
     assert dashboard.short_number(999_600) == "1M"
@@ -188,6 +216,7 @@ def test_dashboard_page(client):
         json.loads(body)
     assert "plotly" in page.lower()
     assert 'class="chart-value"' in page and 'class="chart-legend"' in page
+    assert 'class="chart-about"' in page and "Why this kind of chart" in page
 
 
 def test_dashboard_chart_download(client):

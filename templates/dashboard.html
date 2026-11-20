@@ -37,12 +37,20 @@
 
 <section class="band tight">
     <div class="container wide">
-        <form class="controls-card" method="GET" action="/dashboard" id="dashboard-form">
+        <form class="controls-card dash-controls" method="GET" action="/dashboard" id="dashboard-form">
             {{ hidden_filters(filters) }}
-            <div class="form-grid dashboard-controls">
-                <div class="field wide">
+            {% macro segment(name, options, current) -%}
+            <div class="segmented" role="radiogroup" aria-label="{{ name }}">
+                {% for key, label in options.items() %}
+                <input type="radio" id="{{ name }}-{{ key }}" name="{{ name }}" value="{{ key }}" {% if key == current %}checked{% endif %} onchange="this.form.submit()">
+                <label for="{{ name }}-{{ key }}">{{ label }}</label>
+                {% endfor %}
+            </div>
+            {%- endmacro %}
+            <div class="dash-primary">
+                <div class="field dash-variable">
                     <label for="variable">Variable</label>
-                    <select class="control" id="variable" name="variable" onchange="this.form.submit()">
+                    <select class="control control-large" id="variable" name="variable" onchange="this.form.submit()">
                         {% for heading, items in variable_menu %}
                         <optgroup label="{{ heading }}">
                             {% for key, item in items %}
@@ -54,69 +62,58 @@
                 </div>
                 <div class="field">
                     <label for="group">Compare by</label>
-                    <select class="control" id="group" name="group" onchange="this.form.submit()">
+                    <select class="control control-large" id="group" name="group" onchange="this.form.submit()">
                         {% for key, label in group_options.items() %}
                         <option value="{{ key }}" {% if key == choices.group %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
                 </div>
-                <div class="field">
-                    <label for="split">Trend lines</label>
-                    <select class="control" id="split" name="split" onchange="this.form.submit()">
-                        {% for key, label in splits.items() %}
-                        <option value="{{ key }}" {% if key == choices.split %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
+            </div>
+            <div class="dash-options">
+                <div class="dash-option wide">
+                    <span class="dash-label">Trend lines</span>
+                    {{ segment("split", {"none": "One line", "fuel_family": "By fuel", "so2_control": "By SO2 control", "nox_control": "By NOx control"}, choices.split) }}
                 </div>
-                <div class="field">
-                    <label for="scale">Distribution scale</label>
-                    <select class="control" id="scale" name="scale" onchange="this.form.submit()">
-                        {% for key, label in scales.items() %}
-                        <option value="{{ key }}" {% if key == choices.scale %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="dash-option">
+                    <label class="dash-label" for="min_load">Minimum load for ratios</label>
+                    <div class="dash-inline">
+                        <input class="control" type="text" inputmode="decimal" id="min_load" name="min_load" value="{{ '{:g}'.format(choices.min_load) }}" autocomplete="off">
+                        <span class="dash-word">MWh</span>
+                        <button class="btn btn-small" type="submit">Apply</button>
+                    </div>
                 </div>
-                <div class="field">
-                    <label for="x">Scatter: across</label>
-                    <select class="control" id="x" name="x" onchange="this.form.submit()">
-                        {% for key, label in scatter_variables %}
-                        <option value="{{ key }}" {% if key == choices.x %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="dash-option">
+                    <span class="dash-label">Distribution scale</span>
+                    {{ segment("scale", {"log": "Log", "linear": "Linear"}, choices.scale) }}
                 </div>
-                <div class="field">
-                    <label for="y">Scatter: up</label>
-                    <select class="control" id="y" name="y" onchange="this.form.submit()">
-                        {% for key, label in scatter_variables %}
-                        <option value="{{ key }}" {% if key == choices.y %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="dash-option">
+                    <span class="dash-label">Correlation</span>
+                    {{ segment("corr", {"spearman": "Spearman", "pearson": "Pearson"}, choices.corr) }}
                 </div>
-                <div class="field">
-                    <label for="corr">Correlation</label>
-                    <select class="control" id="corr" name="corr" onchange="this.form.submit()">
-                        {% for key, label in correlation_methods.items() %}
-                        <option value="{{ key }}" {% if key == choices.corr %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="dash-option">
+                    <span class="dash-label">Rank</span>
+                    {{ segment("level", rank_levels, choices.level) }}
                 </div>
-                <div class="field">
-                    <label for="level">Rank</label>
-                    <select class="control" id="level" name="level" onchange="this.form.submit()">
-                        {% for key, label in rank_levels.items() %}
-                        <option value="{{ key }}" {% if key == choices.level %}selected{% endif %}>{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="field">
-                    <label for="min_load">Minimum load for ratios (MWh)</label>
-                    <input class="control" type="text" inputmode="decimal" id="min_load" name="min_load" value="{{ '{:g}'.format(choices.min_load) }}" autocomplete="off">
+                <div class="dash-option full dash-scatter">
+                    <span class="dash-label">Scatter plot</span>
+                    <div class="dash-inline">
+                        <label class="visually-hidden" for="y">Up</label>
+                        <select class="control" id="y" name="y" onchange="this.form.submit()">
+                            {% for key, label in scatter_variables %}
+                            <option value="{{ key }}" {% if key == choices.y %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <span class="dash-word">against</span>
+                        <label class="visually-hidden" for="x">Across</label>
+                        <select class="control" id="x" name="x" onchange="this.form.submit()">
+                            {% for key, label in scatter_variables %}
+                            <option value="{{ key }}" {% if key == choices.x %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                 </div>
             </div>
-            <div class="form-actions">
-                <button class="btn" type="submit">Update charts</button>
-                <span class="dim">The page address saves every choice, so you can bookmark or share this dashboard.</span>
-            </div>
+            <p class="dash-footnote">Every choice is saved in the page address, so you can bookmark or share this exact dashboard.</p>
         </form>
     </div>
 </section>
@@ -135,7 +132,19 @@
 
 {% else %}
 
-<section class="band alt">
+<nav class="chapters" aria-label="Dashboard sections" data-chapters>
+    <div class="chapters-inner">
+        <a href="#over-time">Over time</a>
+        <a href="#compared">Compared</a>
+        <a href="#distribution">Distribution</a>
+        <a href="#relationships">Relationships</a>
+        <a href="#rankings">Rankings</a>
+        <a href="#maps">Maps</a>
+        <a href="#reading">Reading the charts</a>
+    </div>
+</nav>
+
+<section class="band alt chapter" id="over-time">
     <div class="container wide">
         <h2 class="section-title">Over time. <span class="gray">How the selection changed, year by year.</span></h2>
         <p class="section-intro">Emissions and generation indexed to their first year, and the chosen variable's own trend.</p>
@@ -146,7 +155,7 @@
     </div>
 </section>
 
-<section class="band">
+<section class="band chapter" id="compared">
     <div class="container wide">
         <h2 class="section-title">Compared by {{ group_options[choices.group]|lower }}. <span class="gray">Who stands out.</span></h2>
         <p class="section-intro">{{ info.label }} for each group, and how the values spread out within the largest groups.</p>
@@ -159,7 +168,7 @@
     </div>
 </section>
 
-<section class="band alt">
+<section class="band alt chapter" id="distribution">
     <div class="container wide">
         <h2 class="section-title">Distribution. <span class="gray">Where the values fall.</span></h2>
         <p class="section-intro">How many records fall at each value of {{ info.label }}.</p>
@@ -169,7 +178,7 @@
     </div>
 </section>
 
-<section class="band">
+<section class="band chapter" id="relationships">
     <div class="container wide">
         <h2 class="section-title">Relationships. <span class="gray">What moves together.</span></h2>
         <p class="section-intro">Whether two measurements rise and fall together, for one pair in detail and for every pair at once.</p>
@@ -180,7 +189,7 @@
     </div>
 </section>
 
-<section class="band alt">
+<section class="band alt chapter" id="rankings">
     <div class="container wide">
         <h2 class="section-title">Highest and lowest. <span class="gray">Both ends of the ranking.</span></h2>
         <p class="section-intro">The {{ rank_levels[choices.level]|lower }} at each end of {{ info.label }}.</p>
@@ -191,7 +200,7 @@
     </div>
 </section>
 
-<section class="band">
+<section class="band chapter" id="maps">
     <div class="container wide">
         <h2 class="section-title">Maps. <span class="gray">Where it happens.</span></h2>
         <p class="section-intro">{{ info.label }} by state, and where the facilities are.</p>
@@ -202,10 +211,14 @@
     </div>
 </section>
 
-<section class="band alt">
+<section class="band alt chapter" id="reading">
     <div class="container wide">
         <h2 class="section-title">Read the charts. <span class="gray">A few things to know.</span></h2>
-        <details class="analysis-details" style="margin-top: 24px">
+        <details class="analysis-details" style="margin-top: 24px" open>
+            <summary>Where every number comes from</summary>
+            <p>Select any point, bar, box, state or cell on a chart to open its calculation: the value, the totals it was made from (for example total CO2 ÷ total gross load), how many records, units, facilities and years went into it, anything left out and why, and a link that opens exactly those records in Explore. <strong>About</strong>, at the top right of every chart, explains what it shows, how its values are calculated, why that kind of chart was chosen and how to read it.</p>
+        </details>
+        <details class="analysis-details">
             <summary>Totals and ratios</summary>
             <p>Amounts that add up (emissions, gross load, heat input) are shown as totals. Ratios such as CO2 intensity and heat rate are shown as overall ratios, the total of one divided by the total of the other, so large units count more than small ones.</p>
         </details>

@@ -202,8 +202,8 @@
     }
 
     function wire(card, node, spec) {
-        if (spec.explain) {
-            explainOnClick(node, spec.id);
+        if (spec.details || spec.detail_template || spec.explain) {
+            details(card, node, spec);
         }
         if (spec.readout) {
             readout(card, node, spec);
@@ -599,33 +599,443 @@
         });
     }
 
-    // ---------- Worked calculations ----------
+    // ---------- Where a number comes from: the detail sheet under the chart ----------
+    //
+    // Selecting a point, bar, box, state or cell opens a sheet with its value, the calculation behind it
+    // with the real numbers, facts about the records, and a link to those records in Explore. Most charts
+    // carry their details from the server (spec.details, built by explain.py); the two with thousands
+    // of points (the scatter plot and the facility map) carry a template, and the sheet is filled in here.
 
-    // Charts whose points carry a worked calculation (the last item of customdata, a list of lines):
-    // clicking a bar shows that calculation in the panel under the chart.
-    function explainOnClick(node, id) {
-        node.on("plotly_click", function (event) {
-            var point = event.points && event.points[0];
-            var panel = document.getElementById("explain-" + id);
-            if (!point || !panel || !Array.isArray(point.customdata)) {
+    function make(tag, className, text) {
+        var element = document.createElement(tag);
+        if (className) {
+            element.className = className;
+        }
+        if (text !== undefined && text !== null && text !== "") {
+            element.textContent = text;
+        }
+        return element;
+    }
+
+    // Numbers in calculations: commas from 1,000 up, otherwise 4 significant digits (explain.number)
+    function precise(value) {
+        if (value === null || value === undefined || isNaN(value)) {
+            return "—";
+        }
+        var size = Math.abs(value);
+        var text;
+        if (size === 0) {
+            return "0";
+        }
+        if (size >= 999.95) {
+            text = value.toLocaleString("en-US", { maximumFractionDigits: 0 });
+        } else if (size >= 1e-4) {
+            text = value.toPrecision(4);
+        } else {
+            text = plain(value);
+        }
+        return minus(text);
+    }
+
+    function withUnit(value, unit) {
+        return value === null || value === undefined ? "—" : (precise(value) + " " + (unit || "")).trim();
+    }
+
+    function signedPercent(value) {
+        if (value === null || value === undefined || isNaN(value)) {
+            return "—";
+        }
+        if (Math.abs(value) < 0.05) {
+            return "0%";
+        }
+        return (value > 0 ? "+" : "−") + Math.abs(value).toLocaleString("en-US",
+            { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+    }
+
+    function plural(count, noun) {
+        return Number(count).toLocaleString("en-US") + " " + noun + (Number(count) === 1 ? "" : "s");
+    }
+
+    function exploreLink(drill) {
+        var holder = document.querySelector("[data-explore-base]");
+        var url = new URL(holder ? holder.getAttribute("data-explore-base") : "/explore", window.location.origin);
+        Object.keys(drill).forEach(function (key) {
+            url.searchParams.set(key, drill[key]);
+        });
+        url.searchParams.delete("page");
+        return url.pathname + url.search;
+    }
+
+    // Details built here, from a template and the point's own numbers
+    function fromTemplate(spec, point) {
+        var template = spec.detail_template;
+        var data = point.customdata || [];
+        if (template.kind === "record") {
+            var year = data[2];
+            var drill = {};
+            if (data[0] !== null && data[0] !== undefined) {
+                drill.epa_facility_id = data[0];
+                if (data[1]) {
+                    drill.epa_unit_id = data[1];
+                }
+                drill.reporting_year = year;
+            }
+            var words = compact(point.y);
+            return {
+                kicker: "One record · " + (point.data.name || ""),
+                title: point.text || "",
+                value: words[0], unit: (words[1] + " " + template.y.unit).trim(),
+                summary: template.y.label + " and " + template.x.label.toLowerCase() + " as reported to EPA for this "
+                    + "unit in " + year + ".",
+                calc: [],
+                facts: [[template.x.label, withUnit(point.x, template.x.unit)],
+                    [template.y.label, withUnit(point.y, template.y.unit)],
+                    ["Fuel family", point.data.name || "—"], ["Year", String(year)]],
+                note: template.x.label + ": " + template.x.definition + " " + template.y.label + ": "
+                    + template.y.definition,
+                drill: drill, drill_label: "See this record in Explore"
+            };
+        }
+        if (template.kind === "facility") {
+            var records = data[1];
+            var used = data[2];
+            var value = point["marker.color"];
+            var calc;
+            if (template.ratio) {
+                calc = [{ op: "", label: "Total " + template.num[0], value: withUnit(data[3], template.num[1]) }];
+                if (template.scale) {
+                    calc.push({ op: "×", label: template.scale[0].toLocaleString("en-US") + " " + template.scale[1],
+                        value: "" });
+                }
+                calc.push({ op: "÷", label: "Total " + template.den[0], value: withUnit(data[4], template.den[1]) });
+                calc.push({ op: "=", label: template.label, value: withUnit(value, template.unit), result: true });
+            } else {
+                calc = [{ op: "Σ", label: template.label + " of " + plural(used, "record") + ", added up", value: "" },
+                    { op: "=", label: "Total", value: withUnit(value, template.unit), result: true }];
+            }
+            var parts = compact(value);
+            var missing = records - used;
+            return {
+                kicker: "Facility · " + template.kicker,
+                title: point.text || "",
+                value: parts[0], unit: (parts[1] + " " + template.unit).trim(),
+                summary: template.ratio
+                    ? "The overall " + template.label + " of " + plural(used, "record") + ": their totals divided."
+                    : "The " + template.label + " of " + plural(used, "record") + " added together.",
+                calc: calc,
+                facts: [["Facility ID", String(data[0])], ["Records", Number(records).toLocaleString("en-US")]],
+                note: missing > 0 ? plural(missing, "record") + " left out because a value is missing"
+                    + (template.ratio ? " or the denominator is 0." : ".") : "",
+                drill: { epa_facility_id: data[0] },
+                drill_label: "See " + (records === 1 ? "this record" : "these " + plural(records, "record")) + " in Explore"
+            };
+        }
+        if (template.kind === "prediction") {
+            var miss = point.y - point.x;
+            var predicted = compact(point.y);
+            return {
+                kicker: template.model + " · " + template.year,
+                title: data[0] || "",
+                value: predicted[0], unit: ("predicted " + predicted[1] + " short tons").trim(),
+                summary: "Predicted from this unit's inputs alone; the model never saw its " + template.year + " "
+                    + template.target + ".",
+                calc: [{ op: "", label: "Predicted", value: withUnit(point.y, "short tons") },
+                    { op: "−", label: "Actual", value: withUnit(point.x, "short tons") },
+                    { op: "=", label: "Miss", value: (miss > 0 ? "+" : "") + withUnit(miss, "short tons"), result: true },
+                    { op: "÷", label: "Actual", value: withUnit(point.x, "short tons") },
+                    { op: "=", label: "Miss in %", value: signedPercent(data[1]), result: true }],
+                facts: [["Fuel family", point.data.name || "—"], ["Unit type", data[5] || "—"],
+                    ["Gross load", withUnit(data[2], "MWh")], ["Heat input", withUnit(data[3], "mmBtu")],
+                    ["Operating time", withUnit(data[4], "hours")]],
+                note: miss > 0 ? "Above the dashed line: the model predicted too much."
+                    : "Below the dashed line: the model predicted too little.",
+                drill: {}
+            };
+        }
+        return null;
+    }
+
+    // The impact charts carry their worked calculation as lines of text (traci.calculation_lines)
+    function fromLines(point) {
+        var data = point.customdata;
+        if (!Array.isArray(data)) {
+            return null;
+        }
+        var lines = data[data.length - 1];
+        if (!Array.isArray(lines) || lines.length === 0) {
+            return null;
+        }
+        return {
+            kicker: "Worked calculation", title: lines[0], value: "", unit: "",
+            summary: typeof data[0] === "string" ? data[0] : "",
+            calc: lines.slice(1).map(function (line) {
+                return { op: "", label: line, value: "", line: true };
+            }),
+            facts: [], note: "", drill: {}
+        };
+    }
+
+    function detailFor(spec, point) {
+        if (spec.details) {
+            var key;
+            if (spec.detail_key === "x") {
+                key = String(point.x);
+            } else if (spec.detail_key === "yx") {
+                key = point.y + "|" + point.x;
+            } else {
+                key = point.curveNumber + ":" + (point.pointNumber !== undefined ? point.pointNumber : point.pointIndex);
+            }
+            if (spec.details[key]) {
+                return spec.details[key];
+            }
+        }
+        if (spec.detail_template) {
+            return fromTemplate(spec, point);
+        }
+        if (spec.explain) {
+            return fromLines(point);
+        }
+        return null;
+    }
+
+    function section(heading) {
+        var block = make("section", "detail-section");
+        block.appendChild(make("h5", "detail-heading", heading));
+        return block;
+    }
+
+    function renderDetail(card, detail) {
+        var sheet = card.querySelector(".chart-detail");
+        if (!sheet) {
+            return;
+        }
+        sheet.textContent = "";
+        var head = make("div", "detail-head");
+        var titles = make("div", "detail-titles");
+        if (detail.kicker) {
+            titles.appendChild(make("p", "detail-kicker", detail.kicker));
+        }
+        titles.appendChild(make("h4", "detail-title", detail.title));
+        head.appendChild(titles);
+        var close = make("button", "detail-close");
+        close.type = "button";
+        close.setAttribute("aria-label", "Close");
+        close.innerHTML = '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 1.5l9 9m0-9l-9 9" '
+            + 'stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+        head.appendChild(close);
+        sheet.appendChild(head);
+
+        if (detail.value) {
+            var figure = make("p", "detail-figure");
+            figure.appendChild(make("span", "detail-value", detail.value));
+            if (detail.unit) {
+                figure.appendChild(make("span", "detail-unit", detail.unit));
+            }
+            sheet.appendChild(figure);
+        }
+        if (detail.summary) {
+            sheet.appendChild(make("p", "detail-summary", detail.summary));
+        }
+
+        var body = make("div", "detail-body");
+        if (detail.calc && detail.calc.length) {
+            var calcBlock = section("How it’s calculated");
+            var receipt = make("div", "detail-receipt");
+            detail.calc.forEach(function (row) {
+                var line = make("div", "calc-row" + (row.result ? " is-result" : "") + (row.line ? " is-line" : ""));
+                line.appendChild(make("span", "calc-op", row.op || ""));
+                line.appendChild(make("span", "calc-label", row.label));
+                line.appendChild(make("span", "calc-value", row.value || ""));
+                receipt.appendChild(line);
+            });
+            calcBlock.appendChild(receipt);
+            body.appendChild(calcBlock);
+        }
+        if (detail.facts && detail.facts.length) {
+            var factBlock = section("Details");
+            var list = make("dl", "detail-facts");
+            detail.facts.forEach(function (fact) {
+                var row = make("div", "fact-row");
+                row.appendChild(make("dt", "", fact[0]));
+                row.appendChild(make("dd", "", fact[1]));
+                list.appendChild(row);
+            });
+            factBlock.appendChild(list);
+            body.appendChild(factBlock);
+        }
+        if (body.children.length) {
+            sheet.appendChild(body);
+        }
+        if (detail.note) {
+            sheet.appendChild(make("p", "detail-note", detail.note));
+        }
+        if (detail.drill && Object.keys(detail.drill).length) {
+            var link = make("a", "detail-link", detail.drill_label || "See these records in Explore");
+            link.href = exploreLink(detail.drill);
+            sheet.appendChild(link);
+        }
+
+        var opening = sheet.hidden;
+        sheet.hidden = false;
+        card.classList.add("has-detail");
+        if (opening && !reduceMotion) {
+            play(sheet, [{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }],
+                { duration: 420 });
+        } else if (!reduceMotion) {
+            play(sheet, [{ opacity: 0.4 }, { opacity: 1 }], { duration: 260 });
+        }
+        var box = sheet.getBoundingClientRect();
+        if (box.bottom > window.innerHeight || box.top < 0) {
+            sheet.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
+        }
+    }
+
+    // The selected bar, dot or state stays bright and the rest dim, as in Apple's charts
+    function highlight(node, point) {
+        var selectable = { bar: true, scatter: true, scattergl: true, choropleth: true, scattergeo: true };
+        var update = [];
+        var indices = [];
+        node.data.forEach(function (trace, index) {
+            var markers = trace.type !== "scatter" || /markers/.test(trace.mode || "");
+            if (!selectable[trace.type] || !markers || trace.hoverinfo === "skip") {
                 return;
             }
-            var lines = point.customdata[point.customdata.length - 1];
-            if (!Array.isArray(lines) || lines.length === 0) {
-                return;
-            }
-            panel.textContent = "";
-            var heading = document.createElement("h4");
-            heading.textContent = lines[0];
-            panel.appendChild(heading);
-            for (var k = 1; k < lines.length; k++) {
-                var line = document.createElement("p");
-                line.textContent = lines[k];
-                panel.appendChild(line);
-            }
-            panel.hidden = false;
+            indices.push(index);
+            update.push(index === point.curveNumber ? [point.pointNumber] : []);
+        });
+        if (!indices.length || indices.indexOf(point.curveNumber) < 0) {
+            return false;
+        }
+        node.epaInternal = true;
+        Plotly.restyle(node, { selectedpoints: update }, indices).then(function () {
+            node.epaInternal = false;
+        });
+        node.epaSelected = indices;
+        return true;
+    }
+
+    function clearHighlight(node) {
+        if (!node.epaSelected) {
+            return;
+        }
+        var indices = node.epaSelected;
+        node.epaSelected = null;
+        node.epaInternal = true;
+        Plotly.restyle(node, { selectedpoints: indices.map(function () { return null; }) }, indices).then(function () {
+            node.epaInternal = false;
         });
     }
+
+    function pin(card, node, point) {
+        var dot = card.querySelector(".chart-pin-dot");
+        if (!dot) {
+            dot = make("span", "chart-pin-dot");
+            dot.setAttribute("aria-hidden", "true");
+            node.appendChild(dot);
+        }
+        var xa = point.xaxis;
+        var ya = point.yaxis;
+        if (!xa || !ya || point.y === undefined) {
+            dot.hidden = true;
+            return;
+        }
+        var color = (point.data.line && point.data.line.color) || (point.data.marker && point.data.marker.color) || "#0071e3";
+        dot.style.setProperty("--dot", typeof color === "string" ? color : "#0071e3");
+        dot.style.transform = "translate(" + (xa._offset + xa.l2p(xa.d2l(point.x))) + "px, "
+            + (ya._offset + ya.l2p(ya.d2l(point.y))) + "px)";
+        dot.hidden = false;
+    }
+
+    function closeDetail(card, node) {
+        var sheet = card.querySelector(".chart-detail");
+        if (sheet) {
+            sheet.hidden = true;
+        }
+        card.classList.remove("has-detail");
+        var dot = card.querySelector(".chart-pin-dot");
+        if (dot) {
+            dot.hidden = true;
+        }
+        clearHighlight(node);
+    }
+
+    function details(card, node, spec) {
+        node.on("plotly_click", function (event) {
+            var points = (event.points || []).filter(function (item) {
+                return item.data && item.data.hoverinfo !== "skip";
+            });
+            var point = points[0];
+            if (!point) {
+                return;
+            }
+            // Several lines share the clicked year: take the one nearest the pointer
+            if (points.length > 1 && event.event && point.yaxis) {
+                var top = node.getBoundingClientRect().top;
+                var distance = function (item) {
+                    var ya = item.yaxis;
+                    return Math.abs(top + ya._offset + ya.l2p(ya.d2l(item.y)) - event.event.clientY);
+                };
+                points.sort(function (one, two) {
+                    return distance(one) - distance(two);
+                });
+                point = points[0];
+            }
+            var detail = detailFor(spec, point);
+            if (!detail) {
+                return;
+            }
+            renderDetail(card, detail);
+            var isLine = point.data.type === "scatter" && !/markers/.test(point.data.mode || "");
+            if (isLine) {
+                clearHighlight(node);
+                pin(card, node, point);
+            } else {
+                var dot = card.querySelector(".chart-pin-dot");
+                if (dot) {
+                    dot.hidden = true;
+                }
+                highlight(node, point);
+            }
+        });
+        card.addEventListener("click", function (event) {
+            if (event.target.closest(".detail-close")) {
+                closeDetail(card, node);
+            }
+        });
+        card.addEventListener("keydown", function (event) {
+            if (event.key === "Escape" && card.classList.contains("has-detail")) {
+                closeDetail(card, node);
+            }
+        });
+        node.on("plotly_relayout", function () {
+            if (!node.epaInternal) {
+                var dot = card.querySelector(".chart-pin-dot");
+                if (dot) {
+                    dot.hidden = true;
+                }
+            }
+        });
+    }
+
+    // ---------- About this chart ----------
+
+    document.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-about]");
+        if (!button) {
+            return;
+        }
+        var panel = document.getElementById("about-" + button.getAttribute("data-about"));
+        if (!panel) {
+            return;
+        }
+        var open = panel.hidden;
+        panel.hidden = !open;
+        button.setAttribute("aria-expanded", open ? "true" : "false");
+        if (open && !reduceMotion) {
+            play(panel, [{ opacity: 0, transform: "translateY(-6px)" }, { opacity: 1, transform: "none" }],
+                { duration: 360 });
+        }
+    });
 
     // ---------- PNG image, with the title and headline written into it ----------
 

@@ -23,6 +23,7 @@ from scipy import stats
 
 import analysis
 import dashboard
+import explain
 
 DIMENSIONS = {
     "period": "Reporting periods",
@@ -389,6 +390,18 @@ def box_chart(key, values_a, values_b, a_label, b_label, scale):
         note += " Values of 0 are left out on the log scale."
     spec = dashboard.chart("compare_box", title, traces, figure, columns, rows, note)
     spec["legend"] = legend
+    spec["detail_key"] = "x"
+    spec["details"] = {dashboard.text(row[0]): explain.box_detail(
+        row[0], dict(zip(["count", "min", "lower", "q1", "median", "mean", "q3", "upper", "max", "outliers"], row[1:])),
+        item["label"], item["unit"]) for row in rows}
+    spec["about"] = explain.about(
+        f"How the {item['label']} of individual records spreads out in {a_label} and in {b_label}.",
+        "Each group's values are sorted; the box holds the middle half (Q1 to Q3), the line is the median, the dashed "
+        "line the mean, and the whiskers reach the furthest values within 1.5 × the box's height.",
+        "Two averages can hide very different groups. Box plots side by side compare the middle, the spread and the "
+        "extremes at once, which is what the statistical tests below compare too.",
+        "Boxes at different heights mean typical values differ; very different box sizes mean one group varies more.",
+        f"{explain.SOURCE}, as selected in Explore.")
     if "A" in medians and "B" in medians and medians["A"] > 0:
         change = (medians["B"] - medians["A"]) / medians["A"] * 100
         spec["headline"] = {"value": signed_percent(change), "unit": "", "delta": None, "eyebrow": "Median",
@@ -420,9 +433,9 @@ def indicator_chart(rows, a_label, b_label):
         "type": "bar", "orientation": "h", "x": values, "y": names,
         "customdata": [[row["a"], row["b"], row["unit"]] for row in usable],
         "marker": {"color": [A_COLOR if value < 0 else B_COLOR for value in values]},
-        "hovertemplate": "%{y}<br><b>%{x:+.1f}%</b><br>" + dashboard.text(a_label) + ": %{customdata[0]:,.4~g} "
+        "hovertemplate": "%{y}<br><b>%{x:+.1f}%</b><br>" + dashboard.text(a_label) + ": %{customdata[0]:,.4~r} "
                          "%{customdata[2]}<br>" + dashboard.text(b_label)
-                         + ": %{customdata[1]:,.4~g} %{customdata[2]}<extra></extra>",
+                         + ": %{customdata[1]:,.4~r} %{customdata[2]}<extra></extra>",
     }, **dashboard.value_labels(values, signed_percent))]
     figure = dashboard.layout(title)
     dashboard.bar_rows(figure, names, values)
@@ -432,6 +445,31 @@ def indicator_chart(rows, a_label, b_label):
     note = ("Totals add up the records; intensities, heat rate and utilization are overall ratios (total ÷ total), "
             "so large units count more. Each bar takes the color of the group that is higher.")
     spec = dashboard.chart("compare_indicators", title, data, figure, columns, table, note)
+    details = {}
+    for point, row in enumerate(usable):
+        change = row["b"] - row["a"]
+        details[f"0:{point}"] = {
+            "kicker": f"{row['measure']} · % difference", "title": row["label"],
+            "value": signed_percent(row["percent"]), "unit": "",
+            "summary": (f"{b_label}'s {row['label']} is {abs(row['percent']):,.1f}% "
+                        f"{'higher' if row['percent'] > 0 else 'lower'} than {a_label}'s."),
+            "calc": [{"op": "", "label": b_label, "value": explain.with_unit(row["b"], row["unit"])},
+                     {"op": "−", "label": a_label, "value": explain.with_unit(row["a"], row["unit"])},
+                     {"op": "=", "label": "Difference", "value": explain.with_unit(change, row["unit"])},
+                     {"op": "÷", "label": a_label, "value": explain.with_unit(row["a"], row["unit"])},
+                     {"op": "×", "label": "100", "value": ""},
+                     {"op": "=", "label": "% difference", "value": signed_percent(row["percent"]), "result": True}],
+            "facts": [], "note": "", "drill": {},
+        }
+    spec["details"] = details
+    spec["about"] = explain.about(
+        f"For every indicator, how much {b_label} differs from {a_label}, in percent.",
+        "% difference = (B − A) ÷ A × 100, where A and B are each group's total (for amounts) or overall ratio "
+        "(for intensities, heat rate and utilization: total ÷ total).",
+        "Percentages put indicators with different units on one axis; bars to the right of zero mean B is higher, "
+        "to the left that it is lower.",
+        "Select a bar for both groups' values and the calculation.",
+        f"{explain.SOURCE}, as selected in Explore.")
     spec["legend"] = [dashboard.legend_item(f"{a_label} higher", A_COLOR, style="square", group=""),
                       dashboard.legend_item(f"{b_label} higher", B_COLOR, style="square", group="")]
     biggest = max(usable, key=lambda row: abs(row["percent"]))
@@ -439,6 +477,15 @@ def indicator_chart(rows, a_label, b_label):
                         "context": f"{biggest['label']} ({biggest['measure'].lower()}), {b_label} compared with {a_label}",
                         "eyebrow": "Biggest difference"}
     return spec
+
+
+def trend_about(item, key, frame):
+    return explain.about(
+        f"The {item['label']} of each group, year by year.",
+        explain.how_aggregated(key) + " " + item["definition"],
+        "A line per group shows whether the gap between them is steady, growing or closing over time.",
+        "Select a point for the records behind that year.",
+        explain.source_text(frame))
 
 
 def trend_chart(frame, key, definition):
@@ -453,7 +500,7 @@ def trend_chart(frame, key, definition):
         data = [{
             "type": "scatter", "mode": "lines", "name": "All selected records", "x": years, "y": values,
             "line": {"color": dashboard.INK, "width": 2.5},
-            "hovertemplate": "<b>%{y:,.4~g} " + item["unit"] + "</b><extra></extra>",
+            "hovertemplate": "<b>%{y:,.4~r} " + item["unit"] + "</b><extra></extra>",
         }]
         present = [(year, value) for year, value in zip(years, values) if value is not None]
         if present:
@@ -482,6 +529,12 @@ def trend_chart(frame, key, definition):
         spec = dashboard.chart("compare_trend", title, data, figure, columns, rows,
                                "Shaded years are the two periods being compared.")
         spec["legend"] = legend
+        found = explain.parts(frame, key, frame["year"])
+        spec["details"] = {f"0:{point}": explain.aggregate_detail(key, found.loc[year], str(year), "",
+                                                                  {"reporting_year": int(year)})
+                           for point, year in enumerate(years) if year in found.index
+                           and pd.notna(found.loc[year, "value"])}
+        spec["about"] = trend_about(item, key, frame)
         spec["eyebrow"] = dashboard.value_title(key)
         return spec
 
@@ -491,6 +544,7 @@ def trend_chart(frame, key, definition):
     data = []
     dots = []
     legend = []
+    details = {}
     columns = ["Year"]
     series_values = []
     for label, mask, color in ((definition["a_label"], definition["mask_a"], A_COLOR),
@@ -501,10 +555,14 @@ def trend_chart(frame, key, definition):
         series_values.append(values)
         columns.append(f"{label}: {dashboard.value_title(key)}")
         name = dashboard.text(label)
+        found = explain.parts(part, key, part["year"])
+        for point, year in enumerate(years):
+            if year in found.index and pd.notna(found.loc[year, "value"]):
+                details[f"{len(data)}:{point}"] = explain.aggregate_detail(key, found.loc[year], str(year), name)
         data.append({
             "type": "scatter", "mode": "lines", "name": name, "legendgroup": name, "x": years, "y": values,
             "line": {"color": color, "width": 3},
-            "hovertemplate": name + "  <b>%{y:,.4~g} " + item["unit"] + "</b><extra></extra>",
+            "hovertemplate": name + "  <b>%{y:,.4~r} " + item["unit"] + "</b><extra></extra>",
         })
         present = [(year, value) for year, value in zip(years, values) if value is not None]
         if present:
@@ -517,6 +575,8 @@ def trend_chart(frame, key, definition):
     spec = dashboard.chart("compare_trend", title, data + dots, figure, columns, rows,
                            "Gaps are years with no records for that group.")
     spec["legend"] = legend
+    spec["details"] = details
+    spec["about"] = trend_about(item, key, frame)
     spec["eyebrow"] = dashboard.value_title(key)
     return spec
 
