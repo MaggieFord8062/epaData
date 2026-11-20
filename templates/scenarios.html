@@ -105,15 +105,15 @@
                 </div>
                 <div class="field">
                     <label for="low">From</label>
-                    <input class="control" id="low" name="low" inputmode="decimal" value="{{ '%g'|format(settings.low) }}">
+                    <input class="control" id="low" name="low" inputmode="decimal" value="{{ '%.10g'|format(settings.low) }}">
                 </div>
                 <div class="field">
                     <label for="high">To</label>
-                    <input class="control" id="high" name="high" inputmode="decimal" value="{{ '%g'|format(settings.high) }}">
+                    <input class="control" id="high" name="high" inputmode="decimal" value="{{ '%.10g'|format(settings.high) }}">
                 </div>
                 <div class="field">
                     <label for="step">Step</label>
-                    <input class="control" id="step" name="step" inputmode="decimal" value="{{ '%g'|format(settings.step) }}">
+                    <input class="control" id="step" name="step" inputmode="decimal" value="{{ '%.10g'|format(settings.step) }}">
                     <span class="hint">Up to {{ max_points }} points.</span>
                 </div>
             </div>
@@ -317,4 +317,29 @@
 
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Switching between "% of baseline" and "Values", or to another input, empties From, To and Step,
+// so the page fills in sensible defaults for the new choice instead of reusing numbers in the wrong unit.
+(function () {
+    var fields = ["low", "high", "step"].map(function (id) { return document.getElementById(id); });
+    function clear() {
+        fields.forEach(function (field) { if (field) { field.value = ""; } });
+    }
+    document.querySelectorAll('input[name="mode"]').forEach(function (radio) {
+        radio.addEventListener("change", clear);
+    });
+    var input = document.getElementById("input");
+    if (input) {
+        input.addEventListener("change", function () {
+            var values = document.getElementById("mode-value");
+            if (values && values.checked) {
+                clear();
+            }
+        });
+    }
+})();
+</script>
 {% endblock %}
