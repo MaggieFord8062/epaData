@@ -7,7 +7,9 @@ Alpha Station (1001, KY): CO2 2,340,000 in all years. Beta Plant (1002, KY): 440
 """
 
 import contextlib
+import json
 import math
+import re
 import sqlite3
 from urllib.parse import urlencode
 
@@ -189,3 +191,48 @@ def test_trends_measure_change_from_the_first_well_covered_year():
     assert "Before 2024 fewer than half as many units reported" in trend["note"]
     # With every year covered nothing changes
     assert dashboard.trend(selection(), "co2_mass")["readout"]["base"] is None
+
+
+# ---------- Charts on the facility, unit, history, Compare facilities and Rankings pages ----------
+
+def chart_ids(page):
+    return set(re.findall(r'<script type="application/json" id="spec-([a-z_0-9]+)">', page))
+
+
+def test_facility_and_unit_pages_have_charts(client):
+    alpha = client.get("/facility/1001").get_data(as_text=True)
+    assert {"trend", "indexed", "rank_high"} <= chart_ids(alpha)               # Alpha has 2 units
+    assert "/dashboard?epa_facility_id=1001" in alpha
+    assert "rank_high" not in chart_ids(client.get("/facility/1002").get_data(as_text=True))   # one unit
+    # The charts' downloads are the dashboard's, for exactly this facility
+    download = client.get("/dashboard/data?epa_facility_id=1001&level=unit&chart=rank_high")
+    assert download.status_code == 200 and "Alpha Station" in download.get_data(as_text=True)
+    assert {"trend", "indexed"} <= chart_ids(client.get("/unit/1").get_data(as_text=True))
+    history = client.get("/history?unit=1&year_from=2023&year_to=2025").get_data(as_text=True)
+    assert {"trend", "indexed"} <= chart_ids(history)
+
+
+def test_compare_facilities_charts_keep_each_facility_color(client):
+    page = client.get("/compare?facility=1001&facility=1002&year=2025").get_data(as_text=True)
+    assert {"trend", "trend_intensity", "bars_co2_mass", "bars_co2_intensity"} <= chart_ids(page)
+    frame = selection()
+    frame = frame[frame["facility_id"].isin([1001, 1002])]
+    charts = dashboard.facility_comparison(frame, ["Beta Plant", "Alpha Station"], 2025)
+    lines = [trace for trace in charts[0]["data"] if trace.get("mode") == "lines"]
+    assert [(trace["name"], trace["line"]["color"]) for trace in lines] == [
+        ("Beta Plant", dashboard.BLACK), ("Alpha Station", dashboard.BLUE)]
+    bars = charts[2]["data"][0]
+    assert bars["x"] == [440_000, 240_000]                                   # 2025: Beta, then Alpha
+    colors = dict(zip([label.split(" (")[0] for label in bars["y"]], bars["marker"]["color"]))
+    assert colors == {"Beta Plant": dashboard.BLACK, "Alpha Station": dashboard.BLUE}
+
+
+def test_rankings_have_a_bar_chart(client):
+    page = client.get("/advanced-search?type=Facility&field=co2_mass&limit=3&order=DESC&reporting_year=2025")
+    text = page.get_data(as_text=True)
+    assert "ranking" in chart_ids(text)
+    spec = json.loads(re.search(r'id="spec-ranking">(.*?)</script>', text, re.S).group(1))
+    assert spec["data"][0]["x"] == [440_000, 240_000, 30_000]
+    assert spec["data"][0]["marker"]["color"] == [dashboard.BLACK, dashboard.REST, dashboard.REST]
+    grouped = client.get("/advanced-search?type=Facility&field=co2_mass&limit=1&group=state").get_data(as_text=True)
+    assert "ranking" not in chart_ids(grouped)

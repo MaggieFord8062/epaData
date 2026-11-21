@@ -101,7 +101,7 @@
     }
 
     function yearStep(span) {
-        return span <= 12 ? 1 : (span <= 24 ? 2 : 5);
+        return span <= 8 ? 1 : (span <= 18 ? 2 : 5);
     }
 
     // ---------- Drawing ----------

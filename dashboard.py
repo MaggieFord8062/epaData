@@ -350,9 +350,9 @@ def hover_number(unit):
 def year_step(years):
     """Year axis tick spacing: every year for short spans, every 2 or 5 years for long ones."""
     span = (max(years) - min(years)) if len(years) else 0
-    if span <= 12:
+    if span <= 8:
         return 1
-    if span <= 24:
+    if span <= 18:
         return 2
     return 5
 
@@ -426,10 +426,20 @@ BOX_LIMIT = 10
 SCATTER_SAMPLE = 4000
 RANK_COUNT = 10
 MAP_FACILITY_LIMIT = 1000
+RANKING_BARS = 25
 DEFAULT_MIN_LOAD = 10000
 
 
-def split_labels(frame, split):
+# Up to four facilities compared side by side: black, blue, gray, then black dashed
+FACILITY_COLORS = [BLACK, BLUE, GRAY, BLACK]
+
+
+def split_labels(frame, split, order=None):
+    if split == "facility":
+        # One line per facility (the Compare facilities page), in the order given
+        labels = frame["facility_name"].fillna(analysis.NOT_REPORTED).astype(str)
+        order = [name for name in (order or list(dict.fromkeys(labels))) if (labels == name).any()]
+        return labels, order, {name: FACILITY_COLORS[index % 4] for index, name in enumerate(order)}
     if split == "fuel_family":
         return frame["primary_fuel"].map(analysis.fuel_family), list(analysis.FUEL_FAMILIES), FAMILY_COLORS
     if split in ("so2_control", "nox_control"):
@@ -538,7 +548,7 @@ def signed_percent(value):
 
 def split_words(split):
     """'SO2 control' -> 'SO2 control', 'Fuel family' -> 'fuel family'."""
-    return lower_first(SPLITS[split])
+    return lower_first(SPLITS.get(split, "Facility"))
 
 
 def series_drill(split, name):
@@ -550,14 +560,14 @@ def series_drill(split, name):
     return None
 
 
-def trend(frame, key, split="none"):
+def trend(frame, key, split="none", order=None):
     item = analysis.VARIABLES[key]
     title = f"{item['label']} over time"
     years = selection_years(frame)
     if len(years) < 2:
         return empty_chart("trend", title, "This selection covers one year, so there is no trend to show.")
 
-    labels, order, colors = split_labels(frame, split)
+    labels, order, colors = split_labels(frame, split, order)
     if labels is None:
         series = [("All selected records", frame, SERIES[0])]
     else:
@@ -591,10 +601,11 @@ def trend(frame, key, split="none"):
         counts = [0 if pd.isna(c) else int(c) for c in table["records"]]
         values_by_series.append(values)
         columns.append(f"{name}: {value_title(key)}")
+        dashed = split == "facility" and order.index(name) == 3      # the fourth facility, black again
         trace = {
             "type": "scatter", "mode": "lines", "name": name, "legendgroup": name, "x": years, "y": values,
             "customdata": [[c] for c in counts],
-            "line": {"color": color, "width": 3},
+            "line": {"color": color, "width": 2.5 if dashed else 3, "dash": "dash" if dashed else "solid"},
             "hovertemplate": f"{text(name)}  <b>%{{y:,.4~r}} {item['unit']}</b>  (%{{customdata[0]:,}} records)"
                              "<extra></extra>",
             "connectgaps": False,
@@ -607,7 +618,8 @@ def trend(frame, key, split="none"):
         present = [(year, value) for year, value in zip(years, values) if value is not None]
         if present:
             dots.append(end_dot(present[-1][0], present[-1][1], color, name))
-            legend.append(legend_item(name, color, f"{short_number(present[-1][1])} in {present[-1][0]}"))
+            legend.append(legend_item(name, color, f"{short_number(present[-1][1])} in {present[-1][0]}",
+                                      "dash" if dashed else "line"))
 
     rows = [[year] + [values[i] for values in values_by_series] for i, year in enumerate(years)]
     figure = layout(title, "", "", height=340)
@@ -1178,6 +1190,83 @@ def rankings(frame, key, level="facility", min_load=DEFAULT_MIN_LOAD):
                       f"Highest of {len(table):,}"),
             bar_chart("rank_low", low_title, low, f"Lowest first, out of {len(lowest_pool):,} {noun}." + low_note
                       + common, f"Lowest of {len(lowest_pool):,}"))
+
+
+# ---------- Facility pages, Compare facilities and Rankings ----------
+
+def facility_bars(frame, key, year, order):
+    """The compared facilities' values in one year, one bar each in its facility's color (as on the lines)."""
+    item = analysis.VARIABLES[key]
+    spec = bars(frame[frame["year"] == year], key, "facility")
+    spec["id"] = f"bars_{key}"
+    spec["title"] = f"{item['label']} in {year}"
+    if spec.get("empty"):
+        return spec
+    names = [label.rsplit(" (", 1)[0] for label in spec["data"][0]["y"]]
+    places = [order.index(name) if name in order else None for name in names]
+    spec["data"][0]["marker"] = {
+        "color": [REST if place is None else FACILITY_COLORS[place] for place in places],
+        # the fourth facility is black again, so its bar is striped (its line is dashed)
+        "pattern": {"shape": ["/" if place == 3 else "" for place in places], "fgcolor": SURFACE, "size": 6,
+                    "solidity": 0.3},
+    }
+    spec["note"] = "Each bar is in its facility's color, as on the lines above."
+    return spec
+
+
+def facility_comparison(frame, order, year):
+    """
+    Charts for the Compare facilities page: CO2 and CO2 per MWh in every year, one line per facility,
+    and both for the chosen year as bars. `order` is the facility names in the order they were added.
+    """
+    co2 = trend(frame, "co2_mass", "facility", order)
+    intensity = trend(frame, "co2_intensity", "facility", order)
+    intensity["id"] = "trend_intensity"
+    return [co2, intensity, facility_bars(frame, "co2_mass", year, order),
+            facility_bars(frame, "co2_intensity", year, order)]
+
+
+def ranking_chart(rows, header, title, lowest_first=False):
+    """The Rankings page as bars: the first (the headline) black, the rest gray. Up to RANKING_BARS are drawn."""
+    shown = rows[:RANKING_BARS]
+    names, seen = [], set()
+    for row in shown:
+        name = row.get("Facility") or "Unnamed"
+        if row.get("Unit"):
+            name += f" unit {row['Unit']}"
+        if row.get("Year"):
+            name += f", {row['Year']}"
+        name = text(name)
+        while name in seen:        # a category axis would merge two bars with the same name
+            name += " "
+        seen.add(name)
+        names.append(name)
+    values = [clean(row.get(header)) for row in shown]
+    unit = header.rsplit("(", 1)[-1].rstrip(")") if "(" in header else ""
+    unit = "short tons" if unit == "tons" else unit
+    data = [dict({
+        "type": "bar", "orientation": "h", "x": values, "y": names, "marker": {"color": lead_colors(len(values))},
+        "hovertemplate": "%{y}<br><b>%{x:,.4~r} " + unit + "</b><extra></extra>",
+    }, **value_labels(values))]
+    figure = layout(title)
+    bar_rows(figure, names, values)
+    note = ("Lowest" if lowest_first else "Highest") + " first."
+    if len(rows) > len(shown):
+        note += f" The first {len(shown)} of {len(rows)} are drawn; the table below has all of them."
+    spec = chart("ranking", title, data, figure, ["Rank", "Name", header],
+                 [[index + 1, name.strip(), value] for index, (name, value) in enumerate(zip(names, values))], note)
+    present = [(name, value) for name, value in zip(names, values) if value is not None]
+    if present:
+        spec["headline"] = headline(present[0][1], unit, present[0][0].strip(),
+                                    eyebrow="Lowest" if lowest_first else "Highest")
+    spec["about"] = explain.about(
+        f"The {'lowest' if lowest_first else 'highest'} {len(rows)} by {header}, as in the table below.",
+        "Each value is as reported to EPA; facility rankings add up every unit at the plant for the year (or every "
+        "year, when all years are combined).",
+        "Horizontal bars leave room for long names and make the order easy to read from top to bottom.",
+        "The first bar is the one the headline names. Hover a bar for its exact value.",
+        explain.SOURCE)
+    return spec
 
 
 # ---------- Maps ----------

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_chart.html" import chart_card, chart_scripts %}
 
 {% block title %}{{ facility.facility_name }} - epaData{% endblock %}
+
+{% block head %}{% if visuals.charts %}{{ chart_scripts() }}{% endif %}{% endblock %}
 
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
@@ -46,6 +49,24 @@
     <div class="fact"><dt>Annual records</dt><dd>{{ annual_records|length }}</dd></div>
     <div class="fact"><dt>Years reported</dt><dd>{% if yearly %}{{ yearly[-1].year }}–{{ yearly[0].year }}{% else %}—{% endif %}</dd></div>
 </dl>
+
+{% if visuals.charts %}
+{% set charts = visuals.charts %}
+<section class="section" id="charts">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Over the years</h2>
+            <p class="section-intro">Every unit at this facility, every year on record. Select any point or bar to see where its number comes from.</p>
+        </div>
+        <a class="btn-link" href="{{ visuals.dashboard_url }}">All charts for this facility ›</a>
+    </div>
+    <div class="chart-grid">
+        {% if charts.trend %}{{ chart_card(charts.trend, visuals.data_base, wide=true) }}{% endif %}
+        {% if charts.indexed %}{{ chart_card(charts.indexed, visuals.data_base, wide=not charts.rank_high) }}{% endif %}
+        {% if charts.rank_high %}{{ chart_card(charts.rank_high, visuals.data_base) }}{% endif %}
+    </div>
+</section>
+{% endif %}
 
 <section class="facility-summary">
     <h2>Facility Data Summary</h2>

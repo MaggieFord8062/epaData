@@ -209,11 +209,11 @@ After step 3, each of these should work exactly as described.
 | Scenarios | `/scenarios` | One-variable-at-a-time sensitivity curves and named what-if scenarios on a fitted model, with out-of-range warnings (Phase 2) |
 | Sensitivity | `/sensitivity` | For one unit, change gross load and heat input by paired percentages (and optionally the fuel type) and see the predicted CO2 from linear regression or a decision tree, with absolute and % change and a range check (Phase 2) |
 | All tools | `/search` | Basic and multi-criteria search on every field, with range and comparison operators |
-| Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state) |
-| Compare | `/compare` | Up to four facilities side by side |
-| History | `/history` | One unit across every reporting year |
-| Facility | `/facility/<id>` | Location, units, yearly totals, the nearest facilities, data sources, hourly records |
-| Unit | `/unit/<key>` | Fuels, controls, dates and every annual record |
+| Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state), with a bar chart of the ranking |
+| Compare | `/compare` | Up to four facilities side by side: CO2 and CO2 per MWh by year (one line per plant) and the chosen year as bars, then the tables |
+| History | `/history` | One unit across a range of years, charted and in a table |
+| Facility | `/facility/<id>` | Location, CO2 and every emission over the years, CO2 by unit, yearly totals, the nearest facilities, data sources, hourly records |
+| Unit | `/unit/<key>` | CO2 and every emission over the years, fuels, controls, dates and every annual record |
 | Retrieve | `/retrieve` | Pull data from the EPA CAM API with filters; runs in the background with progress |
 | Datasets | `/datasets` | Every retrieval and upload: source, date, query, counts, notes |
 | Upload | `/upload` | CSV / Excel upload with validation, preview, quality report, approve or cancel |
@@ -529,6 +529,6 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 | `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
 | `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
-| `tests/test_polish.py` | County labels, bars, maps and comparisons; maps that zoom only to small areas; the single navigation bar keeping the selection; the headline mark in black; sortable tables; distances and nearby facilities; trends that measure change from the first year most units reported |
+| `tests/test_polish.py` | County labels, bars, maps and comparisons; maps that zoom only to small areas; the single navigation bar keeping the selection; the headline mark in black; sortable tables; distances and nearby facilities; trends that measure change from the first year most units reported; the charts on the facility, unit, history, Compare facilities and Rankings pages |
 
-Expected result: all 105 tests pass.
+Expected result: all 108 tests pass.

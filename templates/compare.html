@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_chart.html" import chart_card, chart_scripts %}
 
 {% block title %}Compare facilities - epaData{% endblock %}
+
+{% block head %}{% if charts %}{{ chart_scripts() }}{% endif %}{% endblock %}
 
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
@@ -10,7 +13,7 @@
 
 <div class="page-head">
     <h1>Compare facilities</h1>
-    <p>Up to {{ limit }} power plants side by side: their totals for one year, every unit, and CO2 across every year on record.</p>
+    <p>Up to {{ limit }} power plants side by side: CO2 and CO2 per MWh across every year on record, their totals for one year, and every unit.</p>
 </div>
 
 <form class="panel" id="compare-form" method="GET" action="/compare">
@@ -48,6 +51,19 @@
 </form>
 
 {% if data and data.facilities %}
+
+{% if charts %}
+<section class="section" id="charts">
+    <h2 class="section-title">Side by side</h2>
+    <p class="section-intro">Each facility keeps its color on every chart. Select any point or bar to see where its number comes from; the numbers behind each chart are under Show the numbers.</p>
+    <div class="chart-grid">
+        {{ chart_card(charts[0], wide=true) }}
+        {{ chart_card(charts[2]) }}
+        {{ chart_card(charts[3]) }}
+        {{ chart_card(charts[1], wide=true) }}
+    </div>
+</section>
+{% endif %}
 
 <section class="section">
     <div class="section-head">
@@ -130,29 +146,6 @@
     {% else %}
     <div class="empty"><h3>No units reported in {{ year }}</h3><p>Try another year.</p></div>
     {% endif %}
-</section>
-
-<section class="section">
-    <h2 class="section-title">CO2 by year</h2>
-    <p class="section-intro">Tons of CO2 from each facility in every year on record.</p>
-    <div class="table-wrap">
-        <table class="data">
-            <thead>
-                <tr>
-                    <th>Year</th>
-                    {% for facility in data.facilities %}<th class="facility-head">{{ facility.name }}</th>{% endfor %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for y in data.years %}
-                <tr>
-                    <td class="name">{{ y }}</td>
-                    {% for facility in data.facilities %}<td class="num">{{ number(data.trend[y].get(facility.facility_id)) }}</td>{% endfor %}
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
 </section>
 
 {% else %}

@@ -4844,6 +4844,10 @@ p.test-results {
     margin-top: 40px;
 }
 
+.space-bottom {
+    margin-bottom: 56px;
+}
+
 .center {
     text-align: center;
 }
