@@ -141,8 +141,13 @@
         setCurtain();
     });
 
+    function typing(target) {
+        return target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+    }
+
     document.addEventListener("keydown", function (event) {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        var slash = event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !typing(event.target);
+        if (slash || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k")) {
             event.preventDefault();
             openSearch();
         } else if (event.key === "Escape") {

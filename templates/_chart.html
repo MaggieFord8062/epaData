@@ -116,7 +116,7 @@
     <details class="chart-table">
         <summary>Show the numbers</summary>
         <div class="table-wrap">
-            <table class="data">
+            <table class="data"{% if spec.table.rows|length <= 100 %} data-sortable{% endif %}>
                 <thead>
                     <tr>
                         {% for column in spec.table.columns %}<th>{{ column }}</th>{% endfor %}
@@ -126,7 +126,7 @@
                     {% for row in spec.table.rows[:100] %}
                     <tr>
                         {% for value in row %}
-                        <td class="{{ 'num' if value is number else '' }}">{{ value|cell(spec.table.columns[loop.index0]) }}</td>
+                        <td{% if value is number %} class="num" data-value="{{ value }}"{% endif %}>{{ value|cell(spec.table.columns[loop.index0]) }}</td>
                         {% endfor %}
                     </tr>
                     {% endfor %}

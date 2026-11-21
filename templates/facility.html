@@ -32,7 +32,7 @@
 <dl class="facts">
     <div class="fact"><dt>EPA facility ID</dt><dd>{{ facility.epa_facility_id }}</dd></div>
     <div class="fact"><dt>State</dt><dd>{{ facility.state or "—" }}</dd></div>
-    <div class="fact"><dt>County</dt><dd>{{ facility.county or "—" }}</dd></div>
+    <div class="fact"><dt>County</dt><dd>{% if facility.county and facility.state %}<a href="/dashboard?{{ {"state": facility.state, "county": facility.county}|urlencode }}" title="Open every facility in {{ facility.county }}, {{ facility.state }} on the dashboard">{{ facility.county }}</a>{% else %}{{ facility.county or "—" }}{% endif %}</dd></div>
     <div class="fact"><dt>Source category</dt><dd>{{ facility.source_category or "—" }}</dd></div>
     <div class="fact">
         <dt>Location</dt>
@@ -182,6 +182,29 @@
     <div class="empty"><h3>No annual records stored</h3><p>This facility has no emissions data in the database.</p></div>
     {% endif %}
 </section>
+
+{% if nearby %}
+<section class="section" id="nearby">
+    <h2 class="section-title">Nearby</h2>
+    <p class="section-intro">The {{ nearby|length }} closest facilities in the database, measured in a straight line between their coordinates.</p>
+    <ul class="nearby-list">
+        {% for item in nearby %}
+        <li>
+            <a href="/facility/{{ item.facility_id }}">
+                <span class="nearby-distance">{{ "%.0f"|format(item.miles) if item.miles >= 10 else "%.1f"|format(item.miles) }}<small>mi</small></span>
+                <span class="nearby-main">
+                    <span class="nearby-name">{{ item.name }}</span>
+                    <span class="nearby-place">{{ [item.county, item.state]|select|join(", ") }}</span>
+                </span>
+                <span class="nearby-value">{% if item.co2 is not none %}{{ "{:,.0f}".format(item.co2) }} <small>tons CO2 in {{ item.year }}</small>{% else %}<small>No CO2 reported</small>{% endif %}</span>
+                <svg class="nearby-chevron" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+    <p class="nearby-actions"><a class="btn-link" href="{{ compare_nearby }}">Compare with the {{ compare_count }} closest</a></p>
+</section>
+{% endif %}
 
 <section class="section" id="hourly-records">
     <h2 class="section-title">Hourly records</h2>

@@ -4880,3 +4880,164 @@ p.test-results {
 .gn.is-menu .gn-menu-button line:last-child {
     transform: rotate(-45deg) translateY(-3px);
 }
+
+
+/* ---------- Nearby facilities (facility page): a grouped list, as in Settings ---------- */
+
+.nearby-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 20px;
+    border-radius: var(--radius-md);
+    background: var(--bg-alt);
+}
+
+.nearby-list li + li a {
+    border-top: 1px solid var(--line);
+}
+
+.nearby-list a {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 20px 16px 0;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.nearby-list a:hover .nearby-name {
+    color: var(--link);
+}
+
+.nearby-distance {
+    flex: none;
+    width: 64px;
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.004em;
+    font-variant-numeric: tabular-nums;
+}
+
+.nearby-distance small,
+.nearby-value small {
+    margin-left: 3px;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.nearby-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.nearby-name {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    transition: color 0.2s var(--ease);
+}
+
+.nearby-place {
+    color: var(--text-2);
+    font-size: 14px;
+}
+
+.nearby-value {
+    flex: none;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.nearby-chevron {
+    flex: none;
+    color: var(--text-3);
+}
+
+.nearby-actions {
+    margin-top: 20px;
+}
+
+@media (max-width: 734px) {
+    .nearby-list a {
+        flex-wrap: wrap;
+        gap: 4px 16px;
+    }
+
+    .nearby-distance {
+        width: 52px;
+        font-size: 20px;
+    }
+
+    .nearby-main {
+        flex-basis: calc(100% - 100px);
+    }
+
+    .nearby-value {
+        order: 4;
+        margin-left: 68px;
+        text-align: left;
+    }
+
+    .nearby-chevron {
+        display: none;
+    }
+}
+
+/* ---------- Sortable "Show the numbers" tables ---------- */
+
+.th-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: pointer;
+}
+
+.th-sort::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    opacity: 0;
+    transform: translateY(-2px) rotate(45deg);
+    transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.th-sort:hover::after {
+    opacity: 0.35;
+}
+
+th[aria-sort="ascending"] .th-sort::after {
+    opacity: 1;
+    transform: translateY(2px) rotate(225deg);
+}
+
+th[aria-sort="descending"] .th-sort::after {
+    opacity: 1;
+}
+
+th[aria-sort="ascending"] .th-sort,
+th[aria-sort="descending"] .th-sort {
+    color: var(--text);
+}
+
+.th-sort:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+    border-radius: 6px;
+}
+
+.chart-table table.data td:not(.num) {
+    min-width: 12em;
+}

@@ -28,7 +28,7 @@ import traci
 import uploads
 from retrieval import retrieve_hourly_records
 from search import (search_data, advance_search, find_facilities, compare_facilities,
-                    facility_units, RANK_FIELDS, COMPARE_LIMIT)
+                    facility_units, nearby_facilities, RANK_FIELDS, COMPARE_LIMIT)
 
 load_dotenv()
 app = Flask(__name__)
@@ -492,7 +492,11 @@ def facility_detail(facility_id):
                 selected = ""
                 selected_date = date.today().isoformat()
         max_co2 = max([row.co2 or 0 for row in yearly] or [0])
-        return render_template("facility.html", facility=facility, units=units, yearly=yearly,
+        nearby = nearby_facilities(facility_id, facility.latitude, facility.longitude)
+        closest = [facility_id] + [item["facility_id"] for item in nearby[:COMPARE_LIMIT - 1]]
+        compare_nearby = "/compare?" + urlencode([("facility", value) for value in closest])
+        return render_template("facility.html", facility=facility, units=units, yearly=yearly, nearby=nearby,
+                               compare_nearby=compare_nearby, compare_count=len(closest) - 1,
                                sources=sources, max_co2=max_co2, hourly_choices=hourly_choices,
                                selected_hourly_choice=selected, selected_hourly_date=selected_date,
                                hourly_records=hourly_records, hourly_total=hourly_total, annual_records=annual_records,
