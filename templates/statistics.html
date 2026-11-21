@@ -1,16 +1,11 @@
 {% extends "base.html" %}
 {% from "_chart.html" import hidden_filters %}
-{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}{{ info.label }} statistics - epaData{% endblock %}
 
 {% macro sort_head(label, key, numeric=True) -%}
 <a href="{{ sort_links[key] }}" class="{{ 'is-sorted' if choices.gsort == key else '' }}">{{ label }}{% if choices.gsort == key %} {{ '↓' if numeric else '↑' }}{% endif %}</a>
 {%- endmacro %}
-
-{% block localnav %}
-{{ analysis_nav(analysis_pages, request.path, request.full_path, (download_base ~ "&what=summary", "Download")) }}
-{% endblock %}
 
 {% block main %}
 
@@ -19,6 +14,7 @@
         <h1>Statistics</h1>
         <p class="subhead">Every number behind the selection.</p>
         <p class="lede">Summary statistics and derived indicators for any records you can find in Explore, for the whole selection or broken down by state, fuel, unit type, year, facility or pollution control.</p>
+        {% set page_download = (download_base ~ "&what=summary", "Download") %}
         {% include "_selection.html" %}
     </div>
 </section>

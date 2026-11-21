@@ -1,15 +1,9 @@
 {% extends "base.html" %}
 {% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
-{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Scenarios - epaData{% endblock %}
 
 {% block head %}{{ chart_scripts() }}{% endblock %}
-
-{% block localnav %}
-{{ analysis_nav(analysis_pages, request.path, request.full_path,
-                (download_base ~ "&what=scenarios", "Download") if "error" not in context else none) }}
-{% endblock %}
 
 {% block main %}
 {% set label = targets[target].label %}
@@ -30,6 +24,7 @@
                 {% endfor %}
             </nav>
         </div>
+        {% set page_download = (download_base ~ "&what=scenarios", "Download") if "error" not in context else none %}
         {% include "_selection.html" %}
     </div>
 </section>

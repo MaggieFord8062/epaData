@@ -1,14 +1,9 @@
 {% extends "base.html" %}
 {% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
-{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Impacts - epaData{% endblock %}
 
 {% block head %}{{ chart_scripts() }}{% endblock %}
-
-{% block localnav %}
-{{ analysis_nav(analysis_pages, request.path, request.full_path, (download_base ~ "&what=totals", "Download")) }}
-{% endblock %}
 
 {% block main %}
 
@@ -17,6 +12,7 @@
         <h1>Impacts</h1>
         <p class="subhead">From tons emitted to potential harm.</p>
         <p class="lede">Potential environmental and health impacts of the selection's CO2, SO2 and NOx, using EPA's TRACI 2.2 characterization factors. Each impact category keeps its own unit, and categories are never added together.</p>
+        {% set page_download = (download_base ~ "&what=totals", "Download") %}
         {% include "_selection.html" %}
     </div>
 </section>

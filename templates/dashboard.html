@@ -1,14 +1,9 @@
 {% extends "base.html" %}
 {% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
-{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Dashboard - epaData{% endblock %}
 
 {% block head %}{{ chart_scripts() }}{% endblock %}
-
-{% block localnav %}
-{{ analysis_nav(analysis_pages, request.path, request.full_path, (dataset_url, "Download data")) }}
-{% endblock %}
 
 {% block main %}
 
@@ -17,6 +12,7 @@
         <h1>Dashboard</h1>
         <p class="subhead">See the whole picture. Then dig in.</p>
         <p class="lede">Trends, comparisons, distributions, relationships, rankings and maps for any selection from Explore. Hover for values, drag to zoom, and download any chart as an image or its numbers as a file.</p>
+        {% set page_download = (dataset_url, "Download data") %}
         {% include "_selection.html" %}
     </div>
 </section>
@@ -24,7 +20,7 @@
 {% if glance %}
 <section class="band dark tight" aria-label="At a glance">
     <div class="container wide">
-        <div class="stats">
+        <div class="stats" data-count-up>
             {% for value, label in [(glance.co2, "short tons of CO2"), (glance.so2, "short tons of SO2"), (glance.nox, "short tons of NOx"), (glance.load, "MWh generated (gross)")] %}
             {% set parts = (value|compact).split(" ") %}
             <div class="stat"><div class="value">{{ parts[0] }}{% if parts|length > 1 %}<small>{{ parts[1] }}</small>{% endif %}</div><div class="label">{{ label }}</div></div>
@@ -203,9 +199,9 @@
 <section class="band chapter" id="maps">
     <div class="container wide">
         <h2 class="section-title">Maps. <span class="gray">Where it happens.</span></h2>
-        <p class="section-intro">{{ info.label }} by state, and where the facilities are.</p>
+        <p class="section-intro">{{ info.label }} by {{ "county" if charts.county_map else "state" }}, and where the facilities are{{ ", zoomed to your selection" if charts.county_map }}.</p>
         <div class="chart-grid">
-            {{ chart_card(charts.state_map, data_base) }}
+            {{ chart_card(charts.county_map or charts.state_map, data_base) }}
             {{ chart_card(charts.facility_map, data_base) }}
         </div>
     </div>
@@ -224,7 +220,7 @@
         </details>
         <details class="analysis-details">
             <summary>Colors</summary>
-            <p>Each color always means the same thing on every chart: CO2, coal and group A are blue; SO2, gas and group B are orange; NOx and oil and other fuels are green; gross load is yellow. Maps use one blue from light (low) to dark (high). The colors were checked to stay distinguishable for color-blind readers, and every chart also has its numbers in a table.</p>
+            <p>The charts are black, gray and white, with blue used sparingly. On a chart with one series, the mark the big number describes is black and the rest are gray: the highest bar, the median line. Where series are compared, CO2, coal and group A are black, SO2, gas and group B are blue, NOx and oil and other fuels are gray, and gross load is a dashed black line. Maps run from light gray (low) to black (high). Whatever you select turns blue. The shades were checked to stay distinguishable for color-blind readers, every line and legend also has a name, and every chart has its numbers in a table.</p>
         </details>
         <details class="analysis-details">
             <summary>Log scales</summary>
