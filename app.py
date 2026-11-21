@@ -1769,7 +1769,7 @@ def requested_format():
 DASHBOARD_DEFAULT_VARIABLE = "co2_mass"
 
 
-def dashboard_choices(params):
+def dashboard_choices(params, frame=None):
     def pick(name, allowed, default):
         value = params.get(name)
         return value if value in allowed else default
@@ -1777,7 +1777,9 @@ def dashboard_choices(params):
     min_load = search_to_number(params.get("min_load"))
     return {
         "variable": chosen_variable(params, DASHBOARD_DEFAULT_VARIABLE),
-        "group": pick("group", analysis.GROUPS, "state"),
+        # One state selected: compare its counties unless asked otherwise
+        "group": pick("group", analysis.GROUPS, "county" if frame is not None and dashboard.one_state(frame)
+                      else "state"),
         "split": pick("split", dashboard.SPLITS, "none"),
         "x": pick("x", dashboard.SCATTER_VARIABLES, "heat_input"),
         "y": pick("y", dashboard.SCATTER_VARIABLES, "co2_mass"),
@@ -1806,7 +1808,7 @@ def dashboard_page():
     relationships, rankings and maps. Every choice is in the URL.
     """
     params, filters, result, frame = analysis_selection()
-    choices = dashboard_choices(params)
+    choices = dashboard_choices(params, frame)
     charts = []
     if len(frame):
         charts = [dashboard.json_safe(spec) for spec in dashboard.build_all(frame, choices)]
@@ -1842,7 +1844,7 @@ def dashboard_page():
 def dashboard_data():
     """The numbers behind one dashboard chart, as CSV or Excel with reproducibility metadata."""
     params, filters, result, frame = analysis_selection()
-    choices = dashboard_choices(params)
+    choices = dashboard_choices(params, frame)
     spec = dashboard.build_one(frame, choices, request.args.get("chart", ""))
     if spec is None:
         abort(404)
@@ -1965,7 +1967,7 @@ def impacts_request():
     traci.add_impacts(frame, factors)
     categories = traci.categories(factors)
     keys = [key for key, _, _ in categories]
-    by = params.get("by") if params.get("by") in IMPACT_GROUPS else "state"
+    by = params.get("by") if params.get("by") in IMPACT_GROUPS else ("county" if dashboard.one_state(frame) else "state")
     isort = params.get("isort") if params.get("isort") in keys else (keys[0] if keys else "")
     per_mwh = params.get("per_mwh") == "1"
     choices = {"by": by, "isort": isort, "per_mwh": per_mwh}

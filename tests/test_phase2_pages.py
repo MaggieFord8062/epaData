@@ -122,12 +122,22 @@ def test_rankings():
 
 def test_correlation_matrix():
     spec = dashboard.correlation(selection(), "spearman")
-    z = spec["data"][0]["z"]
-    assert z[0][0] == pytest.approx(1.0)
-    for i in range(len(z)):
-        for j in range(len(z)):
-            if z[i][j] is not None:
-                assert z[i][j] == pytest.approx(z[j][i])
+    # The table has the full matrix: 1 on the diagonal, and symmetric
+    full = [row[1:] for row in spec["table"]["rows"]]
+    assert full[0][0] == pytest.approx(1.0)
+    for i in range(len(full)):
+        for j in range(len(full)):
+            if full[i][j] is not None:
+                assert full[i][j] == pytest.approx(full[j][i])
+    # The chart draws each pair once, below the diagonal (row i + 1, column j)
+    trace = spec["data"][0]
+    assert trace["y"] == spec["table"]["columns"][2:] and trace["x"] == spec["table"]["columns"][1:-1]
+    for i, row in enumerate(trace["z"]):
+        for j, value in enumerate(row):
+            if j > i:
+                assert value is None
+            elif value is not None:
+                assert value == pytest.approx(full[i + 1][j])
 
 
 def test_state_and_facility_maps():
