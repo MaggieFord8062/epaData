@@ -492,11 +492,15 @@ def facility_detail(facility_id):
                 selected = ""
                 selected_date = date.today().isoformat()
         max_co2 = max([row.co2 or 0 for row in yearly] or [0])
+        visuals = record_charts({"epa_facility_id": facility_id},
+                                ["indexed", "trend"] + (["rank_high"] if len(units) > 1 else []))
+        if "rank_high" in visuals["charts"]:
+            visuals["charts"]["rank_high"]["title"] = "CO2 mass by unit, every year combined"
         nearby = nearby_facilities(facility_id, facility.latitude, facility.longitude)
         closest = [facility_id] + [item["facility_id"] for item in nearby[:COMPARE_LIMIT - 1]]
         compare_nearby = "/compare?" + urlencode([("facility", value) for value in closest])
         return render_template("facility.html", facility=facility, units=units, yearly=yearly, nearby=nearby,
-                               compare_nearby=compare_nearby, compare_count=len(closest) - 1,
+                               compare_nearby=compare_nearby, compare_count=len(closest) - 1, visuals=visuals,
                                sources=sources, max_co2=max_co2, hourly_choices=hourly_choices,
                                selected_hourly_choice=selected, selected_hourly_date=selected_date,
                                hourly_records=hourly_records, hourly_total=hourly_total, annual_records=annual_records,
@@ -670,9 +674,12 @@ def unit_detail(unit_key):
 
     latest = history[0][0] if history else None
     max_co2 = max([record.co2_mass or 0 for record, _ in history] or [0])
+    visuals = record_charts({"epa_facility_id": unit.epa_facility_id, "epa_unit_id": unit.epa_unit_id},
+                            ["trend", "indexed"])
 
     return render_template(
         "unit.html",
+        visuals=visuals,
         unit=unit,
         facility=facility,
         history=history,
@@ -909,8 +916,16 @@ def advanced_search():
         if query.get("reporting_year") == "all":
             query.pop("reporting_year")  # "All years combined" means no year filter
         results = drop_empty_columns(advance_search(**query))
+        chart = None
+        header = RANK_FIELDS.get(params.get("field"))
+        if results and header and params.get("group") != "state":
+            what = "facilities" if params.get("type") == "Facility" else "units"
+            lowest = params.get("order") == "ASC"
+            title = f"{'Bottom' if lowest else 'Top'} {len(results)} {what} by {header.split(' (')[0]}"
+            chart = dashboard.ranking_chart(results, header, title, lowest_first=lowest)
         return render_template(
             "results.html",
+            chart=chart,
             results=results,
             ranking=params,
             rank_label=RANK_FIELDS.get(params.get("field")),
@@ -967,9 +982,18 @@ def compare():
         year = years[0] if years else None
 
     data = compare_facilities(chosen, year) if chosen and year else None
+    charts = []
+    if data and data["facilities"]:
+        # Every year of the chosen facilities, for the charts (the tables above them are for one year)
+        rows = []
+        for facility_id in chosen:
+            rows += smart_search.explore({"epa_facility_id": facility_id}, everything=True)["rows"]
+        order = [facility["name"] for facility in data["facilities"]]
+        charts = dashboard.facility_comparison(analysis.build_frame(rows), order, year)
 
     return render_template(
         "compare.html",
+        charts=charts,
         data=data,
         chosen=chosen,
         year=year,
@@ -1022,9 +1046,14 @@ def history():
             }
 
     max_co2 = max([row["CO2 (tons)"] or 0 for row in rows] or [0])
+    visuals = None
+    if unit and rows:
+        visuals = record_charts({"epa_facility_id": unit.epa_facility_id, "epa_unit_id": unit.epa_unit_id,
+                                 "year_from": year_from, "year_to": year_to}, ["trend", "indexed"])
 
     return render_template(
         "history.html",
+        visuals=visuals,
         unit=unit,
         facility=facility,
         units=facility_units(facility.epa_facility_id) if facility else [],
@@ -1559,6 +1588,25 @@ def analysis_selection():
     result = smart_search.explore(filters, everything=True)
     frame = analysis.build_frame(result["rows"])
     return params, filters, result, frame
+
+
+def record_charts(filters, chart_ids, level="unit"):
+    """
+    Dashboard charts for exactly the records `filters` picks out (one facility, one unit, or one unit over a
+    range of years), so the facility, unit and history pages show the same explained charts as the dashboard,
+    with the same downloads. Returns the charts by id, the downloads' base URL and the full dashboard's URL.
+    """
+    result = smart_search.explore(filters, everything=True)
+    frame = analysis.build_frame(result["rows"])
+    choices = dashboard_choices({"level": level}, frame)
+    charts = {}
+    if len(frame):
+        for chart_id in chart_ids:
+            spec = dashboard.build_one(frame, choices, chart_id)
+            if spec is not None:
+                charts[chart_id] = spec
+    return {"charts": charts, "data_base": page_url("/dashboard/data", filters, **dashboard_url_choices(choices)),
+            "dashboard_url": page_url("/dashboard", filters)}
 
 
 def chosen_variable(params, default=analysis.DEFAULT_VARIABLE, allowed=None):

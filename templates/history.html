@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_chart.html" import chart_card, chart_scripts %}
 
 {% block title %}Unit history - epaData{% endblock %}
+
+{% block head %}{% if visuals and visuals.charts %}{{ chart_scripts() }}{% endif %}{% endblock %}
 
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
@@ -68,6 +71,12 @@
         <a class="btn btn-primary" href="{{ download_url }}" download>Download these years</a>
         <a class="btn-link" href="/unit/{{ unit.internal_unit_key }}">Unit details</a>
     </div>
+
+    {% if visuals and visuals.charts %}
+    <div class="chart-grid space-top">
+        {% for chart_id in ["trend", "indexed"] if visuals.charts[chart_id] %}{{ chart_card(visuals.charts[chart_id], visuals.data_base) }}{% endfor %}
+    </div>
+    {% endif %}
 
     {% if rows %}
     <div class="table-wrap space-top">

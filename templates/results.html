@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_chart.html" import chart_card, chart_scripts %}
 
 {% block title %}Ranking - epaData{% endblock %}
+
+{% block head %}{% if chart %}{{ chart_scripts() }}{% endif %}{% endblock %}
 
 {% set grouped = ranking and ranking.get('group') == "state" %}
 
@@ -35,6 +38,12 @@
         {% endif %}
     </div>
 </div>
+
+{% if chart %}
+<div class="chart-grid space-bottom">
+    {{ chart_card(chart, wide=true) }}
+</div>
+{% endif %}
 
 {% if results %}
 <div class="table-wrap">

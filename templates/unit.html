@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_chart.html" import chart_card, chart_scripts %}
 
 {% block title %}Unit {{ unit.epa_unit_id }}, {{ facility.facility_name }} - epaData{% endblock %}
+
+{% block head %}{% if visuals.charts %}{{ chart_scripts() }}{% endif %}{% endblock %}
 
 {% macro number(value, digits=0) -%}
 {% if value is none %}<span class="dim">—</span>{% else %}{{ ("{:,.%df}" % digits).format(value) }}{% endif %}
@@ -21,6 +24,21 @@
         <a class="btn-link" href="/facility/{{ facility.epa_facility_id }}">All units at this facility</a>
     </div>
 </div>
+
+{% if visuals.charts %}
+<section class="section" id="charts">
+    <div class="section-head">
+        <div>
+            <h2 class="section-title">Over the years</h2>
+            <p class="section-intro">Every year this unit reported. Select any point to see where its number comes from.</p>
+        </div>
+        <a class="btn-link" href="{{ visuals.dashboard_url }}">All charts for this unit ›</a>
+    </div>
+    <div class="chart-grid">
+        {% for chart_id in ["trend", "indexed"] if visuals.charts[chart_id] %}{{ chart_card(visuals.charts[chart_id], visuals.data_base) }}{% endfor %}
+    </div>
+</section>
+{% endif %}
 
 <section class="section">
     <h2 class="section-title">Identification</h2>
