@@ -28,6 +28,7 @@ import explain
 DIMENSIONS = {
     "period": "Reporting periods",
     "state": "States",
+    "county": "Counties",
     "primary_fuel": "Fuels",
     "unit_type": "Unit types",
     "so2_control": "With vs. without an SO2 control",

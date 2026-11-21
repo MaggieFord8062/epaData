@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% from "_chart.html" import chart_card, hidden_filters, chart_scripts %}
-{% from "_localnav.html" import analysis_nav %}
 
 {% block title %}Compare - epaData{% endblock %}
 
@@ -10,11 +9,6 @@
 {%- if value is none -%}—{%- else -%}{{ "+" if value > 0 else ("−" if value < 0 else "") }}{{ (value|abs)|stat }}{{ suffix }}{%- endif -%}
 {%- endmacro %}
 
-{% block localnav %}
-{{ analysis_nav(analysis_pages, request.path, request.full_path,
-                (download_base ~ "&what=summary", "Download") if selection.records and not definition.same else (dataset_url, "Download data")) }}
-{% endblock %}
-
 {% block main %}
 
 <section class="hero">
@@ -22,6 +16,7 @@
         <h1>Compare</h1>
         <p class="subhead">Two groups. One clear answer.</p>
         <p class="lede">Put two groups of records side by side: two periods, two states, fuels or unit types, units with and without a pollution control, or two facilities or units. Summary statistics, differences, every normalized indicator, statistical tests in plain language, and a ranking of every group.</p>
+        {% set page_download = (download_base ~ "&what=summary", "Download") if selection.records and not definition.same else (dataset_url, "Download data") %}
         {% include "_selection.html" %}
     </div>
 </section>
@@ -246,7 +241,7 @@
 <section class="band">
 <div class="container wide">
     <h2 class="section-title">See the difference. <span class="gray">Spread, indicators and trend.</span></h2>
-    <p class="section-intro">Group A is always blue and group B orange.</p>
+    <p class="section-intro">Group A is always black and group B blue.</p>
     <div class="chart-grid">
         {% for spec in outcome.charts[:2] %}
         {{ chart_card(spec) }}

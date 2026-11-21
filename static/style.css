@@ -2,9 +2,10 @@
  * epaData — one stylesheet for the whole site.
  *
  * The look follows Apple's web design language: the system San Francisco typeface with Apple's
- * type scale and tracking, a translucent 44px global nav, a sticky local nav for each section,
- * centered heroes, full-width bands that alternate white and #f5f5f7, white cards with 18px
- * corners, pill buttons in #0071e3, blue text links, and the gray footer with its directory.
+ * type scale and tracking, one translucent, sticky 44px nav, centered heroes, full-width bands
+ * that alternate white and #f5f5f7, white cards with 18px corners, pill buttons in #0071e3, blue
+ * text links, and the gray footer with its directory. Color is used sparingly: text and charts are
+ * black, gray and white, and blue marks what can be clicked or what is selected.
  * (No Apple logos, images or font files are used: the typeface is the visitor's own system font.)
  *
  * Breakpoints are Apple's: large above 1068px, medium 735–1068px, small 734px and below.
@@ -174,12 +175,19 @@ code {
 /* ---------- Global nav ---------- */
 
 .gn {
-    position: relative;
+    position: sticky;
+    top: 0;
     z-index: 9999;
     height: 44px;
     background: var(--bg-nav);
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
+    transition: box-shadow 0.32s var(--ease);
+}
+
+/* A hairline appears under the bar once the page scrolls beneath it */
+.gn.is-scrolled {
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.08);
 }
 
 .gn.is-open,
@@ -235,17 +243,14 @@ code {
     color: #000;
 }
 
-.gn-brand {
-    gap: 7px;
-    padding-left: 0;
+/* The page's name, at the left of the bar on narrow screens */
+.gn-title {
+    display: none;
     color: var(--text);
-    font-size: 15px;
+    font-size: 17px;
     font-weight: 600;
-    letter-spacing: -0.02em;
-}
-
-.gn-brand svg {
-    flex: none;
+    letter-spacing: -0.022em;
+    white-space: nowrap;
 }
 
 .gn-icon {
@@ -490,127 +495,6 @@ code {
     margin: 0;
 }
 
-/* ---------- Local nav (sticky, one per section of the site) ---------- */
-
-.ln {
-    position: sticky;
-    top: 0;
-    z-index: 9997;
-    height: 52px;
-    background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    border-bottom: 1px solid rgba(0, 0, 0, 0.16);
-}
-
-.ln-content {
-    position: relative;
-    display: flex;
-    align-items: center;
-    max-width: var(--content);
-    height: 52px;
-    margin: 0 auto;
-    padding: 0 var(--gutter);
-}
-
-.ln.wide .ln-content {
-    max-width: var(--wide);
-}
-
-.ln-title {
-    margin: 0;
-    color: var(--text);
-    font-family: var(--font-display);
-    font-size: 21px;
-    line-height: 1.14286;
-    font-weight: 600;
-    letter-spacing: 0.011em;
-    white-space: nowrap;
-}
-
-.ln-title a {
-    color: inherit;
-}
-
-.ln-title a:hover {
-    text-decoration: none;
-}
-
-.ln-menu {
-    display: flex;
-    align-items: center;
-    margin-left: auto;
-}
-
-.ln-links {
-    display: flex;
-    align-items: center;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.ln-links li + li {
-    margin-left: 24px;
-}
-
-.ln-links a {
-    color: rgba(0, 0, 0, 0.88);
-    font-size: 12px;
-    line-height: 1.33337;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-}
-
-.ln-links a:hover {
-    color: var(--link);
-    text-decoration: none;
-}
-
-.ln-links a[aria-current="page"] {
-    color: rgba(0, 0, 0, 0.56);
-    cursor: default;
-    pointer-events: none;
-}
-
-.ln-cta {
-    margin-left: 24px;
-    padding: 4px 11px;
-    border-radius: 980px;
-    background: var(--blue);
-    color: #fff;
-    font-size: 12px;
-    line-height: 1.33337;
-    letter-spacing: -0.01em;
-    white-space: nowrap;
-}
-
-.ln-cta:hover {
-    background: var(--blue-hover);
-    color: #fff;
-    text-decoration: none;
-}
-
-.ln-toggle {
-    display: none;
-    width: 28px;
-    height: 28px;
-    margin-left: auto;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text);
-    cursor: pointer;
-}
-
-.ln-toggle svg {
-    transition: transform 1s var(--ease);
-}
-
-.ln.is-open .ln-toggle svg {
-    transform: rotate(180deg);
-}
-
 /* ---------- Layout: bands (full-width sections) and containers ---------- */
 
 main {
@@ -618,7 +502,7 @@ main {
 }
 
 .band {
-    padding: 80px 0;
+    padding: 120px 0;
     background: var(--bg);
 }
 
@@ -632,7 +516,7 @@ main {
 }
 
 .band.tight {
-    padding: 48px 0;
+    padding: 72px 0;
 }
 
 .band.flush-top {
@@ -659,7 +543,7 @@ main {
 /* ---------- Type ---------- */
 
 .hero {
-    padding: 72px var(--gutter) 64px;
+    padding: 112px var(--gutter) 96px;
     background: var(--bg-alt);
     text-align: center;
 }
@@ -795,11 +679,12 @@ main {
 
 /* Two-tone section headline: "The latest. Take a look at what's new." */
 .section-title {
-    margin: 0 0 8px;
-    font-size: 32px;
-    line-height: 1.125;
+    margin: 0 0 14px;
+    font-family: var(--font-display);
+    font-size: 40px;
+    line-height: 1.1;
     font-weight: 600;
-    letter-spacing: 0.004em;
+    letter-spacing: 0;
 }
 
 .section-title .gray,
@@ -813,11 +698,12 @@ main {
 }
 
 .section-intro {
-    max-width: 700px;
-    margin: 0 0 36px;
+    max-width: 720px;
+    margin: 0 0 56px;
     color: var(--text-2);
-    font-size: 17px;
-    line-height: 1.47059;
+    font-size: 19px;
+    line-height: 1.4211;
+    letter-spacing: 0.012em;
 }
 
 .section-head {
@@ -1534,7 +1420,7 @@ table.data tr.is-highlight td {
 .bar {
     height: 6px;
     border-radius: 3px;
-    background: var(--blue);
+    background: var(--text);
 }
 
 .table-card {
@@ -2665,6 +2551,60 @@ table.data td.metric {
     font-size: 14px;
 }
 
+.selection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.pill-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 16px;
+    border: 0;
+    border-radius: 980px;
+    background: var(--bg-alt);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.28577;
+    letter-spacing: -0.016em;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.24s var(--ease);
+}
+
+.band.alt .pill-action,
+.hero:not(.white):not(.dark) .pill-action {
+    background: var(--bg);
+}
+
+.hero:not(.white):not(.dark) .pill-action:hover {
+    background: var(--fill);
+}
+
+.pill-action:hover {
+    background: var(--fill);
+    text-decoration: none;
+}
+
+.pill-action svg {
+    flex: none;
+    color: var(--text-2);
+}
+
+.pill-action.is-done svg {
+    color: var(--text);
+}
+
+.pill-action:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+}
+
 .analyze-links {
     display: inline-flex;
     flex-wrap: wrap;
@@ -2777,7 +2717,7 @@ table.data td.metric {
 /* Chapter links that stay under the local nav while the dashboard scrolls */
 .chapters {
     position: sticky;
-    top: 52px;
+    top: 44px;
     z-index: 9990;
     background: rgba(255, 255, 255, 0.8);
     backdrop-filter: saturate(180%) blur(20px);
@@ -2824,7 +2764,7 @@ table.data td.metric {
 }
 
 .chapter {
-    scroll-margin-top: 96px;
+    scroll-margin-top: 104px;
 }
 
 @media (max-width: 900px) {
@@ -2864,7 +2804,7 @@ table.data td.metric {
 .chart-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 24px;
+    gap: 32px;
 }
 
 .chart-card {
@@ -2872,7 +2812,7 @@ table.data td.metric {
     flex-direction: column;
     min-width: 0;
     margin: 0;
-    padding: 30px 32px 26px;
+    padding: 40px 44px 34px;
     border-radius: var(--radius-lg);
     background: var(--bg);
 }
@@ -3972,11 +3912,11 @@ table.data td.metric {
 }
 
 .side-a .compare-side {
-    background: #0071e3;
+    background: #1d1d1f;
 }
 
 .side-b .compare-side {
-    background: #f56300;
+    background: #0071e3;
 }
 
 table.data.compare-table tr.key-row td {
@@ -4531,9 +4471,17 @@ p.test-results {
     }
 
     .section-title {
-        font-size: 28px;
-        line-height: 1.14286;
-        letter-spacing: 0.007em;
+        font-size: 32px;
+        line-height: 1.125;
+        letter-spacing: 0.004em;
+    }
+
+    .band {
+        padding: 96px 0;
+    }
+
+    .chart-card {
+        padding: 32px 32px 28px;
     }
 
     .big-number {
@@ -4555,10 +4503,6 @@ p.test-results {
     .footer-columns {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-
-    .ln-links li + li {
-        margin-left: 18px;
-    }
 }
 
 /* Global nav switches to the menu button before the links run out of room */
@@ -4569,6 +4513,10 @@ p.test-results {
 
     .gn-menu-button {
         display: flex;
+    }
+
+    .gn-title {
+        display: block;
     }
 
     .gn-list {
@@ -4597,56 +4545,6 @@ p.test-results {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    /* Local nav: the links fold into a menu under the title */
-    .ln-toggle {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .ln-menu {
-        position: absolute;
-        top: 52px;
-        left: 0;
-        right: 0;
-        display: none;
-        flex-direction: column;
-        align-items: stretch;
-        margin: 0;
-        padding: 8px var(--gutter) 22px;
-        background: rgba(255, 255, 255, 0.96);
-        backdrop-filter: saturate(180%) blur(20px);
-        -webkit-backdrop-filter: saturate(180%) blur(20px);
-        border-bottom: 1px solid rgba(0, 0, 0, 0.16);
-    }
-
-    .ln.is-open .ln-menu {
-        display: flex;
-    }
-
-    .ln-links {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .ln-links li + li {
-        margin-left: 0;
-    }
-
-    .ln-links a {
-        display: block;
-        padding: 11px 0;
-        border-bottom: 1px solid var(--hairline);
-        font-size: 17px;
-        letter-spacing: -0.022em;
-    }
-
-    .ln-cta {
-        align-self: flex-start;
-        margin: 16px 0 0;
-        padding: 8px 16px;
-        font-size: 14px;
-    }
 }
 
 /* ---------- Small screens (734px and below) ---------- */
@@ -4689,7 +4587,21 @@ p.test-results {
     }
 
     .band {
-        padding: 56px 0;
+        padding: 72px 0;
+    }
+
+    .band.tight {
+        padding: 48px 0;
+    }
+
+    .section-intro {
+        margin-bottom: 36px;
+        font-size: 17px;
+        line-height: 1.47059;
+    }
+
+    .chart-grid {
+        gap: 20px;
     }
 
     .page {
@@ -4697,7 +4609,7 @@ p.test-results {
     }
 
     .hero {
-        padding: 52px var(--gutter) 48px;
+        padding: 72px var(--gutter) 56px;
     }
 
     .hero h1 {
@@ -4741,9 +4653,9 @@ p.test-results {
     }
 
     .section-title {
-        font-size: 24px;
-        line-height: 1.16667;
-        letter-spacing: 0.009em;
+        font-size: 28px;
+        line-height: 1.14286;
+        letter-spacing: 0.007em;
     }
 
     .big-number {
@@ -4775,7 +4687,15 @@ p.test-results {
     }
 
     .chart-tools {
+        flex-wrap: nowrap;
+    }
+
+    /* the year picker gets its own full-width row; a lone About button stays beside the title */
+    .chart-tools:has(.chart-ranges) {
         width: 100%;
+    }
+
+    .chart-head:not(:has(.chart-ranges)) {
         flex-wrap: nowrap;
     }
 
@@ -4877,10 +4797,6 @@ p.test-results {
         margin-bottom: 16px;
     }
 
-    .ln-title {
-        font-size: 19px;
-    }
-
     .gn-flyout-content {
         flex-direction: column;
         gap: 24px;
@@ -4943,7 +4859,7 @@ p.test-results {
 
 @media print {
     .gn,
-    .ln,
+    .chapters,
     .footer,
     .chart-actions,
     .ribbon {
@@ -4963,4 +4879,165 @@ p.test-results {
 
 .gn.is-menu .gn-menu-button line:last-child {
     transform: rotate(-45deg) translateY(-3px);
+}
+
+
+/* ---------- Nearby facilities (facility page): a grouped list, as in Settings ---------- */
+
+.nearby-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 20px;
+    border-radius: var(--radius-md);
+    background: var(--bg-alt);
+}
+
+.nearby-list li + li a {
+    border-top: 1px solid var(--line);
+}
+
+.nearby-list a {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 20px 16px 0;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.nearby-list a:hover .nearby-name {
+    color: var(--link);
+}
+
+.nearby-distance {
+    flex: none;
+    width: 64px;
+    font-family: var(--font-display);
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: 0.004em;
+    font-variant-numeric: tabular-nums;
+}
+
+.nearby-distance small,
+.nearby-value small {
+    margin-left: 3px;
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.nearby-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.nearby-name {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.022em;
+    transition: color 0.2s var(--ease);
+}
+
+.nearby-place {
+    color: var(--text-2);
+    font-size: 14px;
+}
+
+.nearby-value {
+    flex: none;
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.nearby-chevron {
+    flex: none;
+    color: var(--text-3);
+}
+
+.nearby-actions {
+    margin-top: 20px;
+}
+
+@media (max-width: 734px) {
+    .nearby-list a {
+        flex-wrap: wrap;
+        gap: 4px 16px;
+    }
+
+    .nearby-distance {
+        width: 52px;
+        font-size: 20px;
+    }
+
+    .nearby-main {
+        flex-basis: calc(100% - 100px);
+    }
+
+    .nearby-value {
+        order: 4;
+        margin-left: 68px;
+        text-align: left;
+    }
+
+    .nearby-chevron {
+        display: none;
+    }
+}
+
+/* ---------- Sortable "Show the numbers" tables ---------- */
+
+.th-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    cursor: pointer;
+}
+
+.th-sort::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    opacity: 0;
+    transform: translateY(-2px) rotate(45deg);
+    transition: opacity 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.th-sort:hover::after {
+    opacity: 0.35;
+}
+
+th[aria-sort="ascending"] .th-sort::after {
+    opacity: 1;
+    transform: translateY(2px) rotate(225deg);
+}
+
+th[aria-sort="descending"] .th-sort::after {
+    opacity: 1;
+}
+
+th[aria-sort="ascending"] .th-sort,
+th[aria-sort="descending"] .th-sort {
+    color: var(--text);
+}
+
+.th-sort:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+    border-radius: 6px;
+}
+
+.chart-table table.data td:not(.num) {
+    min-width: 12em;
 }

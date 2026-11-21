@@ -13,8 +13,23 @@
     {{ "{:,}".format(selection.records) }} records · {{ "{:,}".format(selection.facilities) }} facilities ·
     {{ "{:,}".format(selection.units) }} units{% if selection.first_year is not none %} ·
     {% if selection.first_year == selection.last_year %}{{ selection.first_year }}{% else %}{{ selection.first_year }}–{{ selection.last_year }}{% endif %}{% endif %}
-    · <a class="more-link" href="{{ explore_url }}">Change in Explore</a>
 </p>
+<div class="selection-actions">
+    <a class="pill-action" href="{{ explore_url }}">
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M4.5 8h7M7 12h2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Change selection
+    </a>
+    {% if page_download %}
+    <a class="pill-action" href="{{ page_download[0] }}" download>
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v8m-3.2-3.2L8 10.5l3.2-3.2M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        {{ page_download[1] }}
+    </a>
+    {% endif %}
+    <button class="pill-action" type="button" data-copy-link>
+        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 9.4l2.8-2.8M7.2 4.6l1.2-1.2a2.6 2.6 0 013.7 3.7l-1.2 1.2M8.8 11.4l-1.2 1.2a2.6 2.6 0 01-3.7-3.7l1.2-1.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span data-copy-text>Copy link</span>
+    </button>
+</div>
 
 {% if partial %}
 <p class="notice">No record matched every word, so this selection includes records that match some of them. Refine it in Explore for a precise analysis.</p>

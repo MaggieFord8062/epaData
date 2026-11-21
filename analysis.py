@@ -159,6 +159,7 @@ def variable_title(key):
 
 GROUPS = {
     "state": "State",
+    "county": "County",
     "primary_fuel": "Primary fuel",
     "unit_type": "Unit type",
     "year": "Year",
@@ -579,6 +580,12 @@ def group_labels(frame, group):
         return names + " (" + states + ", ID " + ids + ")"
     if group == "year":
         return frame["year"].map(lambda value: NOT_REPORTED if pd.isna(value) else str(int(value)))
+    if group == "county":
+        # County names repeat across states (there are 30 Jefferson Counties), so the state goes with it
+        county = frame["county"].astype("object")
+        named = county.notna() & (county.astype(str).str.strip() != "")
+        labels = county.astype(str).str.strip() + ", " + frame["state"].fillna("").astype(str)
+        return labels.where(named, NOT_REPORTED).astype(str)
     if group in ("so2_control", "nox_control"):
         column = "so2_controls" if group == "so2_control" else "nox_controls"
         pollutant = "SO2" if group == "so2_control" else "NOx"

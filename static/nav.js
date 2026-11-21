@@ -1,9 +1,10 @@
 /*
- * nav.js: the global nav's flyout menus, search panel and phone menu, and the local nav's
- * menu on small screens. Works like the navigation on apple.com:
+ * nav.js: the navigation bar's flyout menus, search panel and phone menu. Works like the
+ * navigation on apple.com:
  *   - hover (or keyboard focus) on "Explore" or "Data" opens its flyout; the page behind blurs
- *   - the magnifying glass (or Command/Ctrl + K) opens search with suggestions as you type
+ *   - the magnifying glass (or "/" or Command/Ctrl + K) opens search with suggestions as you type
  *   - Escape, a click on the blurred page, or moving the pointer away closes everything
+ * It also keeps the dashboard's section links in step with the page, and copies a page's link.
  */
 (function () {
     "use strict";
@@ -140,8 +141,13 @@
         setCurtain();
     });
 
+    function typing(target) {
+        return target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+    }
+
     document.addEventListener("keydown", function (event) {
-        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        var slash = event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !typing(event.target);
+        if (slash || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k")) {
             event.preventDefault();
             openSearch();
         } else if (event.key === "Escape") {
@@ -207,20 +213,39 @@
         });
     }
 
-    // Local nav: on small screens the page links fold into a menu under the title
-    var localNav = document.getElementById("ln");
-    var localToggle = document.getElementById("ln-toggle");
-    if (localNav && localToggle) {
-        localToggle.addEventListener("click", function () {
-            var open = !localNav.classList.contains("is-open");
-            localNav.classList.toggle("is-open", open);
-            localToggle.setAttribute("aria-expanded", open ? "true" : "false");
-        });
-        document.addEventListener("click", function (event) {
-            if (localNav.classList.contains("is-open") && !localNav.contains(event.target)) {
-                localNav.classList.remove("is-open");
-                localToggle.setAttribute("aria-expanded", "false");
+    // A hairline under the bar once the page scrolls beneath it
+    var onScroll = function () {
+        nav.classList.toggle("is-scrolled", window.scrollY > 4);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    // "Copy link": every choice on a page lives in its address, so the link reopens exactly this view
+    Array.prototype.forEach.call(document.querySelectorAll("[data-copy-link]"), function (button) {
+        var label = button.querySelector("[data-copy-text]");
+        button.addEventListener("click", function () {
+            var done = function (text) {
+                if (label) {
+                    label.textContent = text;
+                }
+                button.classList.add("is-done");
+                setTimeout(function () {
+                    if (label) {
+                        label.textContent = "Copy link";
+                    }
+                    button.classList.remove("is-done");
+                }, 1800);
+            };
+            var address = window.location.href.split("#")[0];
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(address).then(function () {
+                    done("Link copied");
+                }, function () {
+                    window.prompt("Copy this link:", address);
+                });
+            } else {
+                window.prompt("Copy this link:", address);
             }
         });
-    }
+    });
 })();

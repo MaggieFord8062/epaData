@@ -1,3 +1,4 @@
+import math
 import sqlite3
 
 DB_PATH = "epaData.db"
@@ -550,3 +551,54 @@ def facility_units(facility_id):
     ).fetchall()
     connection.close()
     return [dict(row) for row in rows]
+
+NEARBY_COUNT = 5
+EARTH_RADIUS_MILES = 3958.8
+
+
+def miles_between(lat1, lon1, lat2, lon2):
+    """Straight-line (great-circle) distance in miles between two points, by the haversine formula."""
+    lat1, lon1, lat2, lon2 = (math.radians(value) for value in (lat1, lon1, lat2, lon2))
+    a = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 2 * EARTH_RADIUS_MILES * math.asin(min(1.0, math.sqrt(a)))
+
+
+def nearby_facilities(facility_id, latitude, longitude, count=NEARBY_COUNT):
+    """
+    The facilities closest to a point, nearest first, each with its distance in miles and its CO2 in its
+    latest reporting year. Facilities without coordinates are skipped.
+    """
+    if latitude is None or longitude is None:
+        return []
+    connection = connect()
+    places = connection.execute(
+        """
+        SELECT epa_facility_id AS facility_id, facility_name AS name, state, county, latitude, longitude
+        FROM facility
+        WHERE epa_facility_id != ? AND latitude IS NOT NULL AND longitude IS NOT NULL
+        """,
+        [facility_id],
+    ).fetchall()
+    ranked = sorted((dict(row, miles=miles_between(latitude, longitude, row["latitude"], row["longitude"]))
+                     for row in places), key=lambda item: (item["miles"], item["facility_id"]))[:count]
+    if ranked:
+        marks = ", ".join("?" for _ in ranked)
+        latest = connection.execute(
+            f"""
+            SELECT annual_records.epa_facility_id AS facility_id, annual_records.year AS year,
+                   SUM(annual_records.co2_mass) AS co2
+            FROM annual_records
+            WHERE annual_records.epa_facility_id IN ({marks})
+              AND annual_records.year = (SELECT MAX(inner_records.year) FROM annual_records AS inner_records
+                                         WHERE inner_records.epa_facility_id = annual_records.epa_facility_id)
+            GROUP BY annual_records.epa_facility_id
+            """,
+            [item["facility_id"] for item in ranked],
+        ).fetchall()
+        by_id = {row["facility_id"]: row for row in latest}
+        for item in ranked:
+            row = by_id.get(item["facility_id"])
+            item["year"] = row["year"] if row else None
+            item["co2"] = row["co2"] if row else None
+    connection.close()
+    return ranked

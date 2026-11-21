@@ -152,6 +152,10 @@
     // Phones: heat maps drop the numbers written in their cells (tap a cell for its value), and color
     // keys and maps get the room they need
     function fitData(data, layout, width) {
+        // A U.S. map is about twice as wide as it is tall: size the chart to the card so it has no empty bands
+        if (layout.geo && width) {
+            layout.height = Math.round(Math.max(240, width / 1.9 + 64));
+        }
         if (window.innerWidth >= 735) {
             return data;
         }
@@ -172,9 +176,6 @@
                 }
             }
         });
-        if (layout.geo) {
-            layout.height = Math.round(Math.max(260, width * 0.62 + 70));
-        }
         return data;
     }
 
@@ -352,9 +353,12 @@
         var state = { start: null };
         node.epaRange = state;
 
+        // The year changes are measured from: the first one shown, but never one of the shaded early
+        // years with too few units reporting (info.base is the first year with enough)
         function firstIndex() {
+            var from = Math.max(state.start === null ? -Infinity : state.start, info.base || -Infinity);
             for (var i = 0; i < xs.length; i++) {
-                if (ys[i] !== null && (state.start === null || xs[i] >= state.start)) {
+                if (ys[i] !== null && xs[i] >= from) {
                     return i;
                 }
             }
@@ -392,7 +396,7 @@
             if (info.delta && parts.delta) {
                 var base = firstIndex();
                 var old = base >= 0 ? ys[base] : null;
-                var visible = base >= 0 && base !== index && old > 0;
+                var visible = base >= 0 && index > base && old > 0;
                 parts.delta.hidden = !visible;
                 parts.deltaAfter.hidden = !visible;
                 if (visible) {
@@ -906,8 +910,16 @@
         if (!indices.length || indices.indexOf(point.curveNumber) < 0) {
             return false;
         }
+        // The selected mark turns Apple blue; everything else fades back
+        var style = { selectedpoints: update };
+        var colored = indices.filter(function (index) {
+            return node.data[index].type !== "choropleth";
+        });
         node.epaInternal = true;
-        Plotly.restyle(node, { selectedpoints: update }, indices).then(function () {
+        Plotly.restyle(node, style, indices).then(function () {
+            return colored.length ? Plotly.restyle(node, { "selected.marker.color": "#0071e3",
+                "unselected.marker.opacity": 0.28 }, colored) : null;
+        }).then(function () {
             node.epaInternal = false;
         });
         node.epaSelected = indices;

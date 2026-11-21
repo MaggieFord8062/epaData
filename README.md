@@ -202,8 +202,8 @@ After step 3, each of these should work exactly as described.
 | Overview | `/` | Project introduction, data sources, current data coverage, navigation |
 | Explore | `/explore` | Description-based search: type a sentence, get filters, results, refinements with counts, did-you-mean |
 | Statistics | `/statistics` | Descriptive statistics and derived indicators for the Explore selection, overall or grouped (Phase 2) |
-| Dashboard | `/dashboard` | Interactive Plotly charts: trends, comparisons, distributions, relationships, rankings, maps (Phase 2) |
-| Compare | `/comparison` | Two groups side by side: periods, states, fuels, unit types, control vs none, facilities, units; tests in plain language (Phase 2) |
+| Dashboard | `/dashboard` | Interactive Plotly charts: trends, comparisons, distributions, relationships, rankings, maps; within one state, by county (Phase 2) |
+| Compare | `/comparison` | Two groups side by side: periods, states, counties, fuels, unit types, control vs none, facilities, units; tests in plain language (Phase 2) |
 | Impacts | `/impacts` | EPA TRACI 2.2 potential-impact indicators for CO2, SO2 and NOx, totals, per MWh and by group (Phase 2) |
 | Predictions | `/predictions` | A mean baseline, linear regression and a decision tree for a unit's annual CO2, SO2 or NOx, tested chronologically; a year-trend forecast of the annual total (Phase 2) |
 | Scenarios | `/scenarios` | One-variable-at-a-time sensitivity curves and named what-if scenarios on a fitted model, with out-of-range warnings (Phase 2) |
@@ -212,7 +212,7 @@ After step 3, each of these should work exactly as described.
 | Rankings | `/advanced-search` | Top-N, bottom-N and group-and-rank (top in each state) |
 | Compare | `/compare` | Up to four facilities side by side |
 | History | `/history` | One unit across every reporting year |
-| Facility | `/facility/<id>` | Location, units, yearly totals, data sources, hourly records |
+| Facility | `/facility/<id>` | Location, units, yearly totals, the nearest facilities, data sources, hourly records |
 | Unit | `/unit/<key>` | Fuels, controls, dates and every annual record |
 | Retrieve | `/retrieve` | Pull data from the EPA CAM API with filters; runs in the background with progress |
 | Datasets | `/datasets` | Every retrieval and upload: source, date, query, counts, notes |
@@ -282,7 +282,8 @@ epaData/
 ├── tests/               Automated tests (pytest) with a small fixture database
 ├── static/
 │   ├── style.css        The one stylesheet (the site's design system, section 12.8)
-│   ├── nav.js           Global nav flyouts, search panel and phone menu; local nav menu
+│   ├── nav.js           Nav flyouts, search panel ("/" or Command/Ctrl + K) and phone menu; Copy link
+│   ├── touches.js       Sortable chart tables and numbers that count up
 │   ├── charts.js        Draws every chart in the browser with Plotly.js
 │   ├── suggest.js       Search suggestions as you type
 │   ├── picker.js        Facility picker for Compare and History
@@ -354,7 +355,7 @@ Indexes cover every commonly searched column: state, county, fuel, unit type, ye
 
 ## 12. Phase 2: analysis
 
-Every analysis page works on **exactly the records the Explore page shows**. Search or refine in Explore, then use the **Analyze** links next to the download buttons (Statistics, Dashboard, Compare, Impacts, Predictions, Scenarios). The Explore filters travel in the URL, the links in the bar under the top navigation keep them, and every choice on a page is also in the URL, so any analysis can be bookmarked, shared and reopened.
+Every analysis page works on **exactly the records the Explore page shows**. Search or refine in Explore, then use the **Analyze** links next to the download buttons (Statistics, Dashboard, Compare, Impacts, Predictions, Scenarios). The Explore filters travel in the URL, the analysis links in the top navigation keep them, and every choice on a page is also in the URL, so any analysis can be bookmarked, shared and reopened (**Copy link**, under each page's title, copies it).
 
 ### 12.1 Analytical dataset builder (proposal 4.1)
 
@@ -405,18 +406,20 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 |---|---|
 | Emissions and generation over time | CO2, SO2, NOx and gross load totals by year, each indexed to its first year = 100, so measures with different units share one axis |
 | Variable over time | The chosen variable by year (total, or overall ratio for intensities), optionally one line per fuel family or per control group |
-| Bar chart | The chosen variable by state, fuel, unit type, year, facility or control group |
+
+**Years with few units.** If the database holds only some units for the earliest years (for example when only recent years were retrieved in full), a total over a few units can't be compared with one over many: CO2 would look as if it grew several hundred times. So both trends measure change from the first year in which at least half as many units reported as in the busiest year. The indexed chart starts in that year, and the single trend shades the earlier years ("Few units reported"), still draws them, and measures its change from that year. Each chart's note gives the unit counts. A selection where every year is well covered is unchanged.
+| Bar chart | The chosen variable by state, county, fuel, unit type, year, facility or control group (county is the default when the selection is one state) |
 | Box plots | The spread of the variable within the largest groups |
 | Histogram | The distribution of the variable (log scale by default, because a few plants emit most of the total) |
 | Scatter plot | Any variable against any other, one color per fuel family, with Spearman and Pearson correlations over all records |
-| Correlation heat map | Spearman or Pearson correlations between 11 measured and derived variables |
+| Correlation heat map | Spearman or Pearson correlations between 11 measured and derived variables, each pair drawn once below the diagonal |
 | Highest and lowest | The 10 facilities or units at each end (ratios only rank those above a minimum gross load, 10,000 MWh by default) |
-| State map | The variable by state |
-| Facility map | Facility locations colored by the variable (needs latitude and longitude from `python ingest.py --attributes-only`) |
+| State or county map | The variable by state; for a one-state selection, by county instead (a bubble at the middle of each county's facilities, zoomed to the state) |
+| Facility map | Facility locations sized and shaded by the variable, zoomed to the selection when it covers one state or a region (needs latitude and longitude from `python ingest.py --attributes-only`) |
 
 **Every number explains itself.** Select any point, bar, box, state or cell and a sheet opens under the chart with that value, the calculation behind it written out with the real numbers (for example total CO2 mass ÷ total gross load = CO2 intensity), how many records, units, facilities and years went into it, anything left out and why (missing values, zero gross load), and a link that opens exactly those records in Explore. **About** at the top of each chart says what it shows, how each value is calculated, why that kind of chart fits the data, how to read it, and where the data comes from (`explain.py` writes these for every chart, including the Compare, Impacts, Predictions and Scenarios charts). The dashboard's section links stay at the top of the screen while it scrolls.
 
-Every chart sits in a card laid out like the charts in Apple's Health and Stocks apps: a short label, the title, a headline number with its unit and how much it changed, and a legend where there is more than one series (select a legend entry to hide or show that series). On a single trend line, moving the pointer along the line shows that year's value and its change in the headline, and **5Y / 10Y / 20Y / All** change the years shown. Other charts have tooltips; after zooming in, **Reset zoom** goes back. Cards rise into view and lines draw in as the page scrolls (switched off when the system asks for reduced motion). **PNG image** saves the chart with its title and headline, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it. Colors always mean the same thing: CO2, coal and group A are blue; SO2, gas and group B orange; NOx and oil and other fuels green. Plotly.js 2.35.2 and the U.S. map outline are kept in `static/vendor/`, so the charts and maps work without an internet connection (useful for a demo).
+Every chart sits in a card laid out like the charts in Apple's Health and Stocks apps: a short label, the title, a headline number with its unit and how much it changed, and a legend where there is more than one series (select a legend entry to hide or show that series). On a single trend line, moving the pointer along the line shows that year's value and its change in the headline, and **5Y / 10Y / 20Y / All** change the years shown. Other charts have tooltips; after zooming in, **Reset zoom** goes back. Cards rise into view and lines draw in as the page scrolls (switched off when the system asks for reduced motion). **PNG image** saves the chart with its title and headline, **Data CSV** or **Excel** saves its numbers with the same reproducibility metadata as other exports, and **Show the numbers** opens the table behind it; click a column heading to sort it (highest first, then lowest first, then the original order). Charts are black, gray and white, and color is used sparingly: on a chart with one series, the mark the headline describes is black and the rest gray (the highest bar, the median line); where series are compared, CO2, coal and group A are black, SO2, gas and group B blue, NOx and oil and other fuels gray, and gross load a dashed black line; maps run from light gray to black; whatever you select turns blue. Plotly.js 2.35.2 and the U.S. map outline are kept in `static/vendor/`, so the charts and maps work without an internet connection (useful for a demo).
 
 ### 12.4 Comparative analysis (proposal 4.5)
 
@@ -502,7 +505,7 @@ A warning appears whenever an input is outside the training range (minimum to ma
 
 ### 12.8 Interface design
 
-The interface follows apple.com's design language: a translucent 44 px global navigation with flyout menus, a search panel and a phone menu; a sticky local navigation for each section with a blue pill for its main download; centered heroes; full-width bands alternating white and #f5f5f7, with black bands for headline numbers; white cards with 18 px corners (28 px around charts); pill buttons in #0071e3; blue text links; two-tone section headlines; and the gray footer with its directory. Text uses the visitor's own system font (San Francisco on Apple devices) with Apple's type scale and letter spacing, and the layout follows Apple's breakpoints (1068 px and 734 px). Charts use the same fonts and grays, dotted hairline grids, values on the right of time series, rounded bars with their names above them, and a four-color palette tuned to Apple's blue and orange (CO2, coal and group A `#0071e3`; SO2, gas and group B `#f56300`; NOx and oil `#00a86b`; gross load `#eda100`) that passed a color-blind separation check; no purple is used.
+The interface follows apple.com's design language: one translucent, sticky 44 px navigation bar with flyout menus, a search panel and a phone menu (no logo; on a phone it shows the page's name), with the selection, **Change selection**, the page's main download and **Copy link** under each page's title; centered heroes; full-width bands alternating white and #f5f5f7, with black bands for headline numbers; white cards with 18 px corners (28 px around charts); pill buttons in #0071e3; blue text links; two-tone section headlines; and the gray footer with its directory. Text uses the visitor's own system font (San Francisco on Apple devices) with Apple's type scale and letter spacing, and the layout follows Apple's breakpoints (1068 px and 734 px). Charts use the same fonts and grays, dotted hairline grids, values on the right of time series, and slim rounded bars with their names above them. Color is used sparingly, as on apple.com: marks are black (`#1d1d1f`), gray (`#8e8e93`, `#c7c7cc`) and white, and blue (`#0071e3`) is the one accent, for the second series and for whatever is selected. On a one-series chart the mark the headline number describes is black and the rest gray; maps run from light gray to black, and correlations from blue through light gray to black. The black, blue and gray series passed a color-blind separation check; no purple is used. Sections are spaced generously (120 px between bands on a desktop).
 
 ### 12.9 Unusual observations (proposal goal 5)
 
@@ -526,5 +529,6 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 | `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
 | `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
+| `tests/test_polish.py` | County labels, bars, maps and comparisons; maps that zoom only to small areas; the single navigation bar keeping the selection; the headline mark in black; sortable tables; distances and nearby facilities; trends that measure change from the first year most units reported |
 
-Expected result: all 91 tests pass.
+Expected result: all 105 tests pass.

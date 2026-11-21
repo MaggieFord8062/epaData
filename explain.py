@@ -245,6 +245,9 @@ def drill_for(group, name, frame=None):
         return {"reporting_year": int(float(name))}
     if group in ("state", "primary_fuel", "unit_type"):
         return {group: name}
+    if group == "county":
+        county, _, state = str(name).rpartition(", ")
+        return {"county": county, "state": state} if county and state else None
     if group in ("so2_control", "nox_control"):
         return {group: "none"} if name.startswith("No ") else None
     if group == "facility":

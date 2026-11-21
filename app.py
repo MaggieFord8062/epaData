@@ -28,7 +28,7 @@ import traci
 import uploads
 from retrieval import retrieve_hourly_records
 from search import (search_data, advance_search, find_facilities, compare_facilities,
-                    facility_units, RANK_FIELDS, COMPARE_LIMIT)
+                    facility_units, nearby_facilities, RANK_FIELDS, COMPARE_LIMIT)
 
 load_dotenv()
 app = Flask(__name__)
@@ -492,7 +492,11 @@ def facility_detail(facility_id):
                 selected = ""
                 selected_date = date.today().isoformat()
         max_co2 = max([row.co2 or 0 for row in yearly] or [0])
-        return render_template("facility.html", facility=facility, units=units, yearly=yearly,
+        nearby = nearby_facilities(facility_id, facility.latitude, facility.longitude)
+        closest = [facility_id] + [item["facility_id"] for item in nearby[:COMPARE_LIMIT - 1]]
+        compare_nearby = "/compare?" + urlencode([("facility", value) for value in closest])
+        return render_template("facility.html", facility=facility, units=units, yearly=yearly, nearby=nearby,
+                               compare_nearby=compare_nearby, compare_count=len(closest) - 1,
                                sources=sources, max_co2=max_co2, hourly_choices=hourly_choices,
                                selected_hourly_choice=selected, selected_hourly_date=selected_date,
                                hourly_records=hourly_records, hourly_total=hourly_total, annual_records=annual_records,
@@ -1769,7 +1773,7 @@ def requested_format():
 DASHBOARD_DEFAULT_VARIABLE = "co2_mass"
 
 
-def dashboard_choices(params):
+def dashboard_choices(params, frame=None):
     def pick(name, allowed, default):
         value = params.get(name)
         return value if value in allowed else default
@@ -1777,7 +1781,9 @@ def dashboard_choices(params):
     min_load = search_to_number(params.get("min_load"))
     return {
         "variable": chosen_variable(params, DASHBOARD_DEFAULT_VARIABLE),
-        "group": pick("group", analysis.GROUPS, "state"),
+        # One state selected: compare its counties unless asked otherwise
+        "group": pick("group", analysis.GROUPS, "county" if frame is not None and dashboard.one_state(frame)
+                      else "state"),
         "split": pick("split", dashboard.SPLITS, "none"),
         "x": pick("x", dashboard.SCATTER_VARIABLES, "heat_input"),
         "y": pick("y", dashboard.SCATTER_VARIABLES, "co2_mass"),
@@ -1806,7 +1812,7 @@ def dashboard_page():
     relationships, rankings and maps. Every choice is in the URL.
     """
     params, filters, result, frame = analysis_selection()
-    choices = dashboard_choices(params)
+    choices = dashboard_choices(params, frame)
     charts = []
     if len(frame):
         charts = [dashboard.json_safe(spec) for spec in dashboard.build_all(frame, choices)]
@@ -1842,7 +1848,7 @@ def dashboard_page():
 def dashboard_data():
     """The numbers behind one dashboard chart, as CSV or Excel with reproducibility metadata."""
     params, filters, result, frame = analysis_selection()
-    choices = dashboard_choices(params)
+    choices = dashboard_choices(params, frame)
     spec = dashboard.build_one(frame, choices, request.args.get("chart", ""))
     if spec is None:
         abort(404)
@@ -1965,7 +1971,7 @@ def impacts_request():
     traci.add_impacts(frame, factors)
     categories = traci.categories(factors)
     keys = [key for key, _, _ in categories]
-    by = params.get("by") if params.get("by") in IMPACT_GROUPS else "state"
+    by = params.get("by") if params.get("by") in IMPACT_GROUPS else ("county" if dashboard.one_state(frame) else "state")
     isort = params.get("isort") if params.get("isort") in keys else (keys[0] if keys else "")
     per_mwh = params.get("per_mwh") == "1"
     choices = {"by": by, "isort": isort, "per_mwh": per_mwh}

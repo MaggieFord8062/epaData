@@ -44,9 +44,11 @@ import explain
 # time series, rounded bars with their names above them, lines that end in a ringed dot, and a
 # gradient under single lines. Moving over a single-line chart shows that year in the headline.
 #
-# Series colors are tuned to Apple's blue and orange and checked with the dataviz palette validator
-# (scripts/validate_palette.js): the first three pass the color-blind checks for every pair
-# (scatter plots and maps use at most three), and all four pass for neighbors.
+# Color is used the way Apple uses it: almost everything is black, gray and white, and Apple blue
+# marks the one thing that matters (a second series, the chosen model, the bar you selected).
+# Black, blue and system gray pass the dataviz validator's color-blind and normal-vision separation
+# checks for every pair (scripts/validate_palette.js); its hue checks flag black and gray on purpose,
+# so every multi-series chart also names its series in a legend or at the line ends, and has a table.
 
 FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif'
 INK = "#1d1d1f"
@@ -56,22 +58,32 @@ GRID = "#e8e8ed"
 AXIS = "#d2d2d7"
 SURFACE = "#ffffff"
 
-# Categorical colors, always used in this order: CO2 / coal / group A, SO2 / gas / group B,
-# NOx / oil and other, gross load
-SERIES = ["#0071e3", "#f56300", "#00a86b", "#eda100"]
-OTHER = "#a1a1a6"
+BLACK = "#1d1d1f"
+BLUE = "#0071e3"
+GRAY = "#8e8e93"
+
+# Categorical colors, always in this order: CO2 / coal / group A, SO2 / gas / group B,
+# NOx / oil and other. Gross load, the fourth, is black again but dashed.
+SERIES = [BLACK, BLUE, GRAY, BLACK]
+OTHER = "#c7c7cc"
+# Single-series bars: the bar the headline names is black, the rest a quiet gray, so the eye goes from the
+# big number straight to its bar. Blue is kept for what the reader selects.
+REST = "#c7c7cc"
+DASHED = {"gross_load": "dash"}
 
 POLLUTANT_COLORS = {"co2_mass": SERIES[0], "so2_mass": SERIES[1], "nox_mass": SERIES[2], "gross_load": SERIES[3]}
 FAMILY_COLORS = {"Coal": SERIES[0], "Gas": SERIES[1], "Oil and other": SERIES[2]}
 
-# One blue, light to dark, for amounts (maps)
-SEQUENTIAL = [[0.0, "#d6e8fc"], [0.25, "#8ec0f5"], [0.5, "#3d94ec"], [0.75, "#0066cc"], [1.0, "#003a75"]]
-# Red (negative) to gray (zero) to blue (positive), for correlations
-DIVERGING = [[0.0, "#e34948"], [0.5, "#f5f5f7"], [1.0, "#0071e3"]]
+# Light gray to black for amounts (maps), Apple's system grays. Bubbles start a step darker so the
+# smallest still stand out on the light gray land.
+SEQUENTIAL = [[0.0, "#e5e5ea"], [0.3, "#aeaeb2"], [0.6, "#636366"], [1.0, "#1d1d1f"]]
+SEQUENTIAL_MARKS = [[0.0, "#c7c7cc"], [0.4, "#8e8e93"], [0.75, "#48484a"], [1.0, "#1d1d1f"]]
+# Blue (one falls as the other rises) to light gray (no relationship) to black (they rise together)
+DIVERGING = [[0.0, BLUE], [0.5, "#f5f5f7"], [1.0, BLACK]]
 
-# Bars: each row is this tall, with the name above the bar
+# Bars: each row is at least this tall, with the name above a slim bar
 BAR_ROW = 40
-BAR_GAP = 0.52
+BAR_THICKNESS = 14
 
 
 def fill(color, alpha):
@@ -80,7 +92,7 @@ def fill(color, alpha):
     return f"rgba({int(color[0:2], 16)},{int(color[2:4], 16)},{int(color[4:6], 16)},{alpha})"
 
 
-def gradient(color, top=0.26):
+def gradient(color, top=0.14):
     """A fill that fades from the series color under the line to nothing at the bottom (as in Stocks)."""
     return {"type": "vertical", "colorscale": [[0, fill(color, 0)], [1, fill(color, top)]]}
 
@@ -233,24 +245,31 @@ def time_axes(figure, years, unified=True):
     figure["spikedistance"] = -1
 
 
+def lead_colors(count, lead=0):
+    """Black for the bar the headline names, gray for the others."""
+    return [BLACK if index == lead else REST for index in range(count)]
+
+
 def bar_rows(figure, names, values=None, show_axis=False, suffix="", axis_title=""):
     """
     Horizontal bars with each name above its bar (left-aligned, as on apple.com comparisons), so long
     facility names never squeeze the bars. Without show_axis, the value axis is hidden and each bar
-    carries its own label (value_labels). Margins are fixed (no automargin) so every row is exactly
-    BAR_ROW pixels and the names sit right above their bars.
+    carries its own label (value_labels). Margins are fixed (no automargin) so every row has the same
+    height and the names sit right above their bars. A short list gets roomier rows rather than a squat
+    chart, and the bars stay BAR_THICKNESS pixels whatever the row height.
     """
     count = len(names)
+    row = BAR_ROW if count >= 6 else min(60, max(BAR_ROW, 240 // max(count, 1)))
     bottom = (48 if axis_title else 30) if show_axis else 8
     figure["margin"] = dict(figure["margin"], l=4, t=22, r=8, b=bottom)
-    figure["height"] = BAR_ROW * count + 22 + bottom
-    figure["bargap"] = BAR_GAP
+    figure["height"] = row * count + 22 + bottom
+    figure["bargap"] = round(1 - BAR_THICKNESS / row, 3)
     if show_axis:
         # room for the first and last tick labels
         figure["margin"].update(l=14, r=22)
     figure["yaxis"].update(showgrid=False, showticklabels=False, autorange="reversed", title={"text": ""},
                            fixedrange=True, automargin=False, type="category")
-    bar_half = BAR_ROW * (1 - BAR_GAP) / 2
+    bar_half = BAR_THICKNESS / 2
     present = [v for v in (values or []) if v is not None]
     leftward = not show_axis and present and max(present) <= 0
     figure["annotations"] = list(figure.get("annotations", [])) + [{
@@ -343,6 +362,38 @@ def selection_years(frame):
     return years
 
 
+# A year counts as covered when at least this share of the busiest year's units reported in it
+COVERAGE_SHARE = 0.5
+
+
+def coverage(frame, years):
+    """
+    Where the selection's yearly totals become comparable. The database may hold only some units for the
+    earliest years (for example when only recent years were retrieved in full), and a total over a few units
+    can't be compared with one over many: CO2 would look as if it grew several hundred times. Returns the
+    first year in which at least COVERAGE_SHARE of the busiest year's units reported, with the unit counts
+    behind it, or None when the first year already qualifies.
+    """
+    if "unit_key" not in frame.columns or len(years) < 2:
+        return None
+    units = frame.groupby("year")["unit_key"].nunique().reindex(years, fill_value=0)
+    busiest_year = int(units.idxmax())
+    busiest = int(units.max())
+    if busiest <= 0:
+        return None
+    start = next(year for year in years if units[year] >= COVERAGE_SHARE * busiest)
+    if start == years[0]:
+        return None
+    return {"start": start, "first_year": years[0], "first_units": int(units[years[0]]),
+            "start_units": int(units[start]), "busiest_year": busiest_year, "busiest": busiest}
+
+
+def coverage_note(cover):
+    return (f"Before {cover['start']} fewer than half as many units reported as in {cover['busiest_year']} "
+            f"({cover['first_units']:,} in {cover['first_year']} against {cover['busiest']:,}), so totals for "
+            "those years mostly show which units are in the database, not how emissions changed.")
+
+
 # ---------- Options shown on the page ----------
 
 SPLITS = {
@@ -400,14 +451,19 @@ def indexed_trend(frame):
 
     keys = ["co2_mass", "so2_mass", "nox_mass", "gross_load"]
     names = {"co2_mass": "CO2", "so2_mass": "SO2", "nox_mass": "NOx", "gross_load": "Gross load"}
-    totals = frame.groupby("year")[keys].sum(min_count=1).reindex(years)
+    every_year = years
+    cover = coverage(frame, years)
+    if cover:
+        # Index from the first year most units reported, so the lines show change, not database coverage
+        years = [year for year in years if year >= cover["start"]]
+    totals = frame.groupby("year")[keys].sum(min_count=1).reindex(every_year)
 
     data, dots, annotations, legend = [], [], [], []
     details = {}
     columns = ["Year"] + [f"{names[k]} total ({unit_of(k)})" for k in keys] + [f"{names[k]} index" for k in keys]
     indexes = {}
     for key in keys:
-        series = totals[key]
+        series = totals[key].reindex(years)
         base_year = next((year for year in years if pd.notna(series[year]) and series[year] > 0), None)
         if base_year is None:
             indexes[key] = pd.Series(np.nan, index=years)
@@ -419,7 +475,7 @@ def indexed_trend(frame):
             "type": "scatter", "mode": "lines", "name": names[key], "legendgroup": names[key],
             "x": years, "y": [clean(v) for v in index],
             "customdata": [[clean(v)] for v in series],
-            "line": {"color": color, "width": 3},
+            "line": {"color": color, "width": 2.5 if key in DASHED else 3, "dash": DASHED.get(key, "solid")},
             "hovertemplate": f"{names[key]}  <b>%{{y:.1f}}</b>  (total %{{customdata[0]:,.0f}} {unit_of(key)})"
                              "<extra></extra>",
         })
@@ -435,11 +491,12 @@ def indexed_trend(frame):
                                 "showarrow": False, "xanchor": "left", "xshift": 12, "yanchor": "middle",
                                 "font": {"color": INK, "size": 12}})
             legend.append(legend_item(names[key], color, signed_percent(float(index[last]) - 100)
-                                      + f" since {base_year}"))
+                                      + f" since {base_year}", "dash" if key in DASHED else "line"))
 
     rows = []
-    for year in years:
-        rows.append([year] + [clean(totals.loc[year, k]) for k in keys] + [clean(indexes[k][year]) for k in keys])
+    for year in every_year:
+        rows.append([year] + [clean(totals.loc[year, k]) for k in keys]
+                    + [clean(indexes[k].get(year, np.nan)) for k in keys])
 
     spread_labels(annotations)
     figure = layout(title, "", "", height=360, annotations=annotations)
@@ -451,8 +508,10 @@ def indexed_trend(frame):
     note = ("Each line is the yearly total for the selected records divided by that line's first-year total, so "
             "the dashed line at 100 is where every line starts. Totals also change when units start or stop "
             "reporting.")
+    if cover:
+        note += " " + coverage_note(cover) + f" The lines start in {cover['start']}; the table has every year."
     spec = chart("indexed", title, data + dots, figure, columns, rows, note)
-    spec["eyebrow"] = "Indexed to the first year = 100"
+    spec["eyebrow"] = f"Indexed to {cover['start']} = 100" if cover else "Indexed to the first year = 100"
     spec["legend"] = legend
     spec["details"] = details
     spec["about"] = explain.about(
@@ -553,6 +612,16 @@ def trend(frame, key, split="none"):
     rows = [[year] + [values[i] for values in values_by_series] for i, year in enumerate(years)]
     figure = layout(title, "", "", height=340)
     time_axes(figure, years, unified=not single)
+    cover = coverage(frame, years) if changes else None
+    if cover:
+        # Shade the early years with few units, as a quiet warning, and measure change from cover["start"]
+        figure["shapes"] = list(figure.get("shapes", [])) + [{
+            "type": "rect", "xref": "x", "yref": "paper", "x0": years[0] - 0.5, "x1": cover["start"] - 0.5,
+            "y0": 0, "y1": 1, "fillcolor": "rgba(0,0,0,0.04)", "line": {"width": 0}, "layer": "below"}]
+        figure["annotations"] = list(figure.get("annotations", [])) + [{
+            "x": years[0], "xref": "x", "xanchor": "left", "xshift": -4, "y": 1, "yref": "paper",
+            "yanchor": "top", "yshift": -4, "showarrow": False, "text": "Few units reported",
+            "font": {"color": MUTED, "size": 11}}]
     if any(value is not None and value < 0 for values in values_by_series for value in values):
         figure["yaxis"].update(rangemode="normal", zeroline=True, zerolinecolor=AXIS)
     word = analysis.aggregate_label(key)
@@ -561,6 +630,8 @@ def trend(frame, key, split="none"):
         "Total": "Each point is the year's total over the selected records.",
         "Mean": "Each point is the year's average over the selected records.",
     }[word]
+    if cover:
+        note += f" {coverage_note(cover)} The shaded years are drawn, but change is measured from {cover['start']}."
     spec = chart("trend", title, data + dots, figure, columns, rows, note)
     spec["details"] = details
     spec["about"] = explain.about(
@@ -569,8 +640,9 @@ def trend(frame, key, split="none"):
         explain.how_aggregated(key) + " " + item["definition"],
         "A line shows direction and turning points over time, and the years are evenly spaced, so slopes can be "
         "compared directly. One measure, one axis.",
-        ("Move along the line to see each year in the headline; the pill compares it with the first year shown. "
-         "Use 5Y, 10Y or 20Y to look at recent years." if single else
+        ("Move along the line to see each year in the headline; the pill compares it with the first year shown "
+         "(never a shaded year, which had too few units reporting). Use 5Y, 10Y or 20Y to look at recent years."
+         if single else
          "Each color is one group; select a name in the legend to hide or show its line."),
         explain.source_text(frame))
     eyebrow = "Overall" if word == "Overall ratio" else word
@@ -582,15 +654,17 @@ def trend(frame, key, split="none"):
     present = [(year, value) for year, value in zip(years, values_by_series[0]) if value is not None]
     if not present:
         return spec
-    first_year, first = present[0]
+    compared = [pair for pair in present if not cover or pair[0] >= cover["start"]] or present
+    first_year, first = compared[0]
     last_year, last = present[-1]
-    peak_year, peak = max(present, key=lambda pair: pair[1])
+    peak_year, peak = max(compared, key=lambda pair: pair[1])
     spec["headline"] = headline(
         last, item["unit"], f"In {last_year}",
         delta(percent_change(last, first), f"since {first_year}") if changes else None,
         f"Peak: {analysis.format_compact(peak)} in {peak_year}" if peak_year not in (first_year, last_year) else "",
         eyebrow)
-    spec["readout"] = {"trace": 0, "unit": item["unit"], "delta": changes, "count": "records"}
+    spec["readout"] = {"trace": 0, "unit": item["unit"], "delta": changes, "count": "records",
+                       "base": cover["start"] if cover else None}
     spec["ranges"] = year_ranges([year for year, _ in present])
     return spec
 
@@ -612,7 +686,7 @@ def bars(frame, key, group):
     data = [dict({
         "type": "bar", "orientation": "h", "x": values, "y": names,
         "customdata": [[int(r)] for r in shown["records"]],
-        "marker": {"color": SERIES[0]},
+        "marker": {"color": lead_colors(len(values))},
         "hovertemplate": "%{y}<br><b>%{x:,.4~r} " + item["unit"] + "</b>  (%{customdata[0]:,} records)<extra></extra>",
     }, **value_labels(values))]
     figure = layout(title)
@@ -696,7 +770,7 @@ def histogram(frame, key, scale="log"):
     data = [{
         "type": "bar", "x": [(a + b) / 2 for a, b in zip(lefts, rights)], "y": [int(c) for c in counts],
         "width": [(b - a) * 0.8 for a, b in zip(lefts, rights)],
-        "customdata": ranges, "marker": {"color": SERIES[0]},
+        "customdata": ranges, "marker": {"color": REST},
         "hovertemplate": "%{customdata[0]:,.4~r} to %{customdata[1]:,.4~r} " + item["unit"]
                          + "<br><b>%{customdata[2]:,} records</b><extra></extra>",
     }]
@@ -713,13 +787,13 @@ def histogram(frame, key, scale="log"):
                                range=[lefts[0] - 0.04, rights[-1] + 0.04])
     marker = position(median)
     figure["shapes"] = [{"type": "line", "xref": "x", "yref": "paper", "x0": marker, "x1": marker, "y0": 0, "y1": 1,
-                         "line": {"color": INK, "width": 1.5, "dash": "dot"}}]
+                         "line": {"color": BLACK, "width": 2}}]
     figure["annotations"] = [{"x": marker, "y": 1, "xref": "x", "yref": "paper", "yanchor": "bottom",
                               "xanchor": "left", "xshift": 5, "showarrow": False,
                               "text": f"Median {short_number(median)}", "font": {"color": INK, "size": 11}}]
     figure["margin"]["t"] = 26
 
-    note = f"{len(values):,} records in {bins} bins; the dotted line marks the median."
+    note = f"{len(values):,} records in {bins} bins; the black line marks the median."
     if excluded:
         note += f" {excluded:,} records with a value of 0 are left out because a log scale can't show 0."
     if switched:
@@ -732,7 +806,7 @@ def histogram(frame, key, scale="log"):
         f"How many records have each value of {item['label']}: every bar counts the records in one range.",
         f"The range from the smallest to the largest value is cut into {bins} bins of equal width"
         + (" in powers of ten (a log scale)" if scale == "log" else "") + ", and the records in each bin are "
-        "counted. The dotted line is the median: half of the records are below it, half above.",
+        "counted. The black line is the median: half of the records are below it, half above.",
         "A histogram shows the shape of the data: where most records fall, whether there are several groups, and "
         "how long the tail of very large values is. Emissions are heavily skewed (a few large plants emit far more "
         "than most units), so a log scale spreads small and large values evenly instead of crowding most records "
@@ -947,17 +1021,23 @@ def correlation(frame, method="spearman"):
     for i in range(len(keys)):
         for j in range(len(keys)):
             r = z[i][j]
-            if i != j and r is not None and abs(r) >= 0.7:
+            if j < i and r is not None and abs(r) >= 0.7:
                 annotations.append({"x": names[j], "y": names[i], "text": f"{r:.2f}".replace("-", "−"),
                                     "showarrow": False,
-                                    "font": {"color": SURFACE if abs(r) >= 0.85 else INK, "size": 11}})
+                                    "font": {"color": SURFACE if abs(r) >= 0.6 else INK, "size": 11}})
             if i < j and r is not None and (strongest is None or abs(r) > abs(strongest[0])):
                 strongest = (r, names[i], names[j])
+    # Only the lower triangle: the matrix is symmetric and its diagonal is always 1, so each pair is drawn once
+    lower = [[z[i][j] if j < i else None for j in range(len(keys) - 1)] for i in range(1, len(keys))]
+    lower_counts = [[counts[i][j] for j in range(len(keys) - 1)] for i in range(1, len(keys))]
     data = [{
-        "type": "heatmap", "x": names, "y": names, "z": z, "customdata": counts,
+        "type": "heatmap", "x": names[:-1], "y": names[1:], "z": lower, "customdata": lower_counts,
+        "hoverongaps": False,
         "zmin": -1, "zmax": 1, "zmid": 0, "colorscale": DIVERGING, "xgap": 3, "ygap": 3,
+        # the scale sits in the empty corner above the diagonal
         "colorbar": {"title": {"text": "r", "side": "top", "font": {"color": MUTED, "size": 11}}, "thickness": 8,
-                     "outlinewidth": 0, "tickfont": {"color": MUTED, "size": 11}, "len": 0.6,
+                     "outlinewidth": 0, "tickfont": {"color": MUTED, "size": 11}, "len": 0.42,
+                     "x": 0.97, "xanchor": "right", "y": 1, "yanchor": "top",
                      "tickvals": [-1, -0.5, 0, 0.5, 1], "ticktext": ["−1", "−0.5", "0", "0.5", "1"]},
         "hovertemplate": "%{y} and %{x}<br><b>r = %{z:.2f}</b>  (%{customdata:,} records)<extra></extra>",
     }]
@@ -984,9 +1064,10 @@ def correlation(frame, method="spearman"):
          "Pearson correlation measures how closely the two variables follow a straight line")
         + f", using the records that have both values (at least {CORRELATION_MINIMUM}). It runs from −1 (one "
         "falls as the other rises) through 0 (no relationship) to 1 (they rise together).",
-        "A heat map shows all the pairs in one view, with color for direction (blue together, red opposite) and "
-        "strength (darker is stronger), so the strong relationships stand out.",
-        "Read across a row and down a column to find a pair. The table is symmetric, and the diagonal is 1.",
+        "A heat map shows all the pairs in one view, with color for direction (black rise together, blue one falls "
+        "as the other rises) and strength (a deeper shade is stronger), so the strong relationships stand out. Each "
+        "pair is drawn once, below the diagonal.",
+        "Read across a row and down a column to find a pair. The full, symmetric table is under Show the numbers.",
         explain.source_text(frame))
     if strongest:
         spec["headline"] = {"value": f"{strongest[0]:.2f}".replace("-", "−"), "unit": "correlation",
@@ -1057,7 +1138,7 @@ def rankings(frame, key, level="facility", min_load=DEFAULT_MIN_LOAD):
         data = [dict({
             "type": "bar", "orientation": "h", "x": values, "y": names,
             "customdata": [[clean(g)] for g in part["gross_load"]],
-            "marker": {"color": SERIES[0]},
+            "marker": {"color": lead_colors(len(values))},
             "hovertemplate": "%{y}<br><b>%{x:,.4~r} " + item["unit"]
                              + "</b><br>Gross load %{customdata[0]:,.0f} MWh<extra></extra>",
         }, **value_labels(values))]
@@ -1109,13 +1190,48 @@ def map_colorbar(unit):
 
 
 def map_layout(title, land):
-    figure = layout(title, height=400)
+    figure = layout(title, height=420)
     figure["geo"] = {"scope": "usa", "bgcolor": SURFACE, "lakecolor": SURFACE, "showlakes": False,
                      "showland": True, "landcolor": land, "subunitcolor": SURFACE, "subunitwidth": 1.5,
                      "countrycolor": SURFACE, "projection": {"type": "albers usa"}}
     figure["margin"] = {"l": 0, "r": 0, "t": 4, "b": 58}
     figure["dragmode"] = False
     return figure
+
+
+def zoom_to(figure, lats, lons):
+    """
+    Zoom a U.S. map to the area the selection covers (one state, a few states, or a region), so a
+    Kentucky selection fills the map instead of sitting in a corner of the country. Selections that
+    span most of the country keep the national view. Returns True when the map was zoomed.
+    """
+    lats = [value for value in lats if value is not None]
+    lons = [value for value in lons if value is not None]
+    if not lats:
+        return False
+    lat_low, lat_high, lon_low, lon_high = min(lats), max(lats), min(lons), max(lons)
+    if lon_high - lon_low > 28 or lat_high - lat_low > 13:
+        return False
+    # At scale 1 the map shows about 58 degrees of longitude and 24 of latitude; leave a margin around the data
+    lon_span = max(lon_high - lon_low, 3.0)
+    lat_span = max(lat_high - lat_low, 2.0)
+    scale = max(1.0, min(14.0, min(58 / lon_span, 24 / lat_span) / 1.35))
+    figure["geo"].update({
+        "center": {"lat": (lat_low + lat_high) / 2, "lon": (lon_low + lon_high) / 2},
+        "projection": {"type": "albers usa", "scale": round(scale, 2)},
+        "subunitcolor": "#c7c7cc", "subunitwidth": 1,
+    })
+    return True
+
+
+def bubble_sizes(values, smallest=6, largest=34):
+    """Bubble areas in proportion to the values (diameter grows with the square root)."""
+    present = [value for value in values if value is not None and value > 0]
+    if not present:
+        return [smallest for _ in values]
+    top = max(present) ** 0.5
+    return [smallest if value is None or value <= 0 else max(smallest, largest * value ** 0.5 / top)
+            for value in values]
 
 
 def state_map(frame, key):
@@ -1136,6 +1252,12 @@ def state_map(frame, key):
         "hovertemplate": "<b>%{text}</b><br>%{z:,.4~r} " + item["unit"] + "  (%{customdata[0]:,} records)<extra></extra>",
     }]
     figure = map_layout(title, "#f5f5f7")
+    if len(codes) <= 6:
+        places = analysis.facility_locations(frame["facility_id"].dropna().unique())
+        located = [places[int(i)] for i in frame["facility_id"].dropna().unique() if int(i) in places]
+        if zoom_to(figure, [lat for lat, _ in located], [lon for _, lon in located]):
+            figure["geo"]["subunitcolor"] = SURFACE
+            figure["geo"]["subunitwidth"] = 1.5
     columns = ["State", "State code", value_title(key), "Records"]
     rows = [[name, code, clean(v), int(r)] for name, code, v, r in zip(names, codes, table["value"], table["records"])]
     rows.sort(key=lambda row: -(row[2] or 0))
@@ -1149,13 +1271,86 @@ def state_map(frame, key):
         [["Rank", f"{order.index(code) + 1} of {len(codes)}"]]) for point, (code, name) in enumerate(zip(codes, names))}
     spec["about"] = explain.about(
         f"{value_title(key).rsplit(' (', 1)[0]} for each state with records in the selection.",
-        explain.how_aggregated(key) + " Each state's records are combined that way; darker blue means higher.",
-        "A map shows where values are concentrated, which a list of states can't show at a glance. One blue from "
-        "light to dark keeps the order clear without suggesting good or bad.",
+        explain.how_aggregated(key) + " Each state's records are combined that way; darker means higher.",
+        "A map shows where values are concentrated, which a list of states can't show at a glance. One scale from "
+        "light gray to black keeps the order clear without suggesting good or bad.",
         "States in light gray have no records in the selection. Select a state for its numbers.",
         explain.source_text(frame))
     spec["headline"] = headline(rows[0][2], item["unit"], rows[0][0],
                                 eyebrow=f"Highest of {len(rows)} state{'' if len(rows) == 1 else 's'}")
+    return spec
+
+
+COUNTY_LABELS = 8
+
+
+def county_map(frame, key):
+    """
+    One bubble per county, placed at the middle of its facilities, sized and shaded by the county's
+    value, and zoomed to the selection. Shown instead of the state map when the selection is one
+    state, where a single shaded state would say nothing.
+    """
+    item = analysis.VARIABLES[key]
+    title = f"{item['label']} by county"
+    labels = analysis.group_labels(frame, "county")
+    found = explain.parts(frame, key, labels)
+    found = found[found["value"].notna() & (found.index != analysis.NOT_REPORTED)]
+    if found.empty:
+        return empty_chart("county_map", title, "These records have no county. Retrieve facility attributes to add "
+                                                "counties.")
+    places = analysis.facility_locations(frame["facility_id"].dropna().unique())
+    located = pd.DataFrame({"county": labels, "facility": frame["facility_id"]}).dropna().drop_duplicates()
+    located = located[located["facility"].map(lambda i: int(i) in places)]
+    located["lat"] = located["facility"].map(lambda i: places[int(i)][0])
+    located["lon"] = located["facility"].map(lambda i: places[int(i)][1])
+    centers = located.groupby("county")[["lat", "lon"]].mean()
+    found = found[found.index.isin(centers.index)]
+    if found.empty:
+        return empty_chart("county_map", title, "None of these counties' facilities has a stored location.")
+    found = found.sort_values("value")                 # largest drawn last, on top
+    loads = pd.DataFrame({"county": labels, "load": frame["gross_load"]}).groupby("county")["load"].sum(min_count=1)
+    names = list(found.index)
+    values = [clean(v) for v in found["value"]]
+    sizes = bubble_sizes([clean(loads.get(name)) for name in names] if item["ratio"] else values, 8, 44)
+    ranked = sorted(names, key=lambda name: -(found.loc[name, "value"] or 0))
+    labelled = set(ranked[:COUNTY_LABELS])
+    data = [{
+        "type": "scattergeo", "mode": "markers+text",
+        "lat": [float(centers.loc[name, "lat"]) for name in names],
+        "lon": [float(centers.loc[name, "lon"]) for name in names],
+        "text": [name.rsplit(", ", 1)[0].replace(" County", "") if name in labelled else "" for name in names],
+        "textposition": "top center", "textfont": {"color": INK, "size": 11},
+        "customdata": [[text(name), int(found.loc[name, "facilities"]), int(found.loc[name, "records"])]
+                       for name in names],
+        "marker": {"size": sizes, "sizemode": "diameter", "color": values, "colorscale": SEQUENTIAL_MARKS,
+                   "line": {"color": SURFACE, "width": 1.5}, "opacity": 0.9, "colorbar": map_colorbar(item["unit"])},
+        "hovertemplate": "<b>%{customdata[0]}</b><br>%{marker.color:,.4~r} " + item["unit"]
+                         + "<br>%{customdata[1]:,} facilities · %{customdata[2]:,} records<extra></extra>",
+    }]
+    figure = map_layout(title, "#f5f5f7")
+    figure["geo"]["subunitcolor"] = "#c7c7cc"
+    zoom_to(figure, list(centers["lat"]), list(centers["lon"]))
+    columns = ["County", value_title(key), "Facilities", "Records"]
+    rows = [[name, clean(found.loc[name, "value"]), int(found.loc[name, "facilities"]), int(found.loc[name, "records"])]
+            for name in ranked]
+    note = (f"{len(names):,} counties, each drawn at the middle of its facilities. Bubble area shows "
+            f"{'gross load' if item['ratio'] else item['label']}; darker means a higher {item['label']}. The "
+            f"{min(COUNTY_LABELS, len(names))} highest are named.")
+    spec = chart("county_map", title, data, figure, columns, rows, note)
+    spec["details"] = {f"0:{point}": explain.aggregate_detail(
+        key, found.loc[name], name, "County", explain.drill_for("county", name),
+        [["Rank", f"{ranked.index(name) + 1} of {len(names)}"]]) for point, name in enumerate(names)}
+    spec["about"] = explain.about(
+        f"{value_title(key).rsplit(' (', 1)[0]} for each county in the selection, on the map.",
+        explain.how_aggregated(key) + " Each county's records (every unit and year of its facilities) are "
+        "combined that way. EPA reports a county for each facility; the bubble sits at the average location of "
+        "the county's facilities.",
+        "Within one state, a shaded state says nothing; counties show where in the state the emissions are. "
+        "Bubbles avoid needing county outlines and still compare size and place at a glance.",
+        "Bigger, darker bubbles are higher. Select a bubble for the county's records and numbers.",
+        explain.source_text(frame))
+    spec["headline"] = headline(rows[0][1], item["unit"], rows[0][0],
+                                eyebrow=f"Highest of {len(rows)} count{'y' if len(rows) == 1 else 'ies'}")
     return spec
 
 
@@ -1166,7 +1361,7 @@ def analysis_state_name(code):
 
 def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
     item = analysis.VARIABLES[key]
-    title = f"Facility locations colored by {item['label']}"
+    title = f"Facilities by {lower_first(item['label'])}"
     labels = frame["facility_id"]
     table = analysis.aggregate(frame, key, labels)
     loads = pd.DataFrame({"group": labels, "load": frame["gross_load"]}).groupby("group", sort=False)["load"] \
@@ -1198,23 +1393,29 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
         first = row["num"] if item["ratio"] else row["value"]
         second = row["den"] if item["ratio"] else None
         facility_numbers.append([int(i), int(row["records"]), int(row["used"]), clean(first), clean(second)])
+    lats = [places[int(i)][0] for i in shown.index]
+    lons = [places[int(i)][1] for i in shown.index]
+    # Bubble area: the amount itself for totals; for ratios, the facility's gross load (how big it is)
+    sizes = bubble_sizes([clean(v) for v in (shown["gross_load"] if item["ratio"] else shown["value"])])
     data = [{
-        "type": "scattergeo", "mode": "markers",
-        "lat": [places[int(i)][0] for i in shown.index], "lon": [places[int(i)][1] for i in shown.index],
+        "type": "scattergeo", "mode": "markers", "lat": lats, "lon": lons,
         "text": names, "customdata": facility_numbers,
-        "marker": {"size": 9, "color": [clean(v) for v in shown["value"]], "colorscale": SEQUENTIAL,
-                   "line": {"color": SURFACE, "width": 1.5}, "opacity": 0.95,
+        "marker": {"size": sizes, "sizemode": "diameter", "color": [clean(v) for v in shown["value"]],
+                   "colorscale": SEQUENTIAL_MARKS, "line": {"color": SURFACE, "width": 1}, "opacity": 0.88,
                    "colorbar": map_colorbar(item["unit"])},
         "hovertemplate": "<b>%{text}</b><br>%{marker.color:,.4~r} " + item["unit"] + "<extra></extra>",
     }]
-    figure = map_layout(title, "#f0f0f2")
+    figure = map_layout(title, "#f5f5f7")
     figure["geo"]["subunitcolor"] = "#d2d2d7"
     figure["geo"]["subunitwidth"] = 0.75
+    zoomed = zoom_to(figure, lats, lons)
 
     columns = ["Facility ID", "Facility", "Latitude", "Longitude", value_title(key), "Gross load (MWh)"]
     rows = [[int(i), info.at[i, "facility_name"], places[int(i)][0], places[int(i)][1], clean(row["value"]),
              clean(row["gross_load"])] for i, row in shown.iloc[::-1].iterrows()]
-    note = f"{len(shown):,} facilities; the highest values are drawn on top."
+    note = (f"{len(shown):,} facilities. Bubble area shows "
+            f"{'gross load' if item['ratio'] else item['label']}; color shows {item['label']} (darker is higher)"
+            + (", and the map is zoomed to the selection." if zoomed else "."))
     if len(with_place) > len(shown):
         note += (f" The {MAP_FACILITY_LIMIT:,} with the highest "
                  f"{'gross load' if item['ratio'] else item['label']} are drawn.")
@@ -1235,7 +1436,9 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
         explain.how_aggregated(key) + " Each facility's records (all its units and years in the selection) are "
         "combined that way.",
         "Plotting each facility where it is shows clusters and outliers that a state total hides.",
-        "Darker dots are higher, and the highest are drawn on top. Select a dot for its numbers.",
+        ("Bigger bubbles are larger facilities (more gross load); darker ones have a higher "
+         f"{item['label']}." if item["ratio"] else "Bigger and darker bubbles are higher.")
+        + " Select a bubble for its numbers.",
         explain.source_text(frame))
     top = max(rows, key=lambda row: row[4] if row[4] is not None else float("-inf"))
     spec["headline"] = headline(top[4], item["unit"], str(top[1]),
@@ -1244,6 +1447,19 @@ def facility_map(frame, key, min_load=DEFAULT_MIN_LOAD):
 
 
 # ---------- Everything at once ----------
+
+def one_state(frame):
+    """True when the selection is in a single state and EPA gave its facilities' counties."""
+    if len(frame) == 0 or "county" not in frame.columns:
+        return False
+    county = frame["county"].dropna().astype(str).str.strip()
+    return frame["state"].dropna().nunique() == 1 and bool((county != "").any())
+
+
+def region_map(frame, key):
+    """The county map for one state (a single shaded state would say nothing), otherwise the state map."""
+    return county_map(frame, key) if one_state(frame) else state_map(frame, key)
+
 
 def build_all(frame, choices):
     key = choices["variable"]
@@ -1258,7 +1474,7 @@ def build_all(frame, choices):
         correlation(frame, choices["corr"]),
         high,
         low,
-        state_map(frame, key),
+        region_map(frame, key),
         facility_map(frame, key, choices["min_load"]),
     ]
 
@@ -1276,6 +1492,7 @@ def build_one(frame, choices, chart_id):
         "rank_high": lambda: rankings(frame, key, choices["level"], choices["min_load"])[0],
         "rank_low": lambda: rankings(frame, key, choices["level"], choices["min_load"])[1],
         "state_map": lambda: state_map(frame, key),
+        "county_map": lambda: county_map(frame, key),
         "facility_map": lambda: facility_map(frame, key, choices["min_load"]),
     }
     if chart_id not in builders:
@@ -1423,7 +1640,7 @@ def impact_group_chart(rows, categories, choices, group_name):
         values = [clean(row[key]["intensity"]) for row in shown]
         data = [dict({
             "type": "bar", "orientation": "h", "x": values, "y": names,
-            "customdata": details, "marker": {"color": SERIES[0]},
+            "customdata": details, "marker": {"color": lead_colors(len(values))},
             "hovertemplate": "<b>%{customdata[0]}</b><br>%{customdata[1]}<br>Click for the full calculation"
                              "<extra></extra>",
         }, **value_labels(values))]

@@ -16,14 +16,14 @@ the same card above each chart (eyebrow, headline number, legend).
 import analysis
 import explain
 import prediction
-from dashboard import (FAMILY_COLORS, INK, INK_2, OTHER, SERIES, SURFACE, bar_rows, chart, clean,
+from dashboard import (BLACK, BLUE, FAMILY_COLORS, GRAY, INK, INK_2, OTHER, SURFACE, bar_rows, chart, clean,
                        delta, empty_chart, end_dot, gradient, headline, layout, legend_item, percent_change,
                        short_number, text, time_axes, value_labels)
 
 # Status color for "outside the training range"; always paired with a label and an open marker
-WARNING_FILL = "rgba(250, 178, 25, 0.16)"
-WARNING_LINE = "#b25000"
-REFERENCE = "#86868b"
+WARNING_FILL = "rgba(255, 149, 0, 0.10)"
+WARNING_LINE = "#b64400"
+REFERENCE = "#aeaeb2"
 SCATTER_LIMIT = 4000
 
 
@@ -62,7 +62,7 @@ def model_errors(result):
     kinds = list(prediction.MODELS)
     names = [prediction.MODELS[kind]["name"] + (" (chosen)" if kind == result["chosen"] else "") for kind in kinds]
     values = [clean(result["test"][kind]["mae"]) for kind in kinds]
-    colors = [OTHER if kind == "mean" else SERIES[0] for kind in kinds]
+    colors = [BLACK if kind == result["chosen"] else OTHER for kind in kinds]
     data = [dict({
         "type": "bar", "orientation": "h", "x": values, "y": names,
         "marker": {"color": colors},
@@ -76,9 +76,9 @@ def model_errors(result):
     rows = [[prediction.MODELS[kind]["name"], clean(result["validation"][kind]["mae"]),
              clean(result["test"][kind]["mae"]), clean(result["test"][kind]["rmse"]),
              clean(result["test"][kind]["r2"]), clean(result["test"][kind]["wape"])] for kind in kinds]
-    note = ("Shorter is better; the gray bar is the baseline that always predicts the training average. Each model "
-            "was refit on the training and validation years and scored once on the test year; the chosen model had "
-            "the lowest error on the validation years.")
+    note = ("Shorter is better; the chosen model is black. The mean baseline always predicts the training "
+            "average. Each model was refit on the training and validation years and scored once on the test year; "
+            "the chosen model had the lowest error on the validation years.")
     spec = chart("model_errors", title, data, figure, columns, rows, note)
     details = {}
     for point, kind in enumerate(kinds):
@@ -219,14 +219,14 @@ def trend_forecast(trend, target):
     actual = [row["total"] for row in totals]
     data = [{
         "type": "scatter", "mode": "lines", "name": "Actual total", "legendgroup": "Actual total",
-        "x": years, "y": actual, "line": {"color": SERIES[0], "width": 3},
-        "fill": "tozeroy", "fillgradient": gradient(SERIES[0], 0.18),
+        "x": years, "y": actual, "line": {"color": BLACK, "width": 3},
+        "fill": "tozeroy", "fillgradient": gradient(BLACK, 0.10),
         "customdata": [row["units"] for row in totals],
         "hovertemplate": "Actual  <b>%{y:,.4~r} short tons</b>  (%{customdata:,} units)<extra></extra>",
     }]
-    styles = {"linear": (SERIES[1], "dash"), "tree": (SERIES[2], "dash"), "mean": (REFERENCE, "dot")}
-    legend = [legend_item("Actual total", SERIES[0], f"{short_number(actual[-1])} in {years[-1]}")]
-    dots = [end_dot(years[-1], actual[-1], SERIES[0], "Actual total")]
+    styles = {"linear": (BLUE, "dash"), "tree": (GRAY, "dash"), "mean": (REFERENCE, "dot")}
+    legend = [legend_item("Actual total", BLACK, f"{short_number(actual[-1])} in {years[-1]}")]
+    dots = [end_dot(years[-1], actual[-1], BLACK, "Actual total")]
     for kind in ("linear", "tree", "mean"):
         color, dash = styles[kind]
         name = prediction.MODELS[kind]["name"]
@@ -359,16 +359,16 @@ def sensitivity(rows, baseline, variable, target, kind, ranges, base_prediction)
     data = [{
         "type": "scatter", "mode": "lines", "name": "Prediction", "showlegend": False,
         "x": [row["value"] for row in rows], "y": [row["prediction"] for row in rows],
-        "line": {"color": SERIES[0], "width": 3, "shape": "hv" if kind == "tree" else "linear"},
-        "fill": "tozeroy", "fillgradient": gradient(SERIES[0], 0.16), "hoverinfo": "skip",
+        "line": {"color": BLACK, "width": 3, "shape": "hv" if kind == "tree" else "linear"},
+        "fill": "tozeroy", "fillgradient": gradient(BLACK, 0.10), "hoverinfo": "skip",
     }, {
         "type": "scatter", "mode": "markers", "name": "Prediction", "legendgroup": "Prediction",
         "x": [row["value"] for row in inside], "y": [row["prediction"] for row in inside],
         "customdata": [details(row) for row in inside],
-        "marker": {"color": SERIES[0], "size": 7, "line": {"color": SURFACE, "width": 1.5}},
+        "marker": {"color": BLACK, "size": 7, "line": {"color": SURFACE, "width": 1.5}},
         "hovertemplate": hover + "<extra></extra>",
     }]
-    legend = [legend_item("Prediction", SERIES[0])]
+    legend = [legend_item("Prediction", BLACK)]
     if beyond:
         data.append({
             "type": "scatter", "mode": "markers", "name": "Outside training range",
@@ -385,12 +385,12 @@ def sensitivity(rows, baseline, variable, target, kind, ranges, base_prediction)
     data.append({
         "type": "scatter", "mode": "markers+text", "name": "Baseline", "legendgroup": "Baseline",
         "x": [base_x], "y": [base_prediction], "text": ["Baseline"], "textposition": "top left",
-        "textfont": {"color": INK, "size": 12}, "cliponaxis": False,
-        "marker": {"color": INK, "size": 12, "line": {"color": SURFACE, "width": 3}},
+        "textfont": {"color": BLUE, "size": 12}, "cliponaxis": False,
+        "marker": {"color": BLUE, "size": 13, "line": {"color": SURFACE, "width": 3}},
         "hovertemplate": ("<b>Baseline</b><br>" + info["label"] + " %{x:,.4~r} " + info["unit"]
                           + "<br>Predicted %{y:,.4~r} short tons<extra></extra>"),
     })
-    legend.append(legend_item("Baseline", INK, "", "dot"))
+    legend.append(legend_item("Baseline", BLUE, "", "dot"))
     figure = layout(title, f"{info['label']} ({info['unit']})", "", height=400)
     figure["xaxis"].update(showline=True, showgrid=False)
     figure["yaxis"].update(side="right", rangemode="tozero")
@@ -493,7 +493,9 @@ def scenario_bars(rows, target, base_prediction):
     title = f"Predicted {label} by scenario"
     names = [row["name"] + (" ⚠" if row["warnings"] else "") for row in rows]
     values = [clean(row["prediction"]) for row in rows]
-    colors = [OTHER if row["key"] == "baseline" else SERIES[0] for row in rows]
+    changed = [row for row in rows if row["key"] != "baseline" and row["change_pct"] is not None]
+    biggest = max(changed, key=lambda row: abs(row["change_pct"]))["key"] if changed else None
+    colors = [OTHER if row["key"] == "baseline" else BLACK if row["key"] == biggest else GRAY for row in rows]
     patterns = ["/" if row["warnings"] else "" for row in rows]
     labels = []
     for row in rows:
@@ -521,8 +523,9 @@ def scenario_bars(rows, target, base_prediction):
                "Change from baseline (%)", "Warnings"]
     table = [[row["name"], row["about"], clean(row["prediction"]), clean(row["change"]), clean(row["change_pct"]),
               " ".join(row["warnings"]) or "None"] for row in rows]
-    note = ("The gray bar and the dashed line are the baseline prediction. Striped bars and ⚠ mark scenarios with an "
-            "input outside what the model saw in training; treat them as extrapolations.")
+    note = ("The light gray bar and the dashed line are the baseline prediction, and the biggest change is black. "
+            "Striped bars and ⚠ mark scenarios with an input outside what the model saw in training; treat them as "
+            "extrapolations.")
     spec = chart("scenarios", title, data, figure, columns, table, note)
     details = {}
     for point, row in enumerate(rows):
@@ -549,7 +552,8 @@ def scenario_bars(rows, target, base_prediction):
         "model. Change = scenario − baseline; % change = change ÷ baseline × 100.",
         "Bars put every scenario beside the baseline, so the size and direction of each change is clear at a "
         "glance.",
-        "The gray bar and dashed line are the baseline. Striped bars have an input outside the training range; "
+        "The light gray bar and dashed line are the baseline; the biggest change is black. Striped bars have an "
+        "input outside the training range; "
         "treat them as extrapolations. Select a bar for its inputs.",
         f"{explain.SOURCE}; predictions from the model trained on this selection.")
     changed = [row for row in rows if row["key"] != "baseline" and row["change_pct"] is not None]
