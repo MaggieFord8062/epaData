@@ -157,3 +157,35 @@ def test_nearby_facilities(client):
     assert "Nearby" in page and "Beta Plant" in page
     assert "/compare?facility=1001&amp;facility=1002" in page
     assert "Nearby" not in client.get("/facility/2001").get_data(as_text=True)
+
+
+# ---------- Years with few units ----------
+
+def sparse_first_year():
+    """The fixture without unit 1's 2023 record: 2023 then has 1 unit reporting, 2024 has 2 and 2025 has 4."""
+    frame = selection()
+    return frame[~((frame["year"] == 2023) & (frame["unit_key"] == 1))]
+
+
+def test_coverage_finds_the_first_well_covered_year():
+    assert dashboard.coverage(selection(), [2023, 2024, 2025]) is None      # 2 of 4 units: half is enough
+    cover = dashboard.coverage(sparse_first_year(), [2023, 2024, 2025])
+    assert cover["start"] == 2024 and cover["first_units"] == 1 and cover["busiest"] == 4
+
+
+def test_trends_measure_change_from_the_first_well_covered_year():
+    frame = sparse_first_year()
+    indexed = dashboard.indexed_trend(frame)
+    co2 = next(trace for trace in indexed["data"] if trace["name"] == "CO2")
+    assert co2["x"] == [2024, 2025]
+    assert co2["y"] == pytest.approx([100, 710_000 / 1_100_000 * 100])
+    assert indexed["eyebrow"] == "Indexed to 2024 = 100"
+    assert [row[0] for row in indexed["table"]["rows"]] == [2023, 2024, 2025]   # the table keeps every year
+    trend = dashboard.trend(frame, "co2_mass")
+    assert trend["data"][0]["x"] == [2023, 2024, 2025]                        # drawn, but shaded
+    assert trend["layout"]["shapes"][-1]["x1"] == 2023.5
+    assert trend["headline"]["delta"]["after"] == "since 2024"
+    assert trend["readout"]["base"] == 2024
+    assert "Before 2024 fewer than half as many units reported" in trend["note"]
+    # With every year covered nothing changes
+    assert dashboard.trend(selection(), "co2_mass")["readout"]["base"] is None

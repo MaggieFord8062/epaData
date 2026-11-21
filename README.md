@@ -406,6 +406,8 @@ Example: `/statistics?q=coal+kentucky&variable=heat_rate&group=year`
 |---|---|
 | Emissions and generation over time | CO2, SO2, NOx and gross load totals by year, each indexed to its first year = 100, so measures with different units share one axis |
 | Variable over time | The chosen variable by year (total, or overall ratio for intensities), optionally one line per fuel family or per control group |
+
+**Years with few units.** If the database holds only some units for the earliest years (for example when only recent years were retrieved in full), a total over a few units can't be compared with one over many: CO2 would look as if it grew several hundred times. So both trends measure change from the first year in which at least half as many units reported as in the busiest year. The indexed chart starts in that year, and the single trend shades the earlier years ("Few units reported"), still draws them, and measures its change from that year. Each chart's note gives the unit counts. A selection where every year is well covered is unchanged.
 | Bar chart | The chosen variable by state, county, fuel, unit type, year, facility or control group (county is the default when the selection is one state) |
 | Box plots | The spread of the variable within the largest groups |
 | Histogram | The distribution of the variable (log scale by default, because a few plants emit most of the total) |
@@ -527,6 +529,6 @@ The tests build a small fixture database (3 facilities, 4 units, 8 annual record
 | `tests/test_traci.py` | TRACI import with exact matching only (a missing NITROGEN OXIDES row stops the import instead of falling back to NITROGEN DIOXIDE), the bundled factors, and impact totals checked by hand |
 | `tests/test_prediction.py` | The chronological split; metrics checked by hand; no input reveals the target; the test year can't influence training, the tree depth or the model choice; linear regression recovers a known CO2 = 0.1 × heat input exactly; saving, reopening and rejecting a changed model file; the year-trend forecast of a straight line; one-at-a-time and scenario % changes checked by hand; out-of-range and bad-input handling; the Predictions and Scenarios pages and downloads |
 | `tests/test_unusual.py` | Unusual observations: Tukey's fences and the most extreme records checked by hand, and the Statistics page and its download |
-| `tests/test_polish.py` | County labels, bars, maps and comparisons; maps that zoom only to small areas; the single navigation bar keeping the selection; the headline mark in black; sortable tables; distances and nearby facilities |
+| `tests/test_polish.py` | County labels, bars, maps and comparisons; maps that zoom only to small areas; the single navigation bar keeping the selection; the headline mark in black; sortable tables; distances and nearby facilities; trends that measure change from the first year most units reported |
 
-Expected result: all 103 tests pass.
+Expected result: all 105 tests pass.

@@ -362,6 +362,38 @@ def selection_years(frame):
     return years
 
 
+# A year counts as covered when at least this share of the busiest year's units reported in it
+COVERAGE_SHARE = 0.5
+
+
+def coverage(frame, years):
+    """
+    Where the selection's yearly totals become comparable. The database may hold only some units for the
+    earliest years (for example when only recent years were retrieved in full), and a total over a few units
+    can't be compared with one over many: CO2 would look as if it grew several hundred times. Returns the
+    first year in which at least COVERAGE_SHARE of the busiest year's units reported, with the unit counts
+    behind it, or None when the first year already qualifies.
+    """
+    if "unit_key" not in frame.columns or len(years) < 2:
+        return None
+    units = frame.groupby("year")["unit_key"].nunique().reindex(years, fill_value=0)
+    busiest_year = int(units.idxmax())
+    busiest = int(units.max())
+    if busiest <= 0:
+        return None
+    start = next(year for year in years if units[year] >= COVERAGE_SHARE * busiest)
+    if start == years[0]:
+        return None
+    return {"start": start, "first_year": years[0], "first_units": int(units[years[0]]),
+            "start_units": int(units[start]), "busiest_year": busiest_year, "busiest": busiest}
+
+
+def coverage_note(cover):
+    return (f"Before {cover['start']} fewer than half as many units reported as in {cover['busiest_year']} "
+            f"({cover['first_units']:,} in {cover['first_year']} against {cover['busiest']:,}), so totals for "
+            "those years mostly show which units are in the database, not how emissions changed.")
+
+
 # ---------- Options shown on the page ----------
 
 SPLITS = {
@@ -419,14 +451,19 @@ def indexed_trend(frame):
 
     keys = ["co2_mass", "so2_mass", "nox_mass", "gross_load"]
     names = {"co2_mass": "CO2", "so2_mass": "SO2", "nox_mass": "NOx", "gross_load": "Gross load"}
-    totals = frame.groupby("year")[keys].sum(min_count=1).reindex(years)
+    every_year = years
+    cover = coverage(frame, years)
+    if cover:
+        # Index from the first year most units reported, so the lines show change, not database coverage
+        years = [year for year in years if year >= cover["start"]]
+    totals = frame.groupby("year")[keys].sum(min_count=1).reindex(every_year)
 
     data, dots, annotations, legend = [], [], [], []
     details = {}
     columns = ["Year"] + [f"{names[k]} total ({unit_of(k)})" for k in keys] + [f"{names[k]} index" for k in keys]
     indexes = {}
     for key in keys:
-        series = totals[key]
+        series = totals[key].reindex(years)
         base_year = next((year for year in years if pd.notna(series[year]) and series[year] > 0), None)
         if base_year is None:
             indexes[key] = pd.Series(np.nan, index=years)
@@ -457,8 +494,9 @@ def indexed_trend(frame):
                                       + f" since {base_year}", "dash" if key in DASHED else "line"))
 
     rows = []
-    for year in years:
-        rows.append([year] + [clean(totals.loc[year, k]) for k in keys] + [clean(indexes[k][year]) for k in keys])
+    for year in every_year:
+        rows.append([year] + [clean(totals.loc[year, k]) for k in keys]
+                    + [clean(indexes[k].get(year, np.nan)) for k in keys])
 
     spread_labels(annotations)
     figure = layout(title, "", "", height=360, annotations=annotations)
@@ -470,8 +508,10 @@ def indexed_trend(frame):
     note = ("Each line is the yearly total for the selected records divided by that line's first-year total, so "
             "the dashed line at 100 is where every line starts. Totals also change when units start or stop "
             "reporting.")
+    if cover:
+        note += " " + coverage_note(cover) + f" The lines start in {cover['start']}; the table has every year."
     spec = chart("indexed", title, data + dots, figure, columns, rows, note)
-    spec["eyebrow"] = "Indexed to the first year = 100"
+    spec["eyebrow"] = f"Indexed to {cover['start']} = 100" if cover else "Indexed to the first year = 100"
     spec["legend"] = legend
     spec["details"] = details
     spec["about"] = explain.about(
@@ -572,6 +612,16 @@ def trend(frame, key, split="none"):
     rows = [[year] + [values[i] for values in values_by_series] for i, year in enumerate(years)]
     figure = layout(title, "", "", height=340)
     time_axes(figure, years, unified=not single)
+    cover = coverage(frame, years) if changes else None
+    if cover:
+        # Shade the early years with few units, as a quiet warning, and measure change from cover["start"]
+        figure["shapes"] = list(figure.get("shapes", [])) + [{
+            "type": "rect", "xref": "x", "yref": "paper", "x0": years[0] - 0.5, "x1": cover["start"] - 0.5,
+            "y0": 0, "y1": 1, "fillcolor": "rgba(0,0,0,0.04)", "line": {"width": 0}, "layer": "below"}]
+        figure["annotations"] = list(figure.get("annotations", [])) + [{
+            "x": years[0], "xref": "x", "xanchor": "left", "xshift": -4, "y": 1, "yref": "paper",
+            "yanchor": "top", "yshift": -4, "showarrow": False, "text": "Few units reported",
+            "font": {"color": MUTED, "size": 11}}]
     if any(value is not None and value < 0 for values in values_by_series for value in values):
         figure["yaxis"].update(rangemode="normal", zeroline=True, zerolinecolor=AXIS)
     word = analysis.aggregate_label(key)
@@ -580,6 +630,8 @@ def trend(frame, key, split="none"):
         "Total": "Each point is the year's total over the selected records.",
         "Mean": "Each point is the year's average over the selected records.",
     }[word]
+    if cover:
+        note += f" {coverage_note(cover)} The shaded years are drawn, but change is measured from {cover['start']}."
     spec = chart("trend", title, data + dots, figure, columns, rows, note)
     spec["details"] = details
     spec["about"] = explain.about(
@@ -588,8 +640,9 @@ def trend(frame, key, split="none"):
         explain.how_aggregated(key) + " " + item["definition"],
         "A line shows direction and turning points over time, and the years are evenly spaced, so slopes can be "
         "compared directly. One measure, one axis.",
-        ("Move along the line to see each year in the headline; the pill compares it with the first year shown. "
-         "Use 5Y, 10Y or 20Y to look at recent years." if single else
+        ("Move along the line to see each year in the headline; the pill compares it with the first year shown "
+         "(never a shaded year, which had too few units reporting). Use 5Y, 10Y or 20Y to look at recent years."
+         if single else
          "Each color is one group; select a name in the legend to hide or show its line."),
         explain.source_text(frame))
     eyebrow = "Overall" if word == "Overall ratio" else word
@@ -601,15 +654,17 @@ def trend(frame, key, split="none"):
     present = [(year, value) for year, value in zip(years, values_by_series[0]) if value is not None]
     if not present:
         return spec
-    first_year, first = present[0]
+    compared = [pair for pair in present if not cover or pair[0] >= cover["start"]] or present
+    first_year, first = compared[0]
     last_year, last = present[-1]
-    peak_year, peak = max(present, key=lambda pair: pair[1])
+    peak_year, peak = max(compared, key=lambda pair: pair[1])
     spec["headline"] = headline(
         last, item["unit"], f"In {last_year}",
         delta(percent_change(last, first), f"since {first_year}") if changes else None,
         f"Peak: {analysis.format_compact(peak)} in {peak_year}" if peak_year not in (first_year, last_year) else "",
         eyebrow)
-    spec["readout"] = {"trace": 0, "unit": item["unit"], "delta": changes, "count": "records"}
+    spec["readout"] = {"trace": 0, "unit": item["unit"], "delta": changes, "count": "records",
+                       "base": cover["start"] if cover else None}
     spec["ranges"] = year_ranges([year for year, _ in present])
     return spec
 

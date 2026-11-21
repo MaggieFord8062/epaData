@@ -353,9 +353,12 @@
         var state = { start: null };
         node.epaRange = state;
 
+        // The year changes are measured from: the first one shown, but never one of the shaded early
+        // years with too few units reporting (info.base is the first year with enough)
         function firstIndex() {
+            var from = Math.max(state.start === null ? -Infinity : state.start, info.base || -Infinity);
             for (var i = 0; i < xs.length; i++) {
-                if (ys[i] !== null && (state.start === null || xs[i] >= state.start)) {
+                if (ys[i] !== null && xs[i] >= from) {
                     return i;
                 }
             }
@@ -393,7 +396,7 @@
             if (info.delta && parts.delta) {
                 var base = firstIndex();
                 var old = base >= 0 ? ys[base] : null;
-                var visible = base >= 0 && base !== index && old > 0;
+                var visible = base >= 0 && index > base && old > 0;
                 parts.delta.hidden = !visible;
                 parts.deltaAfter.hidden = !visible;
                 if (visible) {
