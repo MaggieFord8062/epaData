@@ -2510,6 +2510,7 @@ def scenarios_download():
     lines = scenario_metadata(kind, frame, filters, result, models, target, context)
     return export_response(columns, rows, lines, ["scenarios", target, what], requested_format())
 
+
 # ---------- Sensitivity page ----------
 @app.route("/sensitivity", methods=["GET", "POST"])
 def sensitivity():
@@ -2524,10 +2525,12 @@ def sensitivity():
 
         results = None
         error = None
+        selected_pollutant = "co2_mass"
 
         if request.method == "POST":
             unit_key = int(request.form["unit_key"])
             model = request.form["model"]
+            selected_pollutant = request.form.get("pollutant", "co2_mass")
 
             gross_load_changes = [
                 float(value.strip())
@@ -2546,6 +2549,13 @@ def sensitivity():
             if model not in ["linear_regression", "decision_tree"]:
                 raise ValueError("Invalid prediction model.")
 
+            if selected_pollutant not in [
+                "co2_mass",
+                "so2_mass",
+                "nox_mass"
+            ]:
+                raise ValueError("Invalid pollutant selection.")
+
             if len(gross_load_changes) != len(heat_input_changes):
                 raise ValueError(
                     "Gross Load and Heat Input must have the same number of percentages."
@@ -2559,7 +2569,8 @@ def sensitivity():
                 model_name=model,
                 gross_load_changes=gross_load_changes,
                 heat_input_changes=heat_input_changes,
-                fuel_type=fuel_type
+                fuel_type=fuel_type,
+                pollutant=selected_pollutant
             )
 
             if "error" in results:
@@ -2570,7 +2581,8 @@ def sensitivity():
             "sensitivity.html",
             units=units,
             results=results,
-            error=error
+            error=error,
+            selected_pollutant=selected_pollutant
         )
 
     except (ValueError, TypeError, KeyError) as e:
@@ -2578,7 +2590,8 @@ def sensitivity():
             "sensitivity.html",
             units=units,
             results=None,
-            error=str(e)
+            error=str(e),
+            selected_pollutant=selected_pollutant
         )
 
     finally:

@@ -1,7 +1,5 @@
 import numpy as np
-
 from sqlalchemy import func
-
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.pipeline import Pipeline
@@ -13,10 +11,23 @@ from database import SessionLocal
 from models import AnnualRecord, Unit
 
 
-def get_historical_data():
+# Supported prediction targets
+POLLUTANTS = {
+    "co2_mass": "CO2",
+    "so2_mass": "SO2",
+    "nox_mass": "NOx"
+}
+
+
+def get_historical_data(pollutant):
+    if pollutant not in POLLUTANTS:
+        return []
+
     session = SessionLocal()
 
     try:
+        target_column = getattr(AnnualRecord, pollutant)
+
         records = (
             session.query(AnnualRecord, Unit)
             .join(
@@ -24,7 +35,7 @@ def get_historical_data():
                 AnnualRecord.internal_unit_key == Unit.internal_unit_key
             )
             .filter(
-                AnnualRecord.co2_mass.isnot(None),
+                target_column.isnot(None),
                 AnnualRecord.gross_load.isnot(None),
                 AnnualRecord.heat_input.isnot(None),
                 AnnualRecord.operating_time.isnot(None),
@@ -43,7 +54,7 @@ def get_historical_data():
                 "heat_input": record.heat_input,
                 "operating_time": record.operating_time,
                 "fuel_type": unit.primary_fuel,
-                "co2_mass": record.co2_mass
+                "target_value": getattr(record, pollutant)
             })
 
         return data
@@ -52,12 +63,15 @@ def get_historical_data():
         session.close()
 
 
-def train_sensitivity_models():
-    data = get_historical_data()
+def train_sensitivity_models(pollutant):
+    if pollutant not in POLLUTANTS:
+        return {"error": "Invalid pollutant selection."}
+
+    data = get_historical_data(pollutant)
 
     if len(data) < 5:
         return {
-            "error": "Not enough historical records to train the models."
+            "error": f"Not enough historical data to train a model for {POLLUTANTS[pollutant]}."
         }
 
     feature_names = [
@@ -77,27 +91,11 @@ def train_sensitivity_models():
         for row in data
     ]
 
-    y = np.array([row["co2_mass"] for row in data])
-
-    numeric_features = [
-        "gross_load",
-        "heat_input",
-        "operating_time"
-    ]
-
-    categorical_features = ["fuel_type"]
+    y = np.array([row["target_value"] for row in data])
 
     preprocessor = ColumnTransformer([
-        (
-            "numeric",
-            SimpleImputer(strategy="median"),
-            [0, 1, 2]
-        ),
-        (
-            "fuel",
-            OneHotEncoder(handle_unknown="ignore"),
-            [3]
-        )
+        ("numeric", SimpleImputer(strategy="median"), [0, 1, 2]),
+        ("fuel", OneHotEncoder(handle_unknown="ignore"), [3])
     ])
 
     linear_model = Pipeline([
@@ -142,9 +140,10 @@ def run_sensitivity_analysis(
     model_name,
     gross_load_changes,
     heat_input_changes,
-    fuel_type
+    fuel_type,
+    pollutant="co2_mass"
 ):
-    models = train_sensitivity_models()
+    models = train_sensitivity_models(pollutant)
 
     if "error" in models:
         return models
@@ -153,7 +152,7 @@ def run_sensitivity_analysis(
         return {"error": "Invalid prediction model."}
 
     data = models["training_data"]
-    
+
     available_fuels = {
         row["fuel_type"] for row in data
     }
@@ -163,7 +162,6 @@ def run_sensitivity_analysis(
             "error": f"{fuel_type} was not represented in the model's training data."
         }
 
-    # Find the latest record for the selected unit.
     unit_records = [
         row for row in data
         if row["unit_key"] == internal_unit_key
@@ -171,7 +169,7 @@ def run_sensitivity_analysis(
 
     if not unit_records:
         return {
-            "error": "No complete historical records were found for this unit."
+            "error": "No complete historical records were found for this unit and pollutant."
         }
 
     baseline = max(unit_records, key=lambda row: row["year"])
@@ -185,7 +183,9 @@ def run_sensitivity_analysis(
         baseline["fuel_type"]
     ]]
 
-    baseline_prediction = float(model.predict(baseline_inputs)[0])
+    baseline_prediction = float(
+        model.predict(baseline_inputs)[0]
+    )
 
     results = []
 
@@ -214,7 +214,8 @@ def run_sensitivity_analysis(
 
         percent_change = (
             (absolute_change / baseline_prediction) * 100
-            if baseline_prediction != 0 else None
+            if baseline_prediction != 0
+            else None
         )
 
         gross_range = models["input_ranges"]["gross_load"]
@@ -233,7 +234,7 @@ def run_sensitivity_analysis(
             "heat_input_change": heat_change,
             "heat_input_value": modified_heat_input,
             "fuel_type": fuel_type,
-            "predicted_co2": prediction,
+            "predicted_emissions": prediction,
             "absolute_change": absolute_change,
             "percent_change": percent_change,
             "out_of_range": out_of_range
@@ -242,6 +243,8 @@ def run_sensitivity_analysis(
     return {
         "unit": internal_unit_key,
         "model": model_name,
+        "pollutant": pollutant,
+        "pollutant_name": POLLUTANTS[pollutant],
         "baseline_year": baseline["year"],
         "baseline_gross_load": baseline["gross_load"],
         "baseline_heat_input": baseline["heat_input"],

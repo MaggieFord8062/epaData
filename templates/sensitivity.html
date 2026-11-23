@@ -8,7 +8,9 @@
     <h1 class="sensitivity-title">Sensitivity Analysis</h1>
 
     <p class="sensitivity-description">
-        Explore how changes in generating unit inputs affect predicted CO₂ emissions.
+        Explore how changes in generating unit inputs affect predicted
+        {{ "CO₂" if selected_pollutant == "co2_mass" else "SO₂" if selected_pollutant == "so2_mass" else "NOx" }}
+        emissions.
     </p>
 
     <!-- Analysis Settings -->
@@ -22,7 +24,7 @@
 
         <form method="POST" action="/sensitivity">
 
-            <div class="sensitivity-grid sensitivity-grid-two">
+            <div class="sensitivity-grid sensitivity-grid-three">
 
                 <div class="sensitivity-variable">
                     <label for="unit_key">Generating Unit</label>
@@ -51,6 +53,28 @@
                         <option value="decision_tree">Decision Tree</option>
                     </select>
                 </div>
+                
+                <div class="sensitivity-variable">
+                    <label for="pollutant">Pollutant</label>
+
+                    <select name="pollutant" id="pollutant"
+                            class="sensitivity-control" required>
+                        <option value="co2_mass"
+                            {% if selected_pollutant == "co2_mass" %}selected{% endif %}>
+                            CO₂
+                        </option>
+
+                        <option value="so2_mass"
+                            {% if selected_pollutant == "so2_mass" %}selected{% endif %}>
+                            SO₂
+                        </option>
+
+                        <option value="nox_mass"
+                            {% if selected_pollutant == "nox_mass" %}selected{% endif %}>
+                            NOx
+                        </option>
+                    </select>
+                </div>
 
             </div>
 
@@ -60,7 +84,9 @@
                 <h2>Operating Input Changes</h2>
 
                 <p class="sensitivity-subtitle">
-                    Adjust operating variables to see how predicted CO₂ emissions change.
+                    Adjust operating variables to see how predicted
+                    {{ "CO₂" if selected_pollutant == "co2_mass" else "SO₂" if selected_pollutant == "so2_mass" else "NOx" }}
+                    emissions change.
                 </p>
 
                 <div class="sensitivity-grid sensitivity-grid-three">
@@ -194,7 +220,7 @@
             </div>
 
             <div class="sensitivity-variable">
-                <label>Baseline Predicted CO₂</label>
+                <label>Baseline Predicted {{ results.pollutant_name }}</label>
                 <div class="sensitivity-result-value">
                     {{ "%.2f"|format(results.baseline_prediction) }}
                 </div>
@@ -219,7 +245,7 @@
                         <th>Heat Input Change</th>
                         <th>New Heat Input</th>
                         <th>Fuel Type</th>
-                        <th>Predicted CO₂</th>
+                        <th>Predicted {{ results.pollutant_name }}</th>
                         <th>Absolute Change</th>
                         <th>Percent Change</th>
                         <th>Range Status</th>
@@ -234,7 +260,7 @@
                         <td>{{ row.heat_input_change }}%</td>
                         <td>{{ "%.2f"|format(row.heat_input_value) }}</td>
                         <td>{{ row.fuel_type }}</td>
-                        <td>{{ "%.2f"|format(row.predicted_co2) }}</td>
+                        <td>{{ "%.2f"|format(row.predicted_emissions) }}</td>
                         <td>{{ "%.2f"|format(row.absolute_change) }}</td>
                         <td>
                             {% if row.percent_change is not none %}
