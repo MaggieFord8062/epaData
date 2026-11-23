@@ -24,11 +24,36 @@
                 {% endfor %}
             </nav>
         </div>
+
+        <!-- State filter -->
+        <form method="GET" action="{{ url_for('predictions') }}" class="ctas">
+            {% for key, value in filters.items() if key != "state" %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endfor %}
+
+            <input type="hidden" name="target" value="{{ target }}">
+
+            <label for="prediction-state"><strong>State:</strong></label>
+
+            <select name="state" id="prediction-state" onchange="this.form.submit()">
+                <option value="">All States</option>
+                {% for state in states %}
+                <option value="{{ state }}" {% if selected_state == state|string %}selected{% endif %}>
+                    {{ state }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <noscript>
+                <button type="submit" class="btn">Apply</button>
+            </noscript>
+        </form>
+
         {% set page_download = (download_base ~ "&what=evaluation", "Download") if "error" not in models else none %}
         {% include "_selection.html" %}
         {% if ok %}
         <div class="ctas">
-            <a class="btn" href="{{ scenarios_url }}">Try scenarios</a>
+            <a class="btn" href="{{ scenarios_url }}">Run Sensitivity</a>
             <a class="btn btn-outline" href="{{ download_base }}&what=evaluation" download>Download results</a>
         </div>
         {% endif %}
