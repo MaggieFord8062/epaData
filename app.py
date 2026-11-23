@@ -2264,6 +2264,13 @@ def predictions():
     for one unit's annual emissions, tested chronologically, plus a year-trend forecast of the annual total.
     """
     params, filters, result, frame, target, models = prediction_request()
+    
+    # State options for the Predictions page
+    session = SessionLocal()
+    states = sorted(distinct_values(session, Facility.state))
+    session.close()
+
+    selected_state = filters.get("state", "")
     trend = prediction.trend(frame, target) if len(frame) else {"error": models["error"], "totals": []}
     url_choices = {"target": target}
     return render_template(
@@ -2272,6 +2279,8 @@ def predictions():
         targets=prediction.TARGETS,
         models=models,
         trend=trend,
+        states=states,
+        selected_state=selected_state,
         model_info=prediction.MODELS,
         metrics=prediction.METRICS,
         numeric_inputs=prediction.NUMERIC_INPUTS,
